@@ -1,0 +1,20 @@
+[
+  {
+    "name": "app-a",
+    "issuer": "https://idp.example.com",
+    "audience": "u8co-api",
+    "jwks_url": "https://idp.example.com/oauth/jwks",
+    "algorithms": ["RS256"],
+    "write_claim": "u8co_write",
+    "read_claim": "u8co_read"
+  },
+  {
+    "name": "app-b",
+    "issuer": "https://login.example.com/tenant-b/v2.0",
+    "audience": "api://u8co-api",
+    "write_scope": "u8co.write",
+    "read_scope": "u8co.read",
+    "accounts_claim": "u8co_accs",
+    "accounts": ["801", "802"]
+  }
+]

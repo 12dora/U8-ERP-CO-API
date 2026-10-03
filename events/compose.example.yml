@@ -1,0 +1,82 @@
+# u8co-events 的 Docker Compose 示例。复制为 compose.yml，按实际环境修改。
+# 在 events/ 目录下执行 docker compose up -d --build；构建上下文是仓库根目录。
+# 需要的本地文件（容器以 uid 10001 运行：chown 10001 并 chmod 0600 / 0400）：
+#   ./secrets/bridge.secret        一行 64 位小写十六进制，与桥的共享密钥相同
+#   ./secrets/operator-999.json    {"acc": "999", "year": "2026", "operator": "...", "password": "..."}
+#   ./config/config.json           从 config.example.json 复制
+services:
+  u8co-events:
+    build:
+      context: ..
+      dockerfile: events/Dockerfile
+    image: u8co-events:local
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    secrets:
+      - u8co_bridge_secret
+      - u8co_operator_999
+    volumes:
+      - ./config/config.json:/etc/u8co-events/config.json:ro
+      # 状态库（水位、快照、出箱）。删掉这个卷等于从头回填，并丢掉还没发出的事件。
+      # 卷丢了而 Redis 里已有 stream 时服务拒绝启动（退出码 4）；确认要重新开始，临时把 command 改成
+      # ["u8co-events", "run", "--init"] 启动一次，再改回来。
+      - events-state:/var/lib/u8co-events
+    networks:
+      - events
+      # 还要能访问桥：桥在别的主机上时，本服务走默认网络出去即可（桥的 allowedClients 要写本机地址）。
+      - egress
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # 在途的桥调用最长 bridge.timeout_seconds（缺省 60 秒）。
+    stop_grace_period: 75s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # 断电不丢：每次写入都 fsync AOF 后才回复（appendfsync always）。
+    # 不设 maxmemory，淘汰策略保持 noeviction，stream 不会被挤掉。
+    # 服务启动时会用 CONFIG GET 核对这几项，不合格就拒绝启动（除非 allow_nondurable_redis=true）。
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - always
+      - --no-appendfsync-on-rewrite
+      - "no"
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - redis-data:/data
+    networks:
+      - events
+    # 不映射端口。消费方加入 events 网络，或按需改成只绑本机：- "127.0.0.1:6379:6379"
+    # 需要口令时用 ACL 文件（--aclfile），并在 config.json 里设 redis.password_file。
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    stop_grace_period: 30s
+
+networks:
+  events:
+    internal: true
+  egress: {}
+
+volumes:
+  events-state:
+  redis-data:
+
+secrets:
+  u8co_bridge_secret:
+    file: ./secrets/bridge.secret
+  u8co_operator_999:
+    file: ./secrets/operator-999.json

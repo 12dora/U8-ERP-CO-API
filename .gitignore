@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# C# 编译产物（各项目的 out/ 等）
+out/
+bin/
+obj/
+*.exe
+*.dll
+*.pdb
+
+# 本地配置与密钥：只放在仓库外或这些文件名里
+.env
+.env.*
+*.local.json
+*.secret
+*.key
+*.pem
+
+# 编辑器与系统
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

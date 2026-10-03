@@ -1,0 +1,23 @@
+{
+  "listenPrefix": "http://+:18089/u8co/",
+  "u8Server": "198.51.100.10",
+  "allowedAccounts": ["998"],
+  "testAccounts": [],
+  "enableReplicatedWrites": false,
+  "allowedClients": ["192.0.2.20"],
+  "u8Home": "C:\\U8SOFT",
+  "staWorkers": 4,
+  "readWorkers": 4,
+  "queueCap": 32,
+  "authCacheSeconds": 600,
+  "templateCache": true,
+  "mobilePush": false,
+  "licenseRetries": 2,
+  "licenseSampleMinutes": 5,
+  "licenseWarnFree": 1,
+  "licenseServer": "",
+  "cleanOrphanTasks": false,
+  "serializeWrites": true,
+  "loginReuse": false,
+  "loginReuseOffHours": { "days": "1-5", "start": "09:00", "end": "18:00" }
+}

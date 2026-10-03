@@ -1,0 +1,86 @@
+name: api-docs
+
+# 文档站点：离线接口参考页（Scalar）加 README 与 docs/*.md 渲染的静态页。不启动服务、不连 U8 和身份提供方。
+# 本工作流构建静态站点并上传制品 api-reference；GitHub Pages 可选。
+# 站点地址和仓库地址都在构建时从 GitHub 上下文取得，仓库文件里不写固定地址。
+on:
+  push:
+    branches: [main]
+    paths:
+      - "api/**"
+      - "docs/**"
+      - "README.md"
+      - "llms.txt"
+      - "scripts/docs/**"
+      - ".github/workflows/api-docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 并发组放在各 job 上：工作流级的 cancel-in-progress 会连带取消进行中的部署。
+jobs:
+  build:
+    name: 构建接口参考页
+    concurrency:
+      group: api-docs-build-${{ github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # pages: read 只供下面读取 Pages 站点地址。
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      # 仓库为 public 时读取 Pages 站点地址（base_url），用于 canonical、og:url 和 sitemap.xml。
+      - name: 读取 Pages 站点地址
+        id: pages
+        if: ${{ github.event.repository.visibility == 'public' }}
+        uses: actions/configure-pages@v5
+      # 导出 openapi.json；下载固定版本的 Scalar 浏览器包并校验 sha512；渲染文档页，生成 sitemap.xml 等。
+      # SITE_URL 为空（非 public）时省略绝对地址。
+      - name: scripts/docs/build-api-site.sh
+        env:
+          SITE_URL: ${{ steps.pages.outputs.base_url }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: bash scripts/docs/build-api-site.sh dist/api-site
+      - name: 上传制品 api-reference
+        uses: actions/upload-artifact@v7
+        with:
+          name: api-reference
+          path: dist/api-site
+          retention-days: 30
+          if-no-files-found: error
+      # Pages 可选：仓库可见性为 public 时才打包。
+      - name: 打包 Pages 制品
+        if: ${{ github.event.repository.visibility == 'public' }}
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist/api-site
+
+  pages:
+    name: 部署到 GitHub Pages
+    needs: build
+    # 只认明确的 public，取不到可见性时不部署，只留制品。
+    if: ${{ github.event.repository.visibility == 'public' }}
+    # 部署单独排队、不取消进行中的部署，免得 Pages 停在半途。
+    concurrency:
+      group: api-docs-pages
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: 部署
+        id: deploy
+        uses: actions/deploy-pages@v5

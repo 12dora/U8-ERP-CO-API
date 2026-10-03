@@ -1,0 +1,24 @@
+{
+  "base_url": "https://u8co.example.com",
+  "token": {"type": "incoming"},
+  "read_only": true,
+  "timeout_s": 90,
+  "http": {
+    "host": "0.0.0.0",
+    "port": 8095,
+    "path": "/mcp",
+    "user_header": "X-U8co-User",
+    "allowed_origins": []
+  },
+  "mgmt": {
+    "enabled": true,
+    "claim": "u8co_mgmt",
+    "accounts_claim": "u8co_accs",
+    "accounts": [{"acc": "801"}, {"acc": "802"}],
+    "person_proxy": {
+      "url": "https://binding.example.com/v1/bindings/as-person",
+      "token_file": "/run/secrets/person-proxy-token",
+      "timeout_s": 90
+    }
+  }
+}

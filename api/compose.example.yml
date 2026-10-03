@@ -1,0 +1,52 @@
+# u8co-api 的 Docker Compose 示例。复制为 compose.yml，按实际环境修改。
+# 需要的本地文件：
+#   ./.env                      从 .env.example 复制
+#   ./secrets/bridge.secret     一行 64 位小写十六进制，与桥的共享密钥相同。
+#                               容器以 uid 10001 运行：chown 10001 该文件并 chmod 0400。
+#   ./config/u8co-trust.json    信任配置（见 trust.example.json）
+services:
+  u8co-api:
+    build: .
+    image: u8co-api:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      U8CO_BRIDGE_SECRET_FILE: /run/secrets/u8co_bridge_secret
+      U8CO_TRUST_FILE: /config/u8co-trust.json
+      # 可选：按账套分流到别的桥（docs/configuration.md「按账套分流的桥」）。路由里的账套也要写进 U8CO_ACCOUNTS。
+      # U8CO_BRIDGE_ROUTES_FILE: /config/u8co-bridge-routes.json
+      # 可选：写入策略（与桥 config.json 的 writePolicyFile 同一份 JSON），没设时不启用。
+      # U8CO_WRITE_POLICY_FILE: /config/u8co-write-policy.json
+      # 可选：公司间对照（公司组、往来单位、存货、科目和抵销规则），没设时公司间和多账套合并接口返回 404 ic_not_configured。
+      # U8CO_IC_MAP_FILE: /config/u8co-ic-map.json
+      # 可选：经营管理利润表行定义，没设时用内置的通用一级科目定义。
+      # U8CO_MGMT_LINES_FILE: /config/u8co-mgmt-lines.json
+    secrets:
+      - u8co_bridge_secret
+      # - u8co_bridge_secret_998
+    volumes:
+      - ./config/u8co-trust.json:/config/u8co-trust.json:ro
+      # - ./config/u8co-bridge-routes.json:/config/u8co-bridge-routes.json:ro
+      # - ./config/u8co-write-policy.json:/config/u8co-write-policy.json:ro
+      # - ./config/u8co-ic-map.json:/config/u8co-ic-map.json:ro
+      # - ./config/u8co-mgmt-lines.json:/config/u8co-mgmt-lines.json:ro
+    ports:
+      # 只绑本机；对外请放在反向代理（TLS）后面。
+      - "127.0.0.1:8080:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # 桥调用最长约 90 秒，停机时给在途请求留时间。要等存货核算长时操作走完时，
+    # 和 .env 的 U8CO_SHUTDOWN_GRACE 一起调到不小于 U8CO_BRIDGE_LONG_TIMEOUT（如 1010s）。
+    stop_grace_period: 100s
+
+secrets:
+  u8co_bridge_secret:
+    file: ./secrets/bridge.secret
+  # 分流桥各用自己的密钥，chown 10001 并 chmod 0400，与该桥实例的 secret.hex 相同。
+  # u8co_bridge_secret_998:
+  #   file: ./secrets/bridge-998.secret

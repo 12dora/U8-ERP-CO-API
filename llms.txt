@@ -1,0 +1,44 @@
+# U8-ERP-CO-API
+
+> 把用友 U8+ 的业务组件发布为 HTTP API（`/v1/co/*`，OpenAPI 3.1）：单据读写、审核、参照生单、审批流、总账凭证、应收应付核销与制单、基础档案、列表、现存量、只读报表，以及跨账套的经营管理与公司间查询。两层：U8 应用服务器上的 32 位桥（`co/bridge`）和对外的 FastAPI 服务（`api/u8co_api`）；另有 Python 客户端与命令行（`co/client`）、本地 MCP 服务（`mcp/`）和单据事件服务（`events/`）。权限由 U8 按调用方给出的操作员判断。文档为中文。
+
+非官方项目，与用友网络科技股份有限公司无关联。会直接修改 U8 业务数据：先在测试账套上验证。
+
+文档另以静态网页发布在本项目的 GitHub Pages 站点：各篇为 `docs/<名称>.html`（README 为 `docs/overview.html`），同目录有 Markdown 原文 `docs/<名称>.md`；站点根目录是交互式接口文档和 `openapi.json`，另有一份链接指向站点页面的 `llms.txt`。
+
+给 AI 代理的要点：
+
+- 写入前：名称用 `archives/resolve` 换成编码；可写字段看 `meta`（`kinds[].writable`、`field_refs`），中文名、必填、枚举看 `meta/fields`（按本账套模板）；先带 `dry_run: true` 预演，交给用户确认，再正式执行。
+- 每个写路由都接受 `Idempotency-Key`：每次写入一个新键，重试沿用同一个键。
+- 错误体 `{"error":{"code","message","retryable","field","hint"}}`：`retryable` 为 true 才按 `Retry-After` 重试；504 `outcome_unknown` 不要重发，先 `idempotency/get` 或读路由核对；400 按 `field` 修正。
+- 403 `account_read_only`：账套只开放读取。403 `feature_disabled` / `test_account_only`：第二级（复现）写入缺省关闭、只对测试账套开放，正式账套上应在 U8 客户端中操作。
+- 读取按登录操作员的权限过滤，被遮蔽的字段为 `null` 并列在 `masked_fields`；`perm/snapshot` 查看当前操作员的有效权限。
+- 新账套写入大面积失败时先调 `reports/account_readiness`（账套体检，只读），看 `checks` 中 `fail` 的项和 `fix_hint`。
+- 找单据用 `vouchers/search`，一次读多张用 `vouchers/load_many`（最多 20，经 U8 组件读取的类型最多 5）、`archives/get_many`；读路由可用查询参数 `fields`、`compact` 缩小响应。
+
+## 入门
+
+- [README](README.md): 项目说明、组成、功能清单（中英文）
+- [快速开始](docs/getting-started.md): 安装桥和 API 服务、客户端与命令行、端到端示例（名称解析 → 预演 → 正式新增 → 读回）、出错处理、开放账套、账套准备（体检各检查项）、升级与卸载
+- [MCP 服务](docs/mcp.md): 本地 MCP 服务的安装、配置，接入 Claude Code、Claude Desktop、Cursor，工具说明
+
+## 接口
+
+- [接口参考](docs/api-reference.md): 全部路由、单据类型、字段、错误码；幂等键、字段元数据、操作员权限、预演、名称解析、响应裁剪、字段标签、单据查询、批量读取、期初、账套体检、月末结账、存货核算、公司间接口、经营管理查询
+- [已知限制](docs/limitations.md): 功能范围、写入分级与风险、一致性、预演、安全，与 U8 官方接口的覆盖对照
+- [单据事件](docs/events.md): 单据、票据、应收应付处理、总账凭证和基础档案的变化推送到 Redis Streams
+
+## 部署与运维
+
+- [架构](docs/architecture.md): 组件、请求流程、线程与队列、锁、事务、预演机制、审计、桥协议
+- [配置参考](docs/configuration.md): 桥、API 服务、客户端、MCP 的全部配置；只读账套、写入策略、复现写入开关与测试账套
+
+## Optional
+
+- [U8 行为说明](docs/u8-notes.md): 业务组件的调用方式、事务行为和已知差异
+- [测试](docs/testing.md)
+- [常见问题](docs/faq.md)
+- [贡献指南](CONTRIBUTING.md)
+- [安全](SECURITY.md)
+- [变更日志](CHANGELOG.md)
+- [桥的签名清单](co/bridge/CHECKLIST.md)

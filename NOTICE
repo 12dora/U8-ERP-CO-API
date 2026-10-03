@@ -1,0 +1,14 @@
+U8-ERP-CO-API
+Copyright 2026 The U8-ERP-CO-API contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This project is not affiliated with, endorsed by, or sponsored by Yonyou Network
+Technology Co., Ltd. (用友网络科技股份有限公司). "Yonyou", "用友", "U8" and "U8+"
+are trademarks of Yonyou Network Technology Co., Ltd. They are used here only to
+describe compatibility.
+
+This project does not contain or redistribute any Yonyou software. It calls the
+business components of a U8 installation that the user has licensed separately.
+Users are responsible for checking that their U8 license permits this kind of
+integration.

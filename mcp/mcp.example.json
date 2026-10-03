@@ -1,0 +1,28 @@
+{
+  "base_url": "https://u8co.example.com",
+  "token": {
+    "type": "client_credentials",
+    "token_url": "https://auth.example.com/oauth/token",
+    "client_id": "mcp-client",
+    "client_secret_file": "~/.config/u8co/mcp-client-secret",
+    "scope": "openid"
+  },
+  "u8": {
+    "acc": "801",
+    "year": "2026",
+    "operator": "op001",
+    "password_file": "~/.config/u8co/mcp-u8-password"
+  },
+  "read_only": false,
+  "timeout_s": 90,
+  "long_timeout_s": 1000,
+  "ca_file": null,
+  "mgmt": {
+    "enabled": true,
+    "claim": "u8co_mgmt",
+    "accounts": [
+      {"acc": "801", "operator": "op001", "password_file": "~/.config/u8co/mgmt-801-password"},
+      {"acc": "802", "operator": "op001", "password_file": "~/.config/u8co/mgmt-802-password"}
+    ]
+  }
+}

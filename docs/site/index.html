@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!--
+    只允许同源资源：页面、scalar.standalone.js、openapi.json 都和本页放在一起，不访问任何 CDN、字体或统计服务。
+    style-src 'unsafe-inline'：Scalar 运行时往 <head> 插一个 <style>，组件上还有大量 style 属性，没有它页面没有样式。
+    img-src data:：Scalar 的样式表里有 data:image/svg+xml 的小图标（复选框、下拉箭头）。
+    脚本只有同源的 scalar.standalone.js；下面的 #api-reference 是 application/json 数据块，不执行，不需要 'unsafe-inline'。
+    connect-src 'self'：「试一试」只能发给同源地址。要从本页调别的部署地址，把这个页面和 API 放在同一个源下，或自行放宽这一项。
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; worker-src 'self'">
+  <meta name="referrer" content="no-referrer">
+  <title>U8-ERP-CO-API 接口文档 · 用友 U8+ ERP REST API（OpenAPI 3.1）</title>
+  <meta name="description" content="U8-ERP-CO-API 把用友 U8+ 的业务组件发布为 REST API（OpenAPI 3.1）：单据、凭证、基础档案、报表的读写与审核，附 Python 客户端与命令行、给 AI 代理的 MCP 服务。Yonyou U8 ERP integration API. 非官方项目。">
+  <meta name="keywords" content="用友 U8, U8+, U8 API, U8 二次开发, OpenAPI, ERP 集成, MCP, Yonyou U8 API">
+  <!-- 站点地址由 scripts/docs/build_docs_pages.py 在构建时替换；没有站点地址时含占位符的整行被删掉。 -->
+  <link rel="canonical" href="__SITE_URL__">
+  <meta property="og:url" content="__SITE_URL__">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="U8-ERP-CO-API">
+  <meta property="og:title" content="U8-ERP-CO-API 接口文档 · 用友 U8+ ERP REST API">
+  <meta property="og:description" content="把用友 U8+ 的业务组件发布为 REST API（OpenAPI 3.1）：单据、凭证、档案、报表，附 Python SDK / CLI 与 MCP 服务。非官方项目。">
+  <meta property="og:locale" content="zh_CN">
+  <meta property="og:locale:alternate" content="en_US">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="U8-ERP-CO-API 接口文档 · 用友 U8+ ERP REST API">
+  <meta name="twitter:description" content="把用友 U8+ 的业务组件发布为 REST API（OpenAPI 3.1），附 Python SDK / CLI 与 MCP 服务。非官方项目。">
+  <!-- 结构化数据：application/ld+json 是数据块，不执行，不受 script-src 限制。 -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "SoftwareSourceCode",
+        "name": "U8-ERP-CO-API",
+        "description": "把用友 U8+ ERP 的业务组件发布为 REST API（OpenAPI 3.1），附 Python 客户端与命令行、MCP 服务和单据事件服务。HTTP API for Yonyou U8+ ERP business components. Unofficial.",
+        "codeRepository": "__REPO_URL__",
+        "url": "__SITE_URL__",
+        "programmingLanguage": ["Python", "C#"],
+        "runtimePlatform": ["Python 3.12", ".NET Framework 4"],
+        "license": "https://www.apache.org/licenses/LICENSE-2.0",
+        "keywords": ["用友 U8", "U8+", "ERP 集成", "REST API", "OpenAPI 3.1", "MCP", "Yonyou U8"],
+        "inLanguage": "zh-CN"
+      },
+      {
+        "@type": "WebSite",
+        "name": "U8-ERP-CO-API 文档",
+        "url": "__SITE_URL__",
+        "description": "用友 U8+ 业务组件 HTTP API 的接口参考与使用文档。",
+        "inLanguage": "zh-CN"
+      }
+    ]
+  }
+  </script>
+  <style>
+    :root {
+      --note-bg: #fff8e6;
+      --note-fg: #5c4400;
+      --note-border: #f0d68a;
+      --page-bg: #ffffff;
+      --intro-fg: #1f2328;
+      --intro-link: #0969da;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --note-bg: #2b2412;
+        --note-fg: #f3e2b3;
+        --note-border: #5c4a1a;
+        --page-bg: #0f0f0f;
+        --intro-fg: #e6e8eb;
+        --intro-link: #58a6ff;
+      }
+    }
+    html, body {
+      margin: 0;
+      background: var(--page-bg);
+    }
+    .u8co-note {
+      box-sizing: border-box;
+      width: 100%;
+      margin: 0;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--note-border);
+      background: var(--note-bg);
+      color: var(--note-fg);
+      font: 13px/1.5 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      overflow-wrap: anywhere;
+    }
+    .u8co-intro {
+      box-sizing: border-box;
+      width: 100%;
+      margin: 0;
+      padding: 10px 16px 8px;
+      border-bottom: 1px solid var(--note-border);
+      color: var(--intro-fg);
+      font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      overflow-wrap: anywhere;
+    }
+    .u8co-intro h1 {
+      margin: 0 0 2px;
+      font-size: 17px;
+      line-height: 1.4;
+    }
+    .u8co-intro h2 {
+      margin: 12px 0 4px;
+      font-size: 15px;
+    }
+    .u8co-intro p {
+      margin: 0 0 4px;
+    }
+    .u8co-intro nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2px 12px;
+    }
+    .u8co-intro a {
+      color: var(--intro-link);
+    }
+    .u8co-note code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+  </style>
+</head>
+<body>
+  <!-- 静态简介：不依赖脚本，供搜索引擎和不执行脚本的读者使用。Scalar 只在 #api-reference 前插入自己的挂载节点，不替换这里。 -->
+  <header class="u8co-intro">
+    <h1>U8-ERP-CO-API 接口文档：用友 U8+ ERP 的 REST API（OpenAPI 3.1）</h1>
+    <p>把用友 U8+ 的业务组件发布为 HTTP API：单据读写与审核、总账凭证、基础档案、列表与报表；附 Python 客户端与命令行、给 AI 代理的 MCP 服务。An HTTP / REST API for Yonyou U8+ ERP, with a Python SDK, CLI and an MCP server for AI agents.</p>
+    <p>非官方项目，与用友网络科技股份有限公司没有关联。「用友」「U8」「U8+」是其商标，本站提及仅为说明兼容对象。</p>
+    <nav aria-label="文档">
+      <a href="./docs/overview.html">概览</a>
+      <a href="./docs/getting-started.html">快速开始</a>
+      <a href="./docs/api-reference.html">接口参考（文字版）</a>
+      <a href="./docs/mcp.html">MCP 服务</a>
+      <a href="./docs/events.html">单据事件</a>
+      <a href="./docs/architecture.html">架构</a>
+      <a href="./docs/configuration.html">配置参考</a>
+      <a href="./docs/limitations.html">已知限制</a>
+      <a href="./docs/u8-notes.html">U8 行为说明</a>
+      <a href="./docs/testing.html">测试</a>
+      <a href="./docs/faq.html">常见问题</a>
+      <a href="./openapi.json">openapi.json</a>
+      <a href="__REPO_URL__">源代码</a>
+    </nav>
+    <noscript>
+      <h2>交互式接口文档需要 JavaScript</h2>
+      <p>本页的交互式接口文档需要启用脚本。不启用脚本时可阅读<a href="./docs/api-reference.html">文字版接口参考</a>，或直接下载 <a href="./openapi.json">openapi.json</a>（OpenAPI 3.1）。</p>
+      <h2>主要功能</h2>
+      <ul>
+        <li>销售、采购、库存、生产、质量、应收应付单据的读取、新增、修改、删除、审核、关闭和参照生单</li>
+        <li>总账凭证、应收应付核销与制单、基础档案、列表、现存量和只读报表</li>
+        <li>按 U8 操作员的权限、预演（dry_run）、幂等键、名称解析和机器可读的错误</li>
+        <li>Python 客户端与命令行、MCP 服务、单据事件（Redis Streams）</li>
+      </ul>
+    </noscript>
+  </header>
+  <p class="u8co-note" role="note">
+    文档里的服务器地址 <code>https://u8co.example.com</code> 只是占位，请换成你的部署地址；
+    所有请求都要带 <code>Authorization: Bearer &lt;JWT&gt;</code>。
+  </p>
+  <!-- Scalar 的 HTML 挂载方式：data-url 指向同目录的 openapi.json，data-configuration 是 JSON 配置。
+       withDefaultFonts=false 不取网络字体；不设 proxyUrl，「试一试」不经过任何第三方代理；
+       telemetry、agent、mcp 全部关闭；界面语言用 zh-CN。 -->
+  <script
+    id="api-reference"
+    type="application/json"
+    data-url="./openapi.json"
+    data-configuration='{"withDefaultFonts":false,"hideDownloadButton":false,"documentDownloadType":"json","telemetry":false,"agent":{"disabled":true},"mcp":{"disabled":true},"showDeveloperTools":"never","localization":{"locale":"zh-CN"},"metaData":{"title":"U8-ERP-CO-API 接口文档"}}'></script>
+  <script src="./scalar.standalone.js"></script>
+</body>
+</html>

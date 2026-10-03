@@ -1,0 +1,106 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: 代码异味门禁
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      # Ruff、文件与函数长度、PowerShell 解析与圈复杂度、C# lizard。
+      # pwsh 优先用 PATH 里的；没有时 scripts/quality/pwsh.sh 会下载固定版本并校验 sha256。
+      - name: scripts/check-quality.sh
+        run: bash scripts/check-quality.sh
+
+  api-tests:
+    name: API 单元测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - name: pytest
+        run: uv run pytest -q -n auto
+
+  co-tests:
+    name: co 客户端单元测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      # 离线：不连 U8 服务器、不连数据库。
+      - name: unittest co/client/tests
+        run: >-
+          uv run --no-project --python 3.12 --with cryptography
+          python -m unittest discover -s co/client/tests -t . -v
+
+  mcp-tests:
+    name: MCP 服务单元测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      # 只用标准库，离线。
+      - name: unittest mcp/tests
+        run: uv run --no-project --python 3.10 python -m unittest discover -s mcp/tests -t mcp -v
+
+  events-tests:
+    name: 事件服务单元测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: events
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      # 假桥、假 Redis，离线。pyproject 把仓库根加进 pythonpath（签名和口令加密用 co/client）。
+      - name: pytest
+        run: uv run pytest -q
+
+  leak-public:
+    name: 公开仓库泄露扫描
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      # 只用标准库，不带任何私有词表。先测扫描器本身，再扫全部已跟踪的文本文件。
+      - name: unittest scripts/tests
+        run: python3 -m unittest discover -s scripts/tests -v
+      # 有 internal 目录时跳过（另有检查覆盖）。
+      - name: scripts/scan-public.py
+        run: |
+          if [ -d internal ]; then
+            echo "有 internal 目录，跳过扫描"
+            exit 0
+          fi
+          python3 scripts/scan-public.py
+
+  windows-build:
+    name: C# 编译（csc x86）并自检
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      # 用 .NET Framework 4 自带的 32 位 csc（C# 5）。不需要安装 U8。
+      - name: scripts/ci/build-cs.ps1
+        shell: pwsh
+        run: ./scripts/ci/build-cs.ps1 -OutDir "$env:RUNNER_TEMP/u8co-build"

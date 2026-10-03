@@ -1,0 +1,11 @@
+# events/Dockerfile 专用（BuildKit 按 <Dockerfile>.dockerignore 查找），构建上下文是仓库根目录。
+# 先全部排除，再只放进镜像需要的文件。
+*
+!events/pyproject.toml
+!events/uv.lock
+!events/u8co_events/
+!co/__init__.py
+!co/client/
+co/client/tests/
+**/__pycache__/
+**/*.py[cod]

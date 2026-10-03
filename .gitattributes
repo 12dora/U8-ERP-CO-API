@@ -1,0 +1,13 @@
+# 统一按 LF 存储。PowerShell 7 与 csc 都能读 LF。
+* text=auto eol=lf
+
+# cmd.exe 解析批处理时依赖 CRLF（标签、goto），检出时保持 CRLF。
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.exe binary
+*.dll binary
+*.pdb binary
+*.png binary
+*.jpg binary
+*.zip binary

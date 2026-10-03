@@ -1,0 +1,21 @@
+# Python 异味门禁。只查圈复杂度、分支数、参数个数、语句数。
+# 不启用风格规则（E/W/F/I/UP 等都不选）。
+#
+# 子项目的 pyproject.toml 里可能另有一套 ruff 配置，用来查风格，select 里没有 PLR。
+# 门禁必须带 --config 指向本文件，否则会吃到子项目的配置。
+# 不要跑 `ruff check --add-noqa`：那会改源码。本仓库没有基线文件，违规就改代码。
+
+include = ["api/**/*.py", "co/**/*.py", "events/**/*.py", "mcp/**/*.py", "scripts/scan-public.py", "scripts/docs/**/*.py", "scripts/tests/**/*.py"]
+
+exclude = [".git", ".ruff_cache", "__pycache__", ".venv", "venv"]
+
+[lint]
+select = ["C901", "PLR0912", "PLR0913", "PLR0915"]
+
+[lint.mccabe]
+max-complexity = 10
+
+[lint.pylint]
+max-args = 5
+max-branches = 12
+max-statements = 50

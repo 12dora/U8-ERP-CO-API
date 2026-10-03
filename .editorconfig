@@ -1,0 +1,22 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# 部分 PowerShell 脚本带 UTF-8 BOM，不强制改动。
+[*.ps1]
+charset = unset
+
+[*.{bat,cmd}]
+end_of_line = crlf
+
+[*.{sh,yml,yaml,toml,json,config,xml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
