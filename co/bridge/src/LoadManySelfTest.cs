@@ -54,8 +54,13 @@ namespace U8Co
             Expect("get_many pool", RouteClass.IsSqlRead(arc) && DocLocks.KeysOf(arc).Length == 0 && !WriteGate.IsWrite(arc));
         }
 
+        // 档案编码的解析要读 U8 安装目录里的 EAI 字段对照表；没有 U8 的机器上跳过。
         static void CheckCodes()
         {
+            if (!Paths.U8HomePresent)
+            {
+                return;
+            }
             Expect("get_many ok", ArcGetMany.Parse(Codes("department", new object[] { "D01", "D02" })).Count == 2);
             Expect("get_many route", Requests.OpOf(ArcGetMany.Path) == ArcGetMany.Op);
             CodeRefused("dup", Codes("department", new object[] { "d01", "D01" }), "codes.1");

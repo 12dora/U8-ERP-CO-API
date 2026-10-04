@@ -33,7 +33,7 @@ jobs:
       pages: read
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
       - uses: actions/setup-node@v7
         with:
           node-version: "24"

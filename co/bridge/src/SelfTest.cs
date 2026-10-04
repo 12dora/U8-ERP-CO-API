@@ -6,6 +6,27 @@ namespace U8Co
     // 契约公布的测试向量，不是生产密钥。
     internal static class SelfTest
     {
+        // 失败时指出是哪个自检方法（调用栈里最近的 *SelfTest 帧），便于在没有 U8 的机器上定位。
+        static int Fail(Exception ex)
+        {
+            Console.Error.WriteLine("selftest 失败: " + ex.Message);
+            Console.Error.WriteLine(FailedAt(ex));
+            return 1;
+        }
+
+        static string FailedAt(Exception ex)
+        {
+            string trace = ex.StackTrace ?? "";
+            foreach (string line in trace.Split('\n'))
+            {
+                if (line.IndexOf("SelfTest.", StringComparison.Ordinal) >= 0)
+                {
+                    return "位置: " + line.Trim();
+                }
+            }
+            return "位置: 未知";
+        }
+
         internal const string SecretHex = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
         const string MacHex = "a85c2c38ccf25d1c837ec12b0a3707ee6aa584ed7834f8eac3302f81098b6407";
         const string EncHex = "3d9103ebd3f1448ce0dab668a4ce27c51a2ff0ac0b10c90cc5c300520e3411bc";
@@ -103,8 +124,7 @@ namespace U8Co
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine("selftest 失败: " + ex.Message);
-                return 1;
+                return Fail(ex);
             }
         }
 

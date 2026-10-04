@@ -38,17 +38,40 @@ function Invoke-Csc([string]$Csc, [string]$Out, [string[]]$Extra, $Files) {
     foreach ($file in $Files) {
         $cscArgs += $file.FullName
     }
-    Write-Host ("csc -> " + $Out)
-    & $Csc @cscArgs | Out-Host
+    # 源文件有八百多个，命令行会超过 Windows 的长度上限，参数一律写进响应文件（与 co/bridge/build.ps1 相同）。
+    $rsp = [System.IO.Path]::ChangeExtension($Out, ".rsp")
+    $lines = foreach ($arg in $cscArgs) { if ($arg -match "\s") { '"' + $arg + '"' } else { $arg } }
+    [System.IO.File]::WriteAllLines($rsp, [string[]]$lines, [System.Text.UTF8Encoding]::new($false))
+    Write-Host ("csc -> " + $Out + "（" + $cscArgs.Count + " 个参数）")
+    & $Csc "@$rsp" | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "编译失败,退出码 $LASTEXITCODE"
     }
+}
+
+# 与 co/bridge/build.ps1 相同：sql/<模块>/*.sql 作为清单资源嵌入，逻辑名是相对 bridge 的路径（如 sql/ia/post.sql）。
+function Get-SqlResourceArgs([string]$Bridge) {
+    $root = [System.IO.Path]::GetFullPath($Bridge).TrimEnd("\", "/") + [System.IO.Path]::DirectorySeparatorChar
+    $files = @(Get-ChildItem -LiteralPath (Join-Path $Bridge "sql") -File -Recurse | Where-Object { $_.Extension -ceq ".sql" })
+    if ($files.Count -eq 0) {
+        throw "sql 下没有 .sql"
+    }
+    $out = @()
+    foreach ($file in ($files | Sort-Object FullName)) {
+        $name = $file.FullName.Substring($root.Length).Replace("\", "/")
+        if ($name.Split("/").Count -ne 3 -or $file.FullName.Contains(",")) {
+            throw "sql 脚本只能放在 sql/<模块>/ 下且路径不含逗号: $($file.FullName)"
+        }
+        $out += ("/resource:" + $file.FullName + "," + $name)
+    }
+    return $out
 }
 
 function Build-Bridge([string]$Csc, [string]$Dir) {
     $bridge = Join-Path $RepoRoot "co/bridge"
     $out = Join-Path $Dir "u8co-bridge.exe"
     $extra = @("/reference:System.ServiceProcess.dll", "/reference:System.Data.dll", "/reference:System.Transactions.dll")
+    $extra += Get-SqlResourceArgs $bridge
     Invoke-Csc $Csc $out $extra (Get-CsSource (Join-Path $bridge "src"))
     Copy-Item -LiteralPath (Join-Path $bridge "u8co-bridge.exe.config") -Destination $Dir -Force
     return $out

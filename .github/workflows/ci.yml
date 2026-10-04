@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
       # Ruff、文件与函数长度、PowerShell 解析与圈复杂度、C# lizard。
       # pwsh 优先用 PATH 里的；没有时 scripts/quality/pwsh.sh 会下载固定版本并校验 sha256。
       - name: scripts/check-quality.sh
@@ -34,7 +34,7 @@ jobs:
         working-directory: api
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
       - name: pytest
         run: uv run pytest -q -n auto
 
@@ -44,7 +44,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
       # 离线：不连 U8 服务器、不连数据库。
       - name: unittest co/client/tests
         run: >-
@@ -57,7 +57,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
       # 只用标准库，离线。
       - name: unittest mcp/tests
         run: uv run --no-project --python 3.10 python -m unittest discover -s mcp/tests -t mcp -v
@@ -71,7 +71,7 @@ jobs:
         working-directory: events
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
       # 假桥、假 Redis，离线。pyproject 把仓库根加进 pythonpath（签名和口令加密用 co/client）。
       - name: pytest
         run: uv run pytest -q
