@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
+from u8co_api.co_doctext import PAGE, op_doc
 from u8co_api.co_models import CoAuth
 from u8co_api.co_models_gl import DATE, PASS, Scalar
 from u8co_api.co_models_reports import _AFTER, _NEXT, After, Word, _real_date
@@ -19,16 +20,42 @@ _RECEIPT = {"AR": "ar_receipt", "AP": "ap_payment"}
 _TARGETS = {"AR": ("sale_invoice", "ar_bill"), "AP": ("purchase_invoice", "ap_bill")}
 
 WRITEOFFS_SUMMARY = "核销记录"
-WRITEOFFS_HELP = (
-    "按核销号（Ar_Detail / Ap_Detail.cCancelNo，cProcStyle=9P）列出应收（flag=AR）或应付（flag=AP）的核销批次，"
-    "本服务 arap/writeoff 做的和 U8 客户端做的都列；按登记日期降序、核销号降序。可按往来单位 partner、收付款单"
-    "（receipt {type, id} 或 receipt_code 单号，二选一）、被核销单据（target {type, id} 或 target_code 单号，二选一）、"
-    "登记日期区间 date_from / date_to（含两端）、核销号 cancel_no 过滤。每批给出日期、会计年度和期间、往来单位、币种、"
-    "操作员、收付款单（type、id、line_id、code）、被核销单据行 targets（type、id、line_id、code、amount）、合计 amount、"
-    "是否已制单 gl_voucher 和 voucher，以及 cancellable：用取消核销（arap/writeoff/cancel）同一套规则只读判断，"
-    "false 时 reason 是取消核销会返回的原因（已制单、期间已结账、之后还有其他处理、外币、不是一张收付款单对单据的核销等）。"
-    "判断不加锁，只是查询时刻的快照。功能权限：应收核销明细表 AR060107、手工核销 AR050201、取消操作 AR0807 之一，应付 AP060107 / AP050201 / AP0807；"
-    "数据权限按客户或供应商。"
+WRITEOFFS_HELP = op_doc(
+    "列出应收（flag=AR）或应付（flag=AP）的核销批次。",
+    (
+        "用法",
+        (
+            PAGE,
+            "过滤：往来单位 partner、核销号 cancel_no、登记日期 date_from / date_to（含两端）",
+            "收付款单：receipt {type, id} 或 receipt_code 单号，二选一",
+            "被核销单据：target {type, id} 或 target_code 单号，二选一",
+        ),
+    ),
+    (
+        "规则",
+        (
+            "按核销号（Ar_Detail / Ap_Detail.cCancelNo，cProcStyle=9P）分批",
+            "本服务 arap/writeoff 做的和 U8 客户端做的都列",
+            "按登记日期降序、核销号降序",
+            "每批给出日期、会计年度和期间、往来单位、币种、操作员和合计 amount",
+            "收付款单：type、id、line_id、code",
+            "targets：被核销单据行的 type、id、line_id、code、amount",
+            "gl_voucher、voucher：是否已制单及凭证",
+            "cancellable：按取消核销（arap/writeoff/cancel）同一套规则只读判断",
+            "cancellable 为 false 时，reason 是取消核销会返回的原因",
+            "常见原因：已制单、期间已结账、之后还有其他处理、外币、不是一张收付款单对单据的核销",
+            "判断不加锁，只是查询时刻的快照",
+            "只查数据库，不调用 U8 组件",
+        ),
+    ),
+    (
+        "权限",
+        (
+            "功能权限（任一）：应收核销明细表 AR060107、手工核销 AR050201、取消操作 AR0807",
+            "应付对应 AP060107 / AP050201 / AP0807",
+            "数据权限按客户或供应商",
+        ),
+    ),
 )
 
 

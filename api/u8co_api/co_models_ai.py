@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
+from u8co_api.co_doctext import op_doc
 from u8co_api.co_idem import IDEMPOTENT_API_PATHS
 from u8co_api.co_models import CoAuth
 
@@ -44,24 +45,43 @@ ResolveArchive = Literal[
 ]
 
 RESOLVE_SUMMARY = "按名称解析档案编码"
-RESOLVE_HELP = (
-    "只读。把名称、简称、助记码或编码解析成档案编码，一次最多 20 项。按层级匹配，第一个有结果的层级胜出："
-    "code 编码完全相同，name 名称完全相同，abbr 简称完全相同（客户、供应商），mnemonic 助记码（存货另有 add_code 代码），"
-    "contains 名称包含（客户、供应商也查简称；存货按「名称 + 规格」查，所以「示例存货X1」能找到名称示例存货、规格 X1）。"
-    "status：exact 前四层恰好一条；ambiguous 胜出层级不止一条；partial 只有包含匹配且恰好一条；none 没有。"
-    "match 只在 exact、partial 时给出；candidates 最多 limit 条，more 表示还有更多。"
-    "已停用的档案（客户、供应商、存货、部门、仓库的停用日期不晚于登录日期，科目、项目已关闭，操作员已停用）"
-    "缺省不返回，include_disabled 为 true 时返回并标 disabled。科目只返回末级。"
-    "权限同各档案的 list（含记录级数据权限）。"
+RESOLVE_HELP = op_doc(
+    "把名称、简称、助记码或编码解析成档案编码。",
+    ("用法", ("一次最多 20 项", "include_disabled 为 true 时也返回已停用的档案，并标 disabled")),
+    (
+        "规则",
+        (
+            "按层级匹配，第一个有结果的层级胜出",
+            "层级依次为 code 编码完全相同、name 名称完全相同、abbr 简称完全相同（客户、供应商）",
+            "其后是 mnemonic 助记码（存货另有 add_code 代码）、contains 名称包含",
+            "contains：客户、供应商也查简称；存货按「名称 + 规格」查",
+            "例：「示例存货X1」能找到名称示例存货、规格 X1",
+            "status：exact 前四层恰好一条；ambiguous 胜出层级不止一条",
+            "status：partial 只有包含匹配且恰好一条；none 没有",
+            "match 只在 exact、partial 时给出；candidates 最多 limit 条，more 表示还有更多",
+            "已停用的档案缺省不返回",
+            "停用：客户、供应商、存货、部门、仓库的停用日期不晚于登录日期；科目、项目已关闭；操作员已停用",
+            "科目只返回末级",
+        ),
+    ),
+    ("权限", ("同各档案的 list（含记录级数据权限）",)),
 )
 
 IDEM_SUMMARY = "查询幂等键的结果"
 IDEM_HELP = (
-    "只读。按原请求的路径和 Idempotency-Key 查桥上的幂等记录，调用方和账套与原请求相同才查得到。"
-    "found 为 false 表示没有记录或已过期（成功的记录保留 24 小时，结果不明的 72 小时）。"
-    "state：ok 已成功（response 是当时的成功响应）；outcome_unknown 结果不明（response 是当时的错误，按本服务的错误格式）；"
-    "in_flight 还在执行（没有 response）。status 是原请求本服务会返回的 HTTP 状态。"
-    "收到 504 outcome_unknown 后先用本接口核对，再决定是否重试。"
+    "按原请求的路径和 Idempotency-Key 查桥上的幂等记录。\n\n"
+    "**用法**\n"
+    "- 收到 504 outcome_unknown 后先用本接口核对，再决定是否重试。\n"
+    "- status 是原请求本服务会返回的 HTTP 状态。\n\n"
+    "| state | 含义 | response |\n"
+    "|---|---|---|\n"
+    "| ok | 已成功 | 当时的成功响应 |\n"
+    "| outcome_unknown | 结果不明 | 当时的错误，按本服务的错误格式 |\n"
+    "| in_flight | 还在执行 | 没有 |\n\n"
+    "**规则**\n"
+    "- 调用方和账套与原请求相同才查得到。\n"
+    "- found 为 false：没有记录或已过期。\n"
+    "- 成功的记录保留 24 小时，结果不明的保留 72 小时。"
 )
 
 # 任一写路由的 API 路径，取自 co_idem（由 co_access 的写动作推出），不另列。

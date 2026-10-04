@@ -11,19 +11,31 @@ from __future__ import annotations
 import math
 import re
 
+from u8co_api.co_doctext import section
+
 KIND = "sale_return_apply"
-CREATE_HELP = (
-    "；退货申请单（sale_return_apply）：每行 source_line_id 是已审核蓝字发货单的行 iDLsID、quantity 填正数（桥写负数，"
-    "不超过发货数量减累计退货数量和其他未完成的申请），另可带 cWhCode、cMemo、cReasonCode、cDefine22–37；"
-    "表头只收 dDate、cMemo、cDepCode、cPersonCode、cDefine1–16，客户、币种等照发货单；所有行须同一客户、同一币种"
+CREATE_HELP = section(
+    "退货申请单（sale_return_apply）",
+    (
+        "每行 source_line_id 是已审核蓝字发货单的行 iDLsID",
+        "quantity 填正数，桥写负数；不超过发货数量减累计退货数量和其他未完成的申请",
+        "每行另可带 cWhCode、cMemo、cReasonCode、cDefine22–37",
+        "表头只收 dDate、cMemo、cDepCode、cPersonCode、cDefine1–16；客户、币种等照发货单",
+        "所有行须同一客户、同一币种",
+    ),
 )
-APPLY_UPDATE_HELP = (
-    "退货申请单只改已有行（op=update，line_id 是 AutoID）：iQuantity 填正数、cMemo、cReasonCode、cDefine22–37；"
-    "表头只收 dDate、cMemo、cDefine1–16；只改未审核、没有退货单的申请单"
+APPLY_UPDATE_HELP = section(
+    "退货申请单",
+    (
+        "只改已有行（op=update，line_id 是 AutoID）：iQuantity 填正数、cMemo、cReasonCode、cDefine22–37",
+        "表头只收 dDate、cMemo、cDefine1–16",
+        "只改未审核、没有退货单的申请单",
+    ),
 )
+# 生单明细说明里「退货单」小节追加的各条（co_models_edit_help）。
 APPLY_GENERATE_HELP = (
-    "；参照退货申请单（source_type=sale_return_apply）时 source_line_id 是申请单行 AutoID（所选行须指向同一张蓝字发货单，"
-    "不超过申请数量减已退数量），没给 cWhCode 时用申请行的仓库"
+    "参照退货申请单（source_type=sale_return_apply）时 source_line_id 是申请单行 AutoID",
+    "所选申请行须指向同一张蓝字发货单，不超过申请数量减已退数量；没给 cWhCode 时用申请行的仓库",
 )
 _ID_MAX = 2147483647
 _QTY_MAX = 10**12

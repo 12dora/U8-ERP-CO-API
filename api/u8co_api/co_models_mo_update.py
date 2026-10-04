@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from u8co_api.co_doctext import section
 from u8co_api.co_models_mo import CoMoCreatedLine, _date, _get, _only, _qty, _text
 
 LINES_MAX = 50
@@ -15,15 +16,22 @@ _NO_START = "暂不支持修改开工日期（U8 重建子件时不重算需求�
 _DEFINES = {f"define{n}": 60 for n in (22, 23, 24, 25)} | {f"define{n}": 120 for n in range(28, 34)}
 _LINE_KEYS = {"op": 0, "line_id": 0, "qty": 0, "start_date": 0, **_LINE_TEXT, **_DEFINES}
 _NOT_EMPTY = ("remark", "inv_code", *_DEFINES)
-MO_UPDATE_HELP = (
-    "生产订单（production_order，id 是 MoId）改全部行未关闭（未审核或已审核；已关闭的先打开）、未提交审批、未报检、"
-    "没有产成品入库的订单；已审核的照 U8 客户端变更直接改，状态保持已审核。已领料的改后子件需求不能少于已领数量（409），"
-    "材料出库单行的子件关联由桥改到 U8 重插后的新子件：表头只收 remark（作为本次没单独给备注的各行备注）；"
-    "明细 0 到 50 行，op 只能是 update，按 line_id（MoDId）定位，可改 qty、due_date、remark、"
-    "define22–25、define28–33（文本），inv_code 只能送当前值；remark 和自定义项不能清空；"
-    "start_date 暂不支持修改（U8 重建子件时不重算需求日期），有产出品子件的行不能改 due_date（桥 409）。"
-    "子件被材料出库以外的单据或计划引用（含替代料、领料申请、调拨）的订单不能改。改了数量的行，桥按 U8 的算法重算每个子件（固定用量、损耗率、返工订单），"
-    "其余子件原样重送；U8 重插子件后桥写回丢掉的关联列，回读子件数、数量或关联列对不上时 504 outcome_unknown。"
+MO_UPDATE_HELP = section(
+    "生产订单（production_order，id 是 MoId）",
+    (
+        "只改全部行未关闭（未审核或已审核；已关闭的先打开）、未提交审批、未报检、没有产成品入库的订单",
+        "已审核的照 U8 客户端变更直接改，状态保持已审核",
+        "已领料的改后子件需求不能少于已领数量（409）；材料出库单行的子件关联由桥改到 U8 重插后的新子件",
+        "表头只收 remark（作为本次没单独给备注的各行备注）",
+        "明细 0 到 50 行，op 只能是 update，按 line_id（MoDId）定位",
+        "可改 qty、due_date、remark、define22–25、define28–33（文本）；inv_code 只能送当前值",
+        "remark 和自定义项不能清空",
+        "start_date 暂不支持修改（U8 重建子件时不重算需求日期）",
+        "有产出品子件的行不能改 due_date（桥 409）",
+        "子件被材料出库以外的单据或计划引用（含替代料、领料申请、调拨）的订单不能改",
+        "改了数量的行，桥按 U8 的算法重算每个子件（固定用量、损耗率、返工订单），其余子件原样重送",
+        "U8 重插子件后桥写回丢掉的关联列；回读子件数、数量或关联列对不上时 504 outcome_unknown",
+    ),
 )
 
 

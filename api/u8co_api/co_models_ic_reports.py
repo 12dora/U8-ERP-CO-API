@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError, model_validator
 
+from u8co_api.co_doctext import op_doc
 from u8co_api.co_models import CoAuth
 from u8co_api.co_models_ic import IcLogin
 from u8co_api.co_models_list import CoStockIn
@@ -38,26 +39,61 @@ INNER = {
 }
 
 AGGREGATE_SUMMARY = "多账套汇总"
-AGGREGATE_HELP = (
-    "只读。对 1 到 3 个同一公司组的账套各调一次同一张报表（stock_current 现存量、arap_balance 往来余额、"
-    "arap_aging 账龄分析、gl_balance 科目余额表），params 按该报表的入参校验（不含登录字段和 after、limit，"
-    "本接口自动读完全部页，每个账套最多 2 万行，超过时该账套记为 422 ic_too_many_rows）。"
-    "by_account 按账套给出读到的 items，或该账套的 error。totals 只按公司间对照（U8CO_IC_MAP_FILE）合计："
-    "现存量按对照里的存货 id，往来按往来单位所代表的公司（as_customer / as_vendor），科目余额按对照里的逻辑科目；"
-    "对照之外的存货、往来单位和末级科目不相加，计数列在 unmapped。"
-    "部分账套失败时仍返回 200，失败的账套不计入合计并写进 warnings；全部失败返回 503。"
-    "令牌要能用其中每个账套，有一个不行就 403 account_not_allowed。"
-    "没配置对照 404 ic_not_configured，账套不在同一组 400 ic_group_mismatch。"
+AGGREGATE_HELP = op_doc(
+    "对 1 到 3 个账套各调一次同一张报表，并按公司间对照合计（只读）。",
+    (
+        "用法",
+        (
+            "report：stock_current 现存量、arap_balance 往来余额、arap_aging 账龄分析、gl_balance 科目余额表",
+            "params 按该报表的入参校验，不含登录字段和 after、limit",
+            "本接口自动读完全部页",
+        ),
+    ),
+    (
+        "规则",
+        (
+            "各账套须在同一个公司组",
+            "by_account 按账套给出读到的 items，或该账套的 error",
+            "totals 只按公司间对照（U8CO_IC_MAP_FILE）合计",
+            "现存量按对照里的存货 id 合计",
+            "往来按往来单位所代表的公司（as_customer / as_vendor）合计",
+            "科目余额按对照里的逻辑科目合计",
+            "对照之外的存货、往来单位和末级科目不相加，计数列在 unmapped",
+            "部分账套失败仍返回 200：失败的账套不计入合计，写进 warnings",
+        ),
+    ),
+    ("限制", ("每个账套最多 2 万行",)),
+    (
+        "错误",
+        (
+            "422 ic_too_many_rows：某账套超过 2 万行，记在该账套",
+            "403 account_not_allowed：令牌不能用其中某个账套",
+            "404 ic_not_configured：没配置对照",
+            "400 ic_group_mismatch：账套不在同一组",
+            "503：全部账套失败",
+        ),
+    ),
 )
 CONSOLIDATION_SUMMARY = "合并报表（往来抵销）"
-CONSOLIDATION_HELP = (
-    "只读。对 2 到 3 个同一公司组的账套读科目余额表（只含已记账凭证、非零行），按公司间对照的逻辑科目（gl）"
-    "列出各账套的映射试算（trial），再按对照里的抵销对（elim，rule=ar_ap）读辅助核算余额表"
-    "（应收方按客户、应付方按供应商，科目取逻辑科目在该账套的编码）："
-    "抵销额 = 应收、应付期末余额绝对值中较小的一个（两边方向相反时不抵销并提醒），差额另列。"
-    "consolidated 按逻辑科目给出各账套期末净额之和、抵销分录和抵销后的余额。"
-    "对照之外的末级科目不相加，计数列在 unmapped。未实现内部利润、收入成本没有抵销（见 notes）。"
-    "部分账套失败时仍返回 200，complete 为 false，consolidated 为 null，涉及失败账套的抵销对跳过；全部失败返回 503。"
+CONSOLIDATION_HELP = op_doc(
+    "对 2 到 3 个账套出映射试算，并按公司间对照做往来抵销（只读）。",
+    (
+        "规则",
+        (
+            "各账套须在同一个公司组",
+            "科目余额表只取已记账凭证、非零行",
+            "trial：按对照的逻辑科目（gl）列出各账套的映射试算",
+            "抵销对（elim，rule=ar_ap）读辅助核算余额表：应收方按客户，应付方按供应商",
+            "抵销对的科目取逻辑科目在该账套的编码",
+            "抵销额 = 应收、应付期末余额绝对值中较小的一个，差额另列",
+            "两边方向相反时不抵销，并提醒",
+            "consolidated：按逻辑科目给出各账套期末净额之和、抵销分录和抵销后的余额",
+            "对照之外的末级科目不相加，计数列在 unmapped",
+            "未实现内部利润、收入成本没有抵销（见 notes）",
+            "部分账套失败仍返回 200：complete 为 false，consolidated 为 null，涉及失败账套的抵销对跳过",
+        ),
+    ),
+    ("错误", ("503：全部账套失败",)),
 )
 
 
@@ -93,8 +129,8 @@ class IcAggregateIn(BaseModel):
     logins: list[IcLogin] = Field(..., min_length=1, max_length=3, description="1 到 3 个账套的登录，账套不能重复")
     params: dict[str, Any] = Field(
         default_factory=dict,
-        description="传给每个账套的内层报表参数，规则同该报表（例如 arap_balance 的 side、as_of；gl_balance 的 "
-        "period_from、period_to）。不能含 acc、operator、password、year、date、after、limit",
+        description="传给每个账套的内层报表参数，规则同该报表（如 arap_balance 的 side、as_of）。"
+        "不能含 acc、operator、password、year、date、after、limit",
     )
 
     @model_validator(mode="after")

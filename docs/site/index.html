@@ -103,12 +103,17 @@
       font-size: 17px;
       line-height: 1.4;
     }
-    .u8co-intro h2 {
-      margin: 12px 0 4px;
-      font-size: 15px;
-    }
     .u8co-intro p {
       margin: 0 0 4px;
+    }
+    .u8co-intro ul {
+      margin: 4px 0 6px;
+      padding-left: 20px;
+    }
+    .u8co-intro .u8co-fine {
+      margin: 6px 0 0;
+      font-size: 12px;
+      opacity: 0.75;
     }
     .u8co-intro nav {
       display: flex;
@@ -126,9 +131,13 @@
 <body>
   <!-- 静态简介：不依赖脚本，供搜索引擎和不执行脚本的读者使用。Scalar 只在 #api-reference 前插入自己的挂载节点，不替换这里。 -->
   <header class="u8co-intro">
-    <h1>U8-ERP-CO-API 接口文档：用友 U8+ ERP 的 REST API（OpenAPI 3.1）</h1>
-    <p>把用友 U8+ 的业务组件发布为 HTTP API：单据读写与审核、总账凭证、基础档案、列表与报表；附 Python 客户端与命令行、给 AI 代理的 MCP 服务。An HTTP / REST API for Yonyou U8+ ERP, with a Python SDK, CLI and an MCP server for AI agents.</p>
-    <p>非官方项目，与用友网络科技股份有限公司没有关联。「用友」「U8」「U8+」是其商标，本站提及仅为说明兼容对象。</p>
+    <h1>U8-ERP-CO-API：用友 U8+ REST API</h1>
+    <p>把用友 U8+ 的业务组件发布为 HTTP API（OpenAPI 3.1）。An HTTP / REST API for Yonyou U8+ ERP.</p>
+    <ul>
+      <li>单据：销售、采购、库存、生产、质量、应收应付单据的读写、审核和参照生单</li>
+      <li>财务与档案：总账凭证、核销与制单、基础档案、现存量和只读报表</li>
+      <li>集成：按操作员权限、预演、幂等键、机器可读错误；Python 客户端与命令行、MCP 服务、单据事件</li>
+    </ul>
     <nav aria-label="文档">
       <a href="./docs/overview.html">概览</a>
       <a href="./docs/getting-started.html">快速开始</a>
@@ -144,16 +153,9 @@
       <a href="./openapi.json">openapi.json</a>
       <a href="__REPO_URL__">源代码</a>
     </nav>
+    <p class="u8co-fine">非官方项目，与用友网络科技股份有限公司没有关联。「用友」「U8」「U8+」是其商标，本站提及仅为说明兼容对象。</p>
     <noscript>
-      <h2>交互式接口文档需要 JavaScript</h2>
-      <p>本页的交互式接口文档需要启用脚本。不启用脚本时可阅读<a href="./docs/api-reference.html">文字版接口参考</a>，或直接下载 <a href="./openapi.json">openapi.json</a>（OpenAPI 3.1）。</p>
-      <h2>主要功能</h2>
-      <ul>
-        <li>销售、采购、库存、生产、质量、应收应付单据的读取、新增、修改、删除、审核、关闭和参照生单</li>
-        <li>总账凭证、应收应付核销与制单、基础档案、列表、现存量和只读报表</li>
-        <li>按 U8 操作员的权限、预演（dry_run）、幂等键、名称解析和机器可读的错误</li>
-        <li>Python 客户端与命令行、MCP 服务、单据事件（Redis Streams）</li>
-      </ul>
+      <p>交互式接口文档需要启用脚本。可阅读<a href="./docs/api-reference.html">文字版接口参考</a>，或下载 <a href="./openapi.json">openapi.json</a>。</p>
     </noscript>
   </header>
   <p class="u8co-note" role="note">

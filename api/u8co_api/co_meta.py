@@ -29,11 +29,22 @@ META_WAIT = 100.0
 _CREATE_LOCK = threading.Lock()
 
 _DESCRIPTION = """\
-返回桥上的字段元数据：单据类型与支持的操作、可写字段（exact 逐个列出，spans 为 cdefine / cfree 编号区间）、
-必填字段、生单来源、档案标签、总账凭证字段、列表类型和桥的路由表；另有写字段到档案的对照 field_refs、
-gl_field_refs，以及预演模式（kinds[].dry_run、dry_run_routes）。不需要账套和口令，桥不登录 U8。
-revision 是除 features 之外内容的 SHA-256，内容变了 revision 才变；features 是运行时自检结果，可能随时变化。
-本服务在进程内缓存 60 秒。complete 为 false 表示有档案的 RsXml 没有读到（该档案 tags 为 null，带 tags_error）。
+返回桥上的字段元数据，供调用方生成请求和校验字段。
+
+**用法**
+- 返回单据类型与支持的操作、必填字段、生单来源。
+- 可写字段：exact 逐个列出，spans 为 cdefine / cfree 编号区间。
+- 档案标签、总账凭证字段、列表类型和桥的路由表。
+- 写字段到档案的对照 field_refs、gl_field_refs。
+- 预演模式：kinds[].dry_run、dry_run_routes。
+
+**规则**
+- 不需要账套和口令，桥不登录 U8。
+- revision 是除 features 之外内容的 SHA-256，内容变了 revision 才变。
+- features 是运行时自检结果，可能随时变化。
+- 本服务在进程内缓存 60 秒。
+- complete 为 false：有档案的 RsXml 没有读到（该档案 tags 为 null，带 tags_error）。
+
 """
 
 

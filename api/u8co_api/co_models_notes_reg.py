@@ -9,11 +9,12 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, StrictInt, field_validator, model_validator
 
+from u8co_api.co_doctext import TEST_ONLY_GATE
 from u8co_api.co_models import _ID_MAX, CoAuth
 from u8co_api.co_models_arap_proc import _cents, has_control
 from u8co_api.co_models_dry import DryRunFlag
-from u8co_api.co_models_notes_proc import _SERIAL_MAX, _range_amount
 from u8co_api.co_models_gl import PASS, Scalar
+from u8co_api.co_models_notes_proc import _SERIAL_MAX, _range_amount
 from u8co_api.errors import ApiError
 
 _AMOUNT_MAX = 1000000000000
@@ -36,39 +37,53 @@ _TEXT_FIELDS = (
 # 往来单位字段按 flag：应收票据 customer（交票客户），应付票据 vendor（收票供应商）。
 _PARTNER = {"AR": ("customer", "vendor"), "AP": ("vendor", "customer")}
 _PARTNER_TITLE = {"customer": ("客户编码", "应收票据（flag AR）"), "vendor": ("供应商编码", "应付票据（flag AP）")}
-_AP_TIER2 = (
-    "应付票据（flag AP）是第二级写入，只在测试账套上验证过；"
-    "默认关闭（桥未开 enableReplicatedWrites 时 403 feature_disabled），打开后只对 CO 桥配置为测试账套（testAccounts）的账套开放，其他账套 403 test_account_only，不登录 U8。"
-)
+_AP_TIER2 = "- 应付票据（flag AP）是第二级写入，只在测试账套上验证过\n" + TEST_ONLY_GATE
 
 CREATE_SUMMARY = "票据登记"
 CREATE_HELP = (
-    "U8 应收（应付）款管理「票据管理」的登记：桥在一个事务里照 U8 登记的结果写票据（AP_Note，"
-    "票据科目取 note_km，省略取基本科目 pjkm），再生成对应的收款单（48，结算方式 = 票据类型，表头科目 = 票据科目，表体一行应收款，科目缺省取应收科目，"
-    "km 可改），收款单标成票据来源（cSrcFlag C、来源 50、票据号），票据回写收款单主键，核对后提交；任何一步失败整笔回滚。"
-    "不调用 U8 的票据组件 NoteManageAR（无界面时会挂起），不建条码档案。"
-    "customer 是交票客户（应付票据改给 vendor，另一个不收），drawer 是出票人（缺省往来单位名称），receiver 是收款人（必填）；"
-    "签发、收票日期不能晚于登录日期 date，"
-    "收票日期所在期间应收未结账，到期日、收票日期不早于签发日期。生成的收款单未审核（receipt_verified 为 false），"
-    "票据处理（notes/process）前要先审核它（vouchers/verify，type ar_receipt）。"
-    "sub_start / sub_end 成对给出时登记分包票据（子票区间每个号 0.01 元，区间张数 × 0.01 须等于票面 amount）：票据标成分包、"
-    "写子票区间和一行可用区间（Ap_Note_AvailRange），收款单的票据号写成「票据号-起号-止号」；不给为不分包票据。"
-    "409 state_mismatch：票据号已存在、期间已结账、没有设置票据科目等。功能权限 AR0504；数据权限按客户、部门、业务员。"
-    + _AP_TIER2
-    + "应付票据生成付款单（49，表体一行应付款，科目缺省取应付科目 kzkm），票据 cFlag AP、cLink AP50+票据号，"
-    "应付的 pjkm 未设置时必须给 note_km（应付票据科目，如 2201 的末级）；功能权限 AP0504，数据权限按供应商。"
-    "响应的 receipt_id / receipt_code 是付款单。"
-    "dry_run 为 true 时真实写入、核对后回滚（rollback 模式）。"
+    "登记一张应收（应付）票据并生成对应的收款单（付款单），对应 U8 应收（应付）款管理「票据管理」的登记。\n\n"
+    "**用法**\n"
+    "- 应收票据给 customer（交票客户），应付票据给 vendor，另一个不收\n"
+    "- sub_start / sub_end 成对给出时登记分包票据，区间张数 × 0.01 须等于票面 amount；不给为不分包票据\n"
+    "- dry_run 为 true：真实写入、核对后回滚（rollback 模式）\n\n"
+    "**规则**\n"
+    "- 桥在一个事务里照 U8 登记的结果写票据（AP_Note）和收款单，核对后提交；任何一步失败整笔回滚\n"
+    "- 不调用 U8 的票据组件 NoteManageAR（无界面时会挂起），不建条码档案\n"
+    "- 收款单（48）：结算方式 = 票据类型，表头科目 = 票据科目，表体一行应收款\n"
+    "- 收款单标成票据来源（cSrcFlag C、来源 50、票据号），票据回写收款单主键\n"
+    "- 签发、收票日期不晚于登录日期 date；到期日、收票日期不早于签发日期\n"
+    "- 收票日期所在期间应收未结账\n"
+    "- 生成的收款单未审核（receipt_verified 为 false），票据处理（notes/process）前先审核\n"
+    "- 分包票据：标成分包，写子票区间和一行可用区间（Ap_Note_AvailRange）\n"
+    "- 分包票据的收款单票据号写成「票据号-起号-止号」\n"
+    "- 应付票据生成付款单（49），表体一行应付款，科目缺省取应付科目 kzkm；响应的 receipt_id / receipt_code 是付款单\n"
+    "- 应付票据：票据 cFlag AP、cLink AP50+票据号；pjkm 未设置时必须给 note_km（如 2201 的末级）\n\n"
+    "**限制**\n" + _AP_TIER2 + "\n"
+    "**权限**\n"
+    "- 应收票据：功能权限 AR0504；数据权限按客户、部门、业务员\n"
+    "- 应付票据：功能权限 AP0504；数据权限按供应商\n\n"
+    "**错误**\n"
+    "- 409 state_mismatch：票据号已存在、期间已结账、没有设置票据科目等\n\n"
+    "**相关**\n"
+    "- 审核收款单：vouchers/verify（type ar_receipt）\n"
+    "- 票据处理：notes/process"
 )
 DELETE_SUMMARY = "删除票据"
 DELETE_HELP = (
-    "删除一张登记后还没有处理的应收票据（flag AR；应付票据 flag AP，删付款单，"
-    + _AP_TIER2
-    + "功能权限 AP2403）：不是期初、没有结算 / 贴现 / 背书等处理记录、没换过票、余额等于票面；"
-    "登记生成的收款单须未审核、未制单、未核销。桥照 U8 DeletePJ 的做法在一个事务里删除该收款单、保证金、付款申请明细和票据，"
-    "核对后提交，任何一步失败整笔回滚。note_no（票据号）与 id"
-    "（AP_Note.Auto_ID）给且只给一个。分包票据须可用区间仍是登记时的整段，连同可用区间一起删。404 not_found：票据不存在。功能权限 AR2403。"
-    "dry_run 为 true 时真实删除、核对后回滚（rollback 模式）。"
+    "删除一张登记后还没有处理的票据，连同登记生成的收款单（应付票据为付款单）。\n\n"
+    "**用法**\n"
+    "- dry_run 为 true：真实删除、核对后回滚（rollback 模式）\n\n"
+    "**规则**\n"
+    "- 票据须不是期初、没有结算 / 贴现 / 背书等处理记录、没换过票、余额等于票面\n"
+    "- 登记生成的收款单须未审核、未制单、未核销\n"
+    "- 分包票据须可用区间仍是登记时的整段，连同可用区间一起删\n"
+    "- 桥照 U8 DeletePJ 的做法，在一个事务里删除收款单、保证金、付款申请明细和票据\n"
+    "- 核对后提交，任何一步失败整笔回滚\n\n"
+    "**限制**\n" + _AP_TIER2 + "\n"
+    "**权限**\n"
+    "- 功能权限：应收票据 AR2403，应付票据 AP2403\n\n"
+    "**错误**\n"
+    "- 404 not_found：票据不存在"
 )
 
 

@@ -6,36 +6,50 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, StrictInt, model_validator
 
+from u8co_api.co_doctext import TEST_ONLY_GATE
 from u8co_api.co_models import CoAuth
 from u8co_api.co_models_dry import DryRunFlag
 from u8co_api.co_models_gl import PASS, Scalar
 
-_GATE = (
-    "默认关闭（桥未开 enableReplicatedWrites 时 403 feature_disabled），打开后只对 CO 桥配置为测试账套（testAccounts）的账套开放，其他账套 403 test_account_only，不登录 U8。"
-    "执行前查四项：按仓库核算、每个仓库全月平均法、暂估单到回冲、销售成本按发出商品或销售出库单，"
-    "不符 409「接口暂不支持」；标准成本、委外等未实测，也不检查。脚本超过 iaCommandSeconds 时 503 ia_timeout（已回滚）。"
-    "fiscal_year 是会计年度，period 是 1 到 12。"
+_LIMITS = (
+    "**限制**\n" + TEST_ONLY_GATE + "- 执行前检查四项选项，不符时 409「接口暂不支持」\n"
+    "- 四项：按仓库核算、每个仓库全月平均法、暂估单到回冲、销售成本按发出商品或销售出库单\n"
+    "- 标准成本、委外等未实测，也不检查\n\n"
 )
-_DRY = "dry_run 为 true 时在事务里执行后回滚（rollback 模式），返回 DryRunOut，脚本的诊断计数在 detail.counts。"
+_DRY = "- dry_run：事务里执行后回滚（rollback 模式），返回 DryRunOut，诊断计数在 detail.counts\n\n"
+_TIMEOUT = "- 503 ia_timeout：脚本超过 iaCommandSeconds，已回滚"
 
 IA_POST_SUMMARY = "存货核算记账"
 IA_POST_HELP = (
-    "存货核算的正常单据记账或恢复记账（U8 存货核算「正常单据记账」「恢复记账」）。" + _GATE
-    + "功能权限：正常单据记账 IA2004、恢复记账 IA2005。"
-    "action 为 post（把该月已审核、未记账的出入库单据记入存货明细账；销售成本按发出商品时连同已复核的销售发票）"
-    "或 unpost（恢复该月的记账）。on_uncosted 只和 post 一起用：refuse（缺省）时有 U8 无法确定成本的存货"
-    "（U8 界面会要求手工输入单价）就整笔拒绝 409，error.detail 带 uncosted、uncosted_total；skip 时这些存货不记账（同 U8 界面取消勾选），其余照常记账。"
-    "409 state_mismatch：存货核算未启用、该月已结账、恢复记账前已做期末处理、发出商品的销售发票不在本次恢复范围、"
-    "直接供应的材料出库接口暂不支持（事务回滚）、有 U8 无法确定成本的存货等；U8 存储过程自己的拒绝 409 u8_rejected「U8 拒绝：…」。"
-    "响应带 counts（脚本的诊断计数，如 area 本次记账行数、restore_rows 本次恢复行数）；没有要处理的单据时为 0，带 message。" + _DRY
+    "存货核算的正常单据记账或恢复记账（U8「正常单据记账」「恢复记账」）。\n\n"
+    "**用法**\n"
+    "- post：把该月已审核、未记账的出入库单据记入存货明细账\n"
+    "- 销售成本按发出商品时，post 连同已复核的销售发票一起记账\n"
+    "- unpost：恢复该月的记账\n"
+    "- 无法确定成本的存货：U8 界面会要求手工输入单价；skip 同 U8 界面取消勾选\n"
+    "- 没有要处理的单据时 counts 为 0，带 message\n" + _DRY + _LIMITS + "**权限**\n"
+    "- 功能权限：正常单据记账 IA2004、恢复记账 IA2005\n\n"
+    "**错误**\n"
+    "- 409 state_mismatch，常见原因：\n"
+    "  - 存货核算未启用、该月已结账\n"
+    "  - 恢复记账前已做期末处理\n"
+    "  - 发出商品的销售发票不在本次恢复范围\n"
+    "  - 直接供应的材料出库接口暂不支持（事务回滚）\n"
+    "  - 有 U8 无法确定成本的存货（on_uncosted=refuse），error.detail 带 uncosted、uncosted_total\n"
+    "- 409 u8_rejected「U8 拒绝：…」：U8 存储过程自己的拒绝\n" + _TIMEOUT
 )
 IA_PERIOD_END_SUMMARY = "存货核算期末处理"
 IA_PERIOD_END_HELP = (
-    "存货核算的期末处理或取消期末处理（U8 存货核算「期末处理」「取消期末处理」）。" + _GATE
-    + "功能权限：期末处理、取消期末处理 IA2006。"
-    "action 为 run（按全月平均计算该月出库成本、写出库调整，汇总表标记为已期末处理）或 cancel（取消期末处理）。"
-    "409 state_mismatch：该月已结账、该月还没有记账数据（先 ia/post）等；U8 存储过程自己的拒绝 409 u8_rejected。"
-    "存货核算月末结账用 periods/close（module=ia）。响应带 counts。" + _DRY
+    "存货核算的期末处理或取消期末处理（U8「期末处理」「取消期末处理」）。\n\n"
+    "**用法**\n"
+    "- run：按全月平均计算该月出库成本、写出库调整，汇总表标记为已期末处理\n"
+    "- cancel：取消期末处理\n"
+    "- 响应带 counts（脚本诊断计数）\n" + _DRY + _LIMITS + "**权限**\n"
+    "- 功能权限：期末处理、取消期末处理 IA2006\n\n"
+    "**错误**\n"
+    "- 409 state_mismatch：该月已结账、该月还没有记账数据（先 ia/post）等\n"
+    "- 409 u8_rejected：U8 存储过程自己的拒绝\n" + _TIMEOUT + "\n\n**相关**\n"
+    "- 存货核算月末结账：periods/close（module=ia）"
 )
 
 

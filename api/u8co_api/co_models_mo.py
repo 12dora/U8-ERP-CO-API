@@ -10,6 +10,8 @@ from decimal import Decimal, InvalidOperation
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from u8co_api.co_doctext import section
+
 _OUT = ConfigDict(extra="ignore")
 _QTY_MAX = Decimal(10**12)
 LINES_MAX = 50
@@ -28,12 +30,18 @@ _LINE_TEXT = {
     "remark": 255,
 }
 _REQUIRED = ("inv_code", "qty", "start_date", "due_date", "mo_type", "dept_code")
-MO_CREATE_HELP = (
-    "生产订单（production_order）：表头只收 mo_code（最长 30，省略则 U8 自动编号）"
-    "和 remark（最长 255，作各行备注的缺省）；"
-    "明细 1 到 50 行，必须有 inv_code（自制件）、qty（大于 0，最多 6 位小数，且不超过账套的存货数量小数位）、start_date、due_date（yyyy-MM-dd，"
-    "完工不早于开工）、mo_type（生产订单类别编码）、dept_code（末级生产部门），可选 wh_code（预入仓库）和 remark。"
-    "U8 按存货的标准 BOM 自动展开子件；没有有效 BOM 时照样新增，响应里该行 allocates 为 0 并带 warnings。"
+MO_CREATE_HELP = section(
+    "生产订单（production_order）",
+    (
+        "表头只收 mo_code（最长 30，省略则 U8 自动编号）和 remark（最长 255，作各行备注的缺省）",
+        "明细 1 到 50 行，必须有 inv_code（自制件）、qty、start_date、due_date、mo_type、dept_code",
+        "qty 大于 0，最多 6 位小数，且不超过账套的存货数量小数位",
+        "start_date、due_date 为 yyyy-MM-dd，完工不早于开工",
+        "mo_type 是生产订单类别编码，dept_code 是末级生产部门",
+        "可选 wh_code（预入仓库）和 remark",
+        "U8 按存货的标准 BOM 自动展开子件",
+        "没有有效 BOM 时照样新增，响应里该行 allocates 为 0 并带 warnings",
+    ),
 )
 
 

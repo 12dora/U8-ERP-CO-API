@@ -12,8 +12,9 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 DRY_RUN_HELP = (
-    "true 时只预演，不写入：桥照常登录、加锁、校验（rollback 模式在事务里真实执行后回滚，validate 模式只做 U8 组件之前的检查），"
-    "成功返回 DryRunOut（dry_run、mode、docs、warnings），失败返回与正式写入相同的错误。不能同时带 Idempotency-Key"
+    "true 时只预演，不写入（照常登录、加锁、校验）。\n\n"
+    "- 成功返回 DryRunOut（模式见其 mode），失败返回与正式写入相同的错误\n"
+    "- 不能同时带 Idempotency-Key"
 )
 
 DryRunFlag = Annotated[StrictBool, Field(description=DRY_RUN_HELP)]

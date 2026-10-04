@@ -8,26 +8,41 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, StrictInt, field_validator, model_validator
 
+from u8co_api.co_doctext import TEST_ONLY_GATE
 from u8co_api.co_models import CoAuth
 from u8co_api.co_models_dry import DryRunFlag
 from u8co_api.co_models_gl import PASS, Scalar
 
 OPENINGS_POST_SUMMARY = "采购 / 存货核算期初记账"
+_LIMITS = "**限制**\n" + TEST_ONLY_GATE + "\n"
 OPENINGS_POST_HELP = (
-    "期初记账或取消期初记账。默认关闭（桥未开 enableReplicatedWrites 时 403 feature_disabled），打开后只对 CO 桥配置为测试账套（testAccounts）的账套开放，其他账套 403 test_account_only，不登录 U8。"
-    "module 为 pu（采购管理「期初记账」，功能权限 PU0206）或 ia（存货核算「期初余额」的记账 / 恢复，功能权限 ASM3102）；"
-    "action 为 post（记账）或 unpost（取消记账）。期初年度取该模块的启用年度，响应带 opening_year 和 start_date。"
-    "采购的 409 state_mismatch：采购期初已记账（再记）、采购期初未记账（取消）、采购已有月份结账、"
-    "已有采购发票不能取消期初记账、存货核算已期初记账不能取消、采购管理未启用。"
-    "存货核算：记账从已审核的库存期初结存单取数，写第 0 期的期初明细和汇总（IA_Subsidiary / IA_Summary iMonth=0），"
-    "置启用年度第 0 期 bflag_IA；取消只删第 0 期的期初数据、清标志（不是 U8 的取消开账）。登录日期须在存货核算启用年度"
-    "（建议就用启用日期），否则 400。响应另带 counts（取数行数 st34_verified、期初汇总行数 summary_m0 等）。"
-    "存货核算的 409 state_mismatch：存货核算未启用、期初已记账、期初未记账、已有月份结账或已有日常数据（不能取消）、"
-    "库存与存货核算启用日期不一致、有先进先出 / 后进先出计价的期初行（接口暂不支持）。"
-    "module 或 action 不对 400，不访问 U8。"
-    "dry_run 为 true 时在事务里执行后回滚（rollback 模式），什么都不写入，返回 DryRunOut："
-    "action 为 opening_post 或 opening_unpost，操作后会是的状态在 detail.opening（module、posted、opening_year、start_date，"
-    "存货核算另有 counts）。"
+    "采购管理或存货核算的期初记账、取消期初记账。\n\n"
+    "**用法**\n"
+    "- module=pu：采购管理「期初记账」\n"
+    "- module=ia：存货核算「期初余额」的记账 / 恢复\n"
+    "- 期初年度取该模块的启用年度\n"
+    "- dry_run：事务里执行后回滚（rollback 模式），什么都不写入，返回 DryRunOut\n"
+    "- 预演的 action 为 opening_post 或 opening_unpost\n"
+    "- 预演的操作后状态在 detail.opening：module、posted、opening_year、start_date，存货核算另有 counts\n\n"
+    "**规则**\n"
+    "- 存货核算记账从已审核的库存期初结存单取数\n"
+    "- 写第 0 期期初明细和汇总（IA_Subsidiary / IA_Summary iMonth=0），置启用年度第 0 期 bflag_IA\n"
+    "- 存货核算取消只删第 0 期的期初数据、清标志（不是 U8 的取消开账）\n"
+    "- 存货核算的登录日期须在启用年度（建议就用启用日期），否则 400\n\n"
+    + _LIMITS
+    + "**权限**\n"
+    "- 功能权限：采购 PU0206，存货核算 ASM3102\n\n"
+    "**错误**\n"
+    "- 400：module 或 action 不对，不访问 U8\n"
+    "- 采购 409 state_mismatch：\n"
+    "  - 期初已记账（再记）、期初未记账（取消）\n"
+    "  - 已有月份结账、采购管理未启用\n"
+    "  - 已有采购发票，或存货核算已期初记账，不能取消\n"
+    "- 存货核算 409 state_mismatch：\n"
+    "  - 存货核算未启用、期初已记账、期初未记账\n"
+    "  - 已有月份结账或已有日常数据（不能取消）\n"
+    "  - 库存与存货核算启用日期不一致\n"
+    "  - 有先进先出 / 后进先出计价的期初行（接口暂不支持）"
 )
 
 
@@ -58,21 +73,30 @@ class OpeningsPostOut(BaseModel):
 
 OPENINGS_ARAP_SUMMARY = "应收应付期初单据"
 OPENINGS_ARAP_HELP = (
-    "应收 / 应付期初单据的新增、删除、审核、弃审（U8 应收款管理、应付款管理「期初余额」里的期初单据，"
-    "功能权限 AR0306 / AP0306）。默认关闭（桥未开 enableReplicatedWrites 时 403 feature_disabled），打开后只对 CO 桥配置为测试账套（testAccounts）的账套开放，其他账套 403 test_account_only，"
-    "不登录 U8。side 为 ar（应收）或 ap（应付）；action 为 create、delete、verify、unverify。"
-    "期初单据是只有表头的应收单 / 应付单（bStartFlag=1），单据日期固定为该模块启用日期的前一天（不收日期字段）。"
-    "create 收 partner（客户 / 供应商编码）、amount（原币金额，非 0；负数表示反方向余额，如预收 / 预付，"
-    "照 U8 存为正数并取反借贷方向）、account（本系统受控的末级科目），"
-    "可选 department、person、digest、currency、exch_rate（本位币汇率只能省略或为 1，外币必须给）；不收 id。"
-    "delete、verify、unverify 只收 id（Ap_Vouch.Auto_ID）。"
-    "审核照 U8 期初形态写往来明细（第 0 期，登记、审核日期为启用日前一天）。"
-    "响应同应收单 / 应付单的新增、审核（type 为 ar_bill / ap_bill、id、code、state），另带 side、opening=true，"
-    "新增还带 start_date（启用日期）和 date（单据日期）。普通的 ar_bill / ap_bill 路由照旧不处理期初单据。"
-    "404 not_found：单据不存在。409 state_mismatch：模块启用的第一个月已经结账，不能修改期初单据；模块未启用；"
-    "不是期初单据；单据已审核；单据未审核；单据已生成凭证、已核销或已有往来明细（不能弃审 / 删除）。"
-    "字段组合不对 400，不访问 U8。"
-    "dry_run 为 true 时在事务里执行后回滚（rollback 模式），什么都不写入，返回 DryRunOut。"
+    "新增、删除、审核、弃审应收 / 应付期初单据（U8 应收款管理、应付款管理「期初余额」）。\n\n"
+    "**用法**\n"
+    "- create 收 partner、amount、account，可选 department、person、digest、currency、exch_rate\n"
+    "- delete、verify、unverify 只收 id\n"
+    "- 响应同应收单 / 应付单的新增、审核（type 为 ar_bill / ap_bill），另带 side、opening=true\n"
+    "- 新增响应还带 start_date（启用日期）和 date（单据日期）\n"
+    "- dry_run：事务里执行后回滚（rollback 模式），什么都不写入，返回 DryRunOut\n\n"
+    "**规则**\n"
+    "- 期初单据是只有表头的应收单 / 应付单（bStartFlag=1）\n"
+    "- 单据日期固定为该模块启用日期的前一天，不收日期字段\n"
+    "- amount 为负数时照 U8 存为正数并取反借贷方向\n"
+    "- 审核照 U8 期初形态写往来明细：第 0 期，登记、审核日期为启用日前一天\n"
+    "- 普通的 ar_bill / ap_bill 路由不处理期初单据\n\n"
+    + _LIMITS
+    + "**权限**\n"
+    "- 功能权限：应收 AR0306，应付 AP0306\n\n"
+    "**错误**\n"
+    "- 400：字段组合不对，不访问 U8\n"
+    "- 404 not_found：单据不存在\n"
+    "- 409 state_mismatch：\n"
+    "  - 模块启用的第一个月已经结账，不能修改期初单据\n"
+    "  - 模块未启用，或不是期初单据\n"
+    "  - 单据已审核，或单据未审核\n"
+    "  - 单据已生成凭证、已核销或已有往来明细（不能弃审 / 删除）"
 )
 _ID_MAX = 2147483647
 _AMOUNT_MAX = 1000000000000

@@ -11,14 +11,18 @@ import datetime as dt
 import re
 
 from u8co_api.co_clock import login_defaults
+from u8co_api.co_doctext import section
 
 SETTLE_KIND = "purchase_settle"
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
-SETTLE_GEN_HELP = (
-    "采购结算单参照采购发票（type=purchase_settle，source_type=purchase_invoice，id 是 PBVID）：按整张发票自动结算，"
-    "不能带 lines；表头只收 settle_date（yyyy-MM-dd，可省），它就是这一笔的 U8 登录日期（覆盖 date），"
-    "不能晚于今天，"
-    "不能早于发票日期和入库日期，所在期间采购未结账，且之前各月采购已结账（U8 判断，否则 409 原文）"
+SETTLE_GEN_HELP = section(
+    "采购结算单（type=purchase_settle，source_type=purchase_invoice，id 是 PBVID）",
+    (
+        "按整张发票自动结算，不能带 lines",
+        "表头只收 settle_date（yyyy-MM-dd，可省），它就是这一笔的 U8 登录日期（覆盖 date）",
+        "settle_date 不能晚于今天，不能早于发票日期和入库日期",
+        "所在期间采购未结账，且之前各月采购已结账（U8 判断，否则 409 原文）",
+    ),
 )
 
 

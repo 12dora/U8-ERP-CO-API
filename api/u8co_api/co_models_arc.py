@@ -8,6 +8,7 @@ from typing import Annotated, Any, ClassVar
 
 from pydantic import BaseModel, Field, StrictBool, StrictInt, field_validator, model_validator
 
+from u8co_api.co_doctext import field_doc
 from u8co_api.co_fa_card_write import check_fa_write
 from u8co_api.co_fa_write import refuse_archive_op
 from u8co_api.co_models import CoAuth
@@ -122,13 +123,28 @@ ReadCode = Annotated[
     Field(
         pattern=rf"^{_TRIMMED}$",
         max_length=_READ_CODE_MAX,
-        description="档案编码，首尾不能有空白，不含控制字符。最长 30 个字符（account 40，unit、unit_group 35，"
-        "position、operator、role 20，rd_style、aa_bank 5，purchase_type、sale_type 2，district_class、trade_class 12，"
-        "settle_style 3，currency 8，reason 10）；"
-        "project 写成 <项目大类>:<项目编码>（大类 1 到 2 位字母数字，项目编码 1 到 60 个字符）；"
-        "customer_address 写成 <客户编码>:<地址编码>（20、30），user_define 写成 <自定义项号>:<档案值>（10、400），"
-        "customer_inventory 写成 <客户编码>:<存货编码>（20、60）；"
-        "exchange_rate 写成 <币种>:<年度>:<期间>[:<日>]，get 也可以写 <币种>:<yyyy-mm-dd>",
+        description=field_doc(
+            "档案编码，首尾不能有空白，不含控制字符。",
+            (
+                "用法",
+                (
+                    "project：`<项目大类>:<项目编码>`，大类 1 到 2 位字母数字，项目编码 1 到 60 个字符",
+                    "customer_address：`<客户编码>:<地址编码>`，两段最长 20、30",
+                    "user_define：`<自定义项号>:<档案值>`，两段最长 10、400",
+                    "customer_inventory：`<客户编码>:<存货编码>`，两段最长 20、60",
+                    "exchange_rate：`<币种>:<年度>:<期间>[:<日>]`；get 也可以写 `<币种>:<yyyy-mm-dd>`",
+                ),
+            ),
+            (
+                "限制",
+                (
+                    "一般最长 30 个字符",
+                    "account 40；unit、unit_group 35；position、operator、role 20",
+                    "rd_style、aa_bank 5；purchase_type、sale_type 2；district_class、trade_class 12",
+                    "settle_style 3，currency 8，reason 10",
+                ),
+            ),
+        ),
     ),
 ]
 

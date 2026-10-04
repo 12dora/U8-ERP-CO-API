@@ -12,6 +12,8 @@ from __future__ import annotations
 import math
 import re
 
+from u8co_api.co_doctext import section
+
 INSPECT_KINDS = ("qm_incoming_inspect", "qm_product_inspect")
 # 其他检验单（QM15）参照其他报检单（QM11）生单，请求规则同来料检验单。
 OTHER_CHECK = "qm_other_check"
@@ -29,35 +31,64 @@ QM_SOURCES = {
     "qm_product_reject": ("qm_product_check",),
     OTHER_CHECK: (OTHER_INSPECT,),
 }
-QM_GEN_HELP = (
-    "来料报检单（qm_incoming_inspect）参照已审核的蓝字到货单（id 是到货单 ID），产品报检单（qm_product_inspect）"
-    "参照已审核未关闭的生产订单（id 是 MoId）：明细 1 到 200 行，每行 source_line_id（到货单行 Autoid 或 MoDId）、"
-    "大于 0 的 quantity，可带 cWhCode；表头可省略，只收 dDate、cDepCode、cInspectDepCode、cDefine1–16。"
-    "来料检验单（qm_incoming_check）参照已审核的来料报检单、产品检验单（qm_product_check）参照已审核的产品报检单"
-    "（id 是报检单 ID）：只能 1 行，source_line_id 是报检单表体 AUTOID，quantity 是本次检验数量，"
-    "可带 fRegQuantity（合格）、fConQuantiy（让步）、fDisQuantity（不良），三者之和必须等于 quantity；"
-    "表头必须有 cCheckPersonCode（检验员），可带 cDepCode、project_code（检验方案）、cChkConclusion、"
-    "fDtQuantity（抽检量，大于 0）、dDate、cDefine1–16、chDefine11–16，"
-    "cYielderCode（让步接收核准人的人员编码，有让步数量时来料 / 产品检验单必填）、dYieldDate（核准日期），"
-    "以及 items（1 到 50 个检验项目 {cChkItemCode, cChkGuideCode, cCheckValue?, cTargetQJug?}，"
-    "cTargetQJug 只能是 合格 或 不合格）"
-    "。来料不良品处理单（qm_incoming_reject）参照来料检验单、产品不良品处理单（qm_product_reject）参照产品检验单"
-    "（id 是检验单 ID，检验单须已审核、有未处理的不良数量、未生成过不良品处理单）：每行一种处理方式，"
-    "source_line_id 等于 id，quantity 大于 0，各行之和必须等于检验单的不良数量；"
-    "cScrapDisCode（不良品处理方式编码）、cReasonCode（不良原因编码）必填，"
-    "处理流程为降级时必须有 cDimInvCode（降级存货），"
-    "可带 cbWhCode；表头可省略，只收 dDate、cDefine1–16、chDefine11–16（处理单没有备注列）。"
-    "保存由 U8 自行提交，dry_run 只做校验"
-    "。其他检验单（qm_other_check）参照已审核的其他报检单（id 是其他报检单 ID，source_line_id 是表体 AUTOID，"
-    "每行只能生成一张）：表头表体规则同来料检验单；cDepCode（检验部门）省略时取检验员的所属部门。"
-    "保存由 U8 自行提交，dry_run 只做校验"
+QM_GEN_HELP = "\n\n".join(
+    (
+        section(
+            "来料报检单、产品报检单",
+            (
+                "来料报检单（qm_incoming_inspect）参照已审核的蓝字到货单（id 是到货单 ID）",
+                "产品报检单（qm_product_inspect）参照已审核未关闭的生产订单（id 是 MoId）",
+                "明细 1 到 200 行，每行 source_line_id（到货单行 Autoid 或 MoDId）、大于 0 的 quantity，可带 cWhCode",
+                "表头可省略，只收 dDate、cDepCode、cInspectDepCode、cDefine1–16",
+            ),
+        ),
+        section(
+            "来料检验单、产品检验单",
+            (
+                "来料检验单（qm_incoming_check）参照已审核的来料报检单（id 是报检单 ID）",
+                "产品检验单（qm_product_check）参照已审核的产品报检单（id 是报检单 ID）",
+                "只能 1 行：source_line_id 是报检单表体 AUTOID，quantity 是本次检验数量",
+                "行可带 fRegQuantity（合格）、fConQuantiy（让步）、fDisQuantity（不良），三者之和必须等于 quantity",
+                "表头必须有 cCheckPersonCode（检验员）",
+                "表头可带 cDepCode、project_code（检验方案）、cChkConclusion、fDtQuantity（抽检量，大于 0）",
+                "表头可带 dDate、cDefine1–16、chDefine11–16、dYieldDate（核准日期）",
+                "cYielderCode：让步接收核准人的人员编码，有让步数量时来料 / 产品检验单必填",
+                "items：1 到 50 个检验项目 {cChkItemCode, cChkGuideCode, cCheckValue?, cTargetQJug?}",
+                "cTargetQJug 只能是 合格 或 不合格",
+            ),
+        ),
+        section(
+            "来料不良品处理单、产品不良品处理单",
+            (
+                "来料不良品处理单（qm_incoming_reject）参照来料检验单，产品不良品处理单（qm_product_reject）参照产品检验单",
+                "id 是检验单 ID；检验单须已审核、有未处理的不良数量、未生成过不良品处理单",
+                "每行一种处理方式：source_line_id 等于 id，quantity 大于 0，各行之和必须等于检验单的不良数量",
+                "cScrapDisCode（不良品处理方式编码）、cReasonCode（不良原因编码）必填",
+                "处理流程为降级时必须有 cDimInvCode（降级存货）；可带 cbWhCode",
+                "表头可省略，只收 dDate、cDefine1–16、chDefine11–16（处理单没有备注列）",
+            ),
+        ),
+        section(
+            "其他检验单（qm_other_check）",
+            (
+                "参照已审核的其他报检单：id 是其他报检单 ID，source_line_id 是表体 AUTOID，每行只能生成一张",
+                "表头表体规则同来料检验单；cDepCode（检验部门）省略时取检验员的所属部门",
+            ),
+        ),
+        section("质量单据通用", ("保存由 U8 自行提交，dry_run 只做校验",)),
+    )
 )
 # 其他报检单（qm_other_inspect）无来源新增（vouchers/create）的表头、表体字段，与桥 QmOthReq 一致。
-QM_OTHER_CREATE_HELP = (
-    "。其他报检单（qm_other_inspect）无来源新增：表头只收 dDate、cInspectDepCode（省略时取本操作员最近一张的报检部门）、"
-    "cDefine1–16、chDefine11–16（U8 单据模板设为必输的，如 cDefine10、chDefine16，缺了 400）；"
-    "明细 1 到 200 行，每行 cInvCode、大于 0 的 quantity，可带 iTestStyle（0 到 3 的整数，省略时取存货档案）和 cWhCode；"
-    "不收来源字段。保存由 U8 自行提交（按选项自动审核），dry_run 只做校验"
+QM_OTHER_CREATE_HELP = section(
+    "其他报检单（qm_other_inspect）无来源新增",
+    (
+        "表头只收 dDate、cInspectDepCode、cDefine1–16、chDefine11–16",
+        "cInspectDepCode 省略时取本操作员最近一张的报检部门",
+        "U8 单据模板设为必输的（如 cDefine10、chDefine16）缺了 400",
+        "明细 1 到 200 行，每行 cInvCode、大于 0 的 quantity；不收来源字段",
+        "每行可带 iTestStyle（0 到 3 的整数，省略时取存货档案）和 cWhCode",
+        "保存由 U8 自行提交（按选项自动审核），dry_run 只做校验",
+    ),
 )
 _QTY_MAX = 10**12
 _ID_MAX = 2147483647

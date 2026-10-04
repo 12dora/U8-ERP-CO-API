@@ -11,11 +11,16 @@ import re
 from decimal import Decimal
 
 SRCLESS_CREATE = ("dispatch", "sale_invoice", "arrival", "material_out")
+# 新增单据类型说明（co_models_types.CREATE_TYPE_HELP）里的「无来源新增」小节。
 SRCLESS_HELP = (
-    "。无来源新增：发货单（不挂销售订单）、销售发票（先开票，U8 另生成发货单，响应另给 dispatch_id）、"
-    "到货单（不挂采购订单）、材料出库单（来源库存）；账套打开对应的「必有订单」选项时 409"
-    "。无来源销售出库单（sale_out，来源库存）：表头必填 cwhcode、ccuscode、cdepcode；"
-    "账套已启用销售管理或库存选项设为由销售系统生成时 409，须参照发货单生成"
+    "无来源新增",
+    (
+        "发货单（不挂销售订单）、到货单（不挂采购订单）、材料出库单（来源库存）",
+        "销售发票（先开票）：U8 另生成发货单，响应另给 dispatch_id",
+        "账套打开对应的「必有订单」选项时 409",
+        "销售出库单（sale_out，来源库存）：表头必填 cwhcode、ccuscode、cdepcode",
+        "无来源销售出库单：账套已启用销售管理或库存选项设为由销售系统生成时 409，须参照发货单生成",
+    ),
 )
 _SA_HEAD = frozenset(
     "ccuscode cstcode cdepcode cpersoncode cexch_name iexchrate itaxrate ddate cmemo cshipaddress cscode cpaycode".split()

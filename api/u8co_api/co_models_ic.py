@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator, model_validator
 
+from u8co_api.co_doctext import op_doc
 from u8co_api.co_models import CoAuth, Cell
 from u8co_api.co_models_gl import DATE, PASS, Scalar
 
@@ -23,27 +24,58 @@ _ACC = r"^\d{3}$"
 _CODE = r"^[^\x00-\x1f\x7f]{1,60}$"
 
 MATCH_SUMMARY = "公司间对账"
-MATCH_HELP = (
-    "只读。按公司间对照（U8CO_IC_MAP_FILE）把卖方账套的销售单据和买方账套的采购单据逐行配对。"
-    "卖方单据按「买方公司在卖方账套里的客户编码」查，买方单据按「卖方公司在买方账套里的供应商编码」查。"
-    "存货按对照换成同一个存货 id：match 为 code 的先按日期、存货、数量完全相同配对，再在 window_days 天内配对；"
-    "match 为 qty_date 的只按数量和当天配对。没有对照的存货不配对，列在未配对里（reason 为 unmapped）。"
-    "销售出库、采购入库的明细取自库存台账，只比对对照里的存货；发货单、到货单和发票逐张读取。"
-    "两边都是发票时缺省按月（invoice_mode=month）比较价税合计，差额不超过 0.05 算配上。"
-    "只比对到 clip_date（两边最后一笔日期中较早的那天）为止，之后的明细计入 clipped。"
-    "logins 是 2 到 3 个账套的登录，必须含 seller.acc 和 buyer.acc，且同在一个公司组；令牌要能用其中每个账套，"
-    "有一个不行就 403 account_not_allowed。日期区间最多 93 天。"
-    "没配置对照 404 ic_not_configured，账套不在同一组 400 ic_group_mismatch，对照里缺往来单位编码 409 ic_party_unmapped。"
+MATCH_HELP = op_doc(
+    "把卖方账套的销售单据和买方账套的采购单据逐行配对（只读）。",
+    (
+        "用法",
+        (
+            "logins 给 2 到 3 个账套的登录，必须含 seller.acc 和 buyer.acc",
+            "两边都是发票时缺省按月（invoice_mode=month）比较价税合计",
+        ),
+    ),
+    (
+        "规则",
+        (
+            "按公司间对照（U8CO_IC_MAP_FILE）配对，各账套须在同一个公司组",
+            "卖方单据按「买方公司在卖方账套里的客户编码」查",
+            "买方单据按「卖方公司在买方账套里的供应商编码」查",
+            "存货按对照换成同一个存货 id；没有对照的不配对，列在未配对里（reason 为 unmapped）",
+            "match=code：先按日期、存货、数量完全相同配对，再在 window_days 天内配对",
+            "match=qty_date：只按数量和当天配对",
+            "销售出库、采购入库的明细取自库存台账，只比对对照里的存货",
+            "发货单、到货单和发票逐张读取",
+            "按月比较发票时，差额不超过 0.05 算配上",
+            "只比对到 clip_date（两边最后一笔日期中较早的那天），之后的明细计入 clipped",
+        ),
+    ),
+    ("限制", ("日期区间最多 93 天",)),
+    (
+        "错误",
+        (
+            "403 account_not_allowed：令牌不能用其中某个账套",
+            "404 ic_not_configured：没配置对照",
+            "400 ic_group_mismatch：账套不在同一组",
+            "409 ic_party_unmapped：对照里缺往来单位编码",
+        ),
+    ),
 )
 GENERATE_SUMMARY = "按卖方单据生成买方单据"
 GENERATE_HELP = (
-    "写。把卖方（seller_acc）的一组出库明细按公司间对照换成买方账套的存货，参照买方账套里卖方公司（供应商）"
-    "未执行完的采购订单生成采购入库单或到货单（vouchers/generate，source_type=purchase_order）。"
-    "给了 po_id 就用这张订单；否则取能覆盖全部存货和数量的、id 最小的未执行完订单，没有时 409 ic_no_open_po。"
-    "同一存货的多行合并后按订单行顺序分配数量。type 不能是 other_in（400）：公司间采购要走采购订单。"
-    "dry_run 缺省为 true（预演，返回 DryRunOut，另有 plan）；正式生成时 dry_run 必须写 false，并且必须带 "
-    "Idempotency-Key（按买方账套记录）。正式生成同样经过买方账套的写入策略。"
-    "存货没有对照 409 ic_inventory_unmapped（detail.codes 列出）。"
+    "把卖方（seller_acc）的一组出库明细换成买方账套的存货，在买方账套参照采购订单生成采购入库单或到货单。\n\n"
+    "**用法**\n"
+    "- 按公司间对照换存货，参照买方账套里卖方公司（供应商）未执行完的采购订单。\n"
+    "- 生单走 vouchers/generate，source_type=purchase_order。\n"
+    "- 给了 po_id 就用这张订单；否则取能覆盖全部存货和数量的、id 最小的未执行完订单。\n"
+    "- 同一存货的多行合并后按订单行顺序分配数量。\n"
+    "- dry_run 缺省为 true（预演，返回 DryRunOut，另有 plan）。\n"
+    "- 正式生成时 dry_run 必须写 false，并且必须带 Idempotency-Key（按买方账套记录）。\n\n"
+    "**规则**\n"
+    "- 正式生成同样经过买方账套的写入策略。\n\n"
+    "**限制**\n"
+    "- type 不能是 other_in（400）：公司间采购要走采购订单。\n\n"
+    "**错误**\n"
+    "- 没有可用的未执行完订单：409 ic_no_open_po。\n"
+    "- 存货没有对照：409 ic_inventory_unmapped（detail.codes 列出）。"
 )
 
 

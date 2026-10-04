@@ -9,6 +9,7 @@ amount（可省，结算金额；红蓝入库对冲行不收）。其他明细�
 
 from __future__ import annotations
 
+from u8co_api.co_doctext import section
 from u8co_api.co_gen_pu_settle import SETTLE_KIND, check_settle_gen
 
 LINES_MAX = 400
@@ -16,13 +17,17 @@ OTHER_LINES_MAX = 200
 _ID_MAX = 2147483647
 _NUM_MAX = 10**12
 _KEYS = frozenset(("in_line_id", "invoice_line_id", "quantity", "amount"))
-SETTLE_CREATE_HELP = (
-    "采购结算单手工结算（purchase_settle，第一级写入）：表头只收 settle_date（可省，即本次 U8 登录日期）；"
-    "明细 1 到 400 行，每行 in_line_id（采购入库行 AutoID）、invoice_line_id（采购发票行 ID）、quantity（带符号）、"
-    "amount（可省，结算无税金额，缺省按发票行金额比例）。两个 id 都给是配对；只给 in_line_id 是红蓝入库对冲，"
-    "只给 invoice_line_id 是红蓝发票对冲，各自同一存货的数量合计须为 0。"
-    "只做普通采购、人民币、专用或普通发票、一个供应商；委外、外币、费用分摊、同一发票行既对冲又配对 400 / 409，"
-    "请在 U8 客户端结算。"
+SETTLE_CREATE_HELP = section(
+    "采购结算单手工结算（purchase_settle，第一级写入）",
+    (
+        "表头只收 settle_date（可省，即本次 U8 登录日期）",
+        "明细 1 到 400 行，每行 in_line_id（采购入库行 AutoID）、invoice_line_id（采购发票行 ID）、quantity（带符号）",
+        "amount 可省：结算无税金额，缺省按发票行金额比例",
+        "两个 id 都给是配对；只给 in_line_id 是红蓝入库对冲；只给 invoice_line_id 是红蓝发票对冲",
+        "对冲时各自同一存货的数量合计须为 0",
+        "只做普通采购、人民币、专用或普通发票、一个供应商",
+        "委外、外币、费用分摊、同一发票行既对冲又配对：400 / 409，请在 U8 客户端结算",
+    ),
 )
 
 

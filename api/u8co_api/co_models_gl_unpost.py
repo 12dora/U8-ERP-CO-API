@@ -10,14 +10,20 @@ from u8co_api.co_models_gl_post import GlPostVoucherIn
 from u8co_api.co_models_gl import PASS, Scalar
 
 GL_UNPOST_HELP = (
-    "取消记账：撤销本年度最近一次记账（同 U8 客户端「恢复记账前状态 → 最近一次记账」），"
-    "按 U8 记账的汇总口径冲回科目总账、辅助总账和多辅助总账，凭证改回未记账，在一个事务里完成。"
-    "范围是 U8 记录的最近一次记账（桥记账和 U8 客户端记账都会留下），不能挑选单张凭证；"
-    "给了 period、vouchers 时必须与这次记账的范围完全一致，否则 409 不写入。"
-    "期间或后续期间已结账、凭证已做银行对账或往来两清、已被红字冲销、正被人编辑、本年度没有可恢复的记账时返回 409。"
-    "冲回后与已记账凭证重新汇总核对，不一致整笔回滚并返回 409。"
-    "默认关闭（桥未开 enableReplicatedWrites 时 403 feature_disabled），打开后只对桥配置为测试账套的账套开放（其余 403 test_account_only）。"
-    "收到 504 outcome_unknown 时先用 gl/vouchers/load 核对 posted 再决定是否重试。"
+    "撤销本年度最近一次记账（同 U8 客户端「恢复记账前状态 → 最近一次记账」），凭证改回未记账。\n\n"
+    "**规则**\n"
+    "- 按 U8 记账的汇总口径冲回科目总账、辅助总账和多辅助总账，在一个事务里完成\n"
+    "- 范围是 U8 记录的最近一次记账（桥记账和 U8 客户端记账都会留下），不能挑选单张凭证\n"
+    "- 给了 period、vouchers 时必须与这次记账的范围完全一致\n"
+    "- 冲回后与已记账凭证重新汇总核对，不一致整笔回滚\n\n"
+    "**限制**\n"
+    "- 默认关闭：桥未开 enableReplicatedWrites 时 403 feature_disabled\n"
+    "- 打开后只对桥配置为测试账套的账套开放，其余 403 test_account_only\n\n"
+    "**错误**\n"
+    "- 409（不写入）：period、vouchers 与这次记账的范围不一致，或冲回后核对不一致\n"
+    "- 409：期间或后续期间已结账、凭证已做银行对账或往来两清\n"
+    "- 409：凭证已被红字冲销、正被人编辑，或本年度没有可恢复的记账\n"
+    "- 504 outcome_unknown：先用 gl/vouchers/load 核对 posted 再决定是否重试"
 )
 
 # 与桥 GlUnpostReq.Max 一致：一次最多恢复 500 张（桥记账一次最多 200 张，U8 客户端的一次记账可能更多）。

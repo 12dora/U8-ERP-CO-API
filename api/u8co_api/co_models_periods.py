@@ -6,25 +6,42 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, StrictBool, StrictInt, model_validator
 
+from u8co_api.co_doctext import TEST_ONLY_GATE
 from u8co_api.co_models import CoAuth
 from u8co_api.co_models_dry import DryRunFlag
 from u8co_api.co_models_gl import PASS, Scalar
 
 PERIODS_CLOSE_SUMMARY = "月末结账"
 PERIODS_CLOSE_HELP = (
-    "月末结账或取消结账（U8 各模块的「月末结账」）。默认关闭（桥未开 enableReplicatedWrites 时 403 feature_disabled），打开后只对 CO 桥配置为测试账套（testAccounts）的账套开放，"
-    "其他账套 403 test_account_only，不登录 U8。module 为 pu、sa、st、ia、ar、ap、gl，fiscal_year 是会计年度，"
-    "period 是 1 到 12；action 为 close（结账）或 reopen（取消结账，只能取消最后一个已结账的期间）。"
-    "through 为 true 时（只和 close 一起用，module 可省略）按 U8 的顺序（采购、销售 → 库存 → 存货核算 → 应收、应付 → 总账）"
-    "把各已启用模块从最早的年度起到 fiscal_year 年 period 期为止的未结账期间逐月结账，全部在一个事务里。"
-    "功能权限：采购 PU0207、销售 SA020901、库存 ST0304、存货核算 IA2007、应收 AR0509、应付 AP0509、总账结账 GL1512、"
-    "总账反结账 GL1520；through 要所涉每个模块的结账权限。"
-    "409 state_mismatch：上一期间还没结账、该期间已结账、同期前置模块还没结账、有未审核 / 未复核的单据、"
-    "有未记账的凭证、请先做期间损益结转、存货核算该月未做期末处理或有未记账的单据、库存或存货核算的选项接口暂不支持、"
-    "采购未做期初记账、总账结账前固定资产 / 薪资 / 成本还没结账（桥不结这几个模块）等。"
-    "库存结账照 U8 写月末结存快照（ST_MonthAccount 等五张表），取消结账删除该月快照；响应和预演 detail 带 stock_rows。"
-    "存货核算有数据的月份照 U8 执行月末结账（取消结账），先用 ia/post、ia/period_end 记账并做期末处理；响应带 ia_counts。"
-    "dry_run 为 true 时在事务里执行后回滚（rollback 模式），返回 DryRunOut，会结账的期间在 detail.periods。"
+    "U8 各模块的月末结账或取消结账（U8「月末结账」）。\n\n"
+    "**用法**\n"
+    "- reopen 只能取消最后一个已结账的期间\n"
+    "- through 时全部在一个事务里，按 U8 顺序：采购、销售 → 库存 → 存货核算 → 应收、应付 → 总账\n"
+    "- 库存结账照 U8 写月末结存快照（ST_MonthAccount 等五张表），取消结账删除该月快照\n"
+    "- 库存结账的响应和预演 detail 带 stock_rows\n"
+    "- 存货核算有数据的月份照 U8 结账（取消结账），先用 ia/post、ia/period_end 记账并做期末处理\n"
+    "- dry_run：事务里执行后回滚（rollback 模式），返回 DryRunOut，会结账的期间在 detail.periods\n\n"
+    "**限制**\n" + TEST_ONLY_GATE + "\n"
+    "**权限**\n\n"
+    "| 模块 | 功能权限 |\n"
+    "| --- | --- |\n"
+    "| 采购 | PU0207 |\n"
+    "| 销售 | SA020901 |\n"
+    "| 库存 | ST0304 |\n"
+    "| 存货核算 | IA2007 |\n"
+    "| 应收 | AR0509 |\n"
+    "| 应付 | AP0509 |\n"
+    "| 总账 | 结账 GL1512，反结账 GL1520 |\n\n"
+    "- through 要所涉每个模块的结账权限\n\n"
+    "**错误**\n"
+    "- 409 state_mismatch，常见原因：\n"
+    "  - 上一期间还没结账、该期间已结账、同期前置模块还没结账\n"
+    "  - 有未审核 / 未复核的单据、有未记账的凭证\n"
+    "  - 请先做期间损益结转\n"
+    "  - 存货核算该月未做期末处理或有未记账的单据\n"
+    "  - 库存或存货核算的选项接口暂不支持\n"
+    "  - 采购未做期初记账\n"
+    "  - 总账结账前固定资产 / 薪资 / 成本还没结账（桥不结这几个模块）"
 )
 
 

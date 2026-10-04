@@ -9,6 +9,7 @@ import re
 from decimal import Decimal
 from typing import Any
 
+from u8co_api.co_doctext import section
 from u8co_api.co_fa_write import AMOUNT_MAX, EQUIPMENT, FA_CARD, FA_CARD_NO_UPDATE, bad, number, text_ok, whole
 
 _REQUIRED = (
@@ -56,17 +57,34 @@ _EQ_TAGS = frozenset(
     ).split()
 ) | frozenset(f"cdefine{index}" for index in range(1, 17))
 
-FA_WRITE_DESC = (
-    "；fa_card 固定资产卡片可新增、撤销本期新增（U8 官方 EAI 导入原始卡片；新增的 code 是资产编号，最长 20，"
-    "fields 收 name、type_code、original_value、start_date（早于固定资产当前期间）、origin_code、status_code、"
-    "depreciation_method_code、dept_code（必填）和 useful_life_months、used_months、accumulated_depreciation、"
-    "net_salvage、net_salvage_rate、spec、location、keeper、impairment、currency；响应的 code 是 U8 编的卡片编号，"
-    "另有 asset_num、card_id；删除的 code 是卡片编号，只删本期新增、没有变动单的卡片）；"
-    + FA_CARD_NO_UPDATE
-    + "，资产减少也请在 U8 客户端录入；equipment 设备台账只能新增（code 是设备编码，最长 30；fields 收 name（必填）和 EAI 标签 "
-    "ceqtypecode、cdepcode、cvencode、dtsydate、cassetnum、cmemo、cdefine1 到 cdefine16 等）"
+FA_WRITE_DESC = "\n\n".join(
+    (
+        section(
+            "fa_card 固定资产卡片（可新增、撤销本期新增）",
+            (
+                "新增走 U8 官方 EAI 导入原始卡片；code 是资产编号，最长 20",
+                "fields 必填：name、type_code、original_value、start_date、origin_code、status_code、"
+                "depreciation_method_code、dept_code",
+                "start_date 早于固定资产当前期间",
+                "fields 可选：useful_life_months、used_months、accumulated_depreciation、net_salvage、"
+                "net_salvage_rate、spec、location、keeper、impairment、currency",
+                "响应的 code 是 U8 编的卡片编号，另有 asset_num、card_id",
+                "删除的 code 是卡片编号，只删本期新增、没有变动单的卡片",
+                FA_CARD_NO_UPDATE,
+                "资产减少也请在 U8 客户端录入",
+            ),
+        ),
+        section(
+            "equipment 设备台账（只能新增）",
+            (
+                "code 是设备编码，最长 30",
+                "fields 收 name（必填）和 EAI 标签 ceqtypecode、cdepcode、cvencode、dtsydate、cassetnum、cmemo、"
+                "cdefine1 到 cdefine16 等",
+            ),
+        ),
+    )
 )
-FA_RO_DESC = "，equipment 设备台账（编码是设备编码，按表列名返回，支持 changed_since）"
+FA_RO_DESC = "`equipment` 设备台账：编码是设备编码，支持 changed_since"
 
 
 def check_fa_write(archive: str, fields: dict[str, Any], template: str | None) -> None:

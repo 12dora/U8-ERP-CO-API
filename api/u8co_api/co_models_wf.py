@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from u8co_api.co_doctext import op_doc
 from u8co_api.co_models import CoAuth, CoDocState
 from u8co_api.co_models_dry import DryRunFlag
 
@@ -18,6 +19,25 @@ WfType = Literal[
     "qm_incoming_reject",
     "qm_product_reject",
 ]
+
+
+_QM_ONLY = ("限制", ("只接受四张质量单据（见 type）",))
+_NO_OPINION = ("限制", ("不能带 opinion",))
+_OPINION = ("用法", ("opinion 可省略，最长 500 字",))
+_OPINION_MUST = ("用法", ("opinion 必填，最长 500 字",))
+# 审批流各路由的接口说明（co_table 登记）。
+WF_HELP = {
+    "state": op_doc("查询审批状态：是否受控、当前节点和待办。", _QM_ONLY),
+    "history": op_doc("按时间返回审批记录。", _QM_ONLY),
+    "tasks": op_doc("返回当前操作员的待办。", ("用法", ("type 可省略；给出时只接受四张质量单据",))),
+    "submit": op_doc("把质量单据提交到审批流。", _NO_OPINION),
+    "withdraw": op_doc("撤回尚未审完的提交。", _NO_OPINION),
+    "approve": op_doc("审批同意。", _OPINION),
+    "disagree": op_doc("不同意，并继续往后流转。", _OPINION_MUST),
+    "return": op_doc("把单据退回提交人。", _OPINION_MUST),
+    "abandon": op_doc("撤销本人最近一次同意。", _OPINION),
+    "resubmit": op_doc("退回提交人之后重新提交。", _NO_OPINION),
+}
 
 
 class CoWfIn(CoAuth):

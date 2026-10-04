@@ -12,6 +12,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, Field, StrictBool, ValidationInfo, field_validator, model_validator
 
+from u8co_api.co_doctext import op_doc
 from u8co_api.co_gen_source import SourceType
 from u8co_api.co_models import CoAuth, VoucherType
 from u8co_api.co_models_arc_names import ARCHIVE_DESC, ARCHIVE_RO_DESC, ReadArchiveName
@@ -57,54 +58,85 @@ DefineSpec = Annotated[str | dict[str, Any], AfterValidator(_define_spec)]
 
 FIELDS_SUMMARY = "字段标签"
 FIELDS_HELP = (
-    "只读，要登录（每个账套的单据模板不同）。type（单据类型）、archive（档案）、gl（总账凭证，true）三选一。"
-    "单据：op 为 create（缺省）、update 或 generate，generate 必须给 source（来源单据类型）；"
-    "字段名恰好是桥对该类型、该操作接受的可写字段（与 /v1/co/meta 的 kinds[].writable 相同，自定义项、自由项已展开），"
-    "字段在 head、lines 里；label、type、required、max_length、enum 取自本账套该类型的单据模板"
-    "（vt_source：fixed 桥写死的模板，user_default 操作员的缺省模板，card_default 系统缺省模板，none 没有模板）；"
-    "模板里没有的字段 label、type 为 null。type 为 bool、string、int、decimal、date 或 enum"
-    "（enum 另有 code、name 列表）。"
-    "required 为模板设为必输或桥自己要求。档案：字段在 fields 里，字段名是 meta archives[].writable 的标签，"
-    "label 取自 U8 的列字典，取不到为 null，type 为 null，没有 enum。"
-    "总账凭证：head、lines、cash_flow 三组，标签是固定的。"
-    "fields_revision 是返回的字段列表的 SHA-256，可用来判断模板有没有变。"
-    "类型或档案不认识 400（field 为 type / archive），该类型不支持这个操作 400（field 为 op）。"
+    "返回单据、档案或总账凭证的可写字段及其标签，要登录（每个账套的单据模板不同）。\n\n"
+    "**用法**\n"
+    "- type（单据类型）、archive（档案）、gl（总账凭证，true）三选一。\n"
+    "- fields_revision 是返回的字段列表的 SHA-256，可用来判断模板有没有变。\n\n"
+    "| 对象 | 字段位置 | 说明 |\n"
+    "|---|---|---|\n"
+    "| 单据 | head、lines | 字段名恰好是桥对该类型、该操作接受的可写字段，与 /v1/co/meta 的 kinds[].writable 相同，自定义项、自由项已展开 |\n"
+    "| 档案 | fields | 字段名是 meta archives[].writable 的标签；label 取自 U8 的列字典，取不到为 null；type 为 null，没有 enum |\n"
+    "| 总账凭证 | head、lines、cash_flow | 标签是固定的 |\n\n"
+    "**规则**\n"
+    "- 单据的 op 为 create（缺省）、update 或 generate；generate 必须给 source（来源单据类型）。\n"
+    "- 单据的 label、type、required、max_length、enum 取自本账套该类型的单据模板。\n"
+    "- vt_source：fixed 桥写死的模板，user_default 操作员的缺省模板，card_default 系统缺省模板，none 没有模板。\n"
+    "- 模板里没有的字段 label、type 为 null。\n"
+    "- type 为 bool、string、int、decimal、date 或 enum（enum 另有 code、name 列表）。\n"
+    "- required 为模板设为必输或桥自己要求。\n\n"
+    "**错误**\n"
+    "- 类型或档案不认识：400（field 为 type / archive）。\n"
+    "- 该类型不支持这个操作：400（field 为 op）。"
 )
 
 SEARCH_SUMMARY = "单据查询"
 SEARCH_HELP = (
-    "只读。按条件查某类单据的表头，与 vouchers/list 同一套取数（相同的条目、记录级数据权限、按主键续读）。"
-    "code_like 单据编号包含；partner 客户或供应商（收付款单、应收应付单是往来单位 cDwCode），该类型没有往来单位列 400；"
-    "warehouse 表头仓库，没有仓库列 400；inventory 明细含该存货（表头有存货列的类型按表头），没有存货列 400；"
-    "closed 该类型没有关闭状态 400。有往来单位列的类型每条另有 partner_name。"
-    "defines 按表头自定义项找单据（如表头自定义项 1 里的纸质合同号）："
-    "键是 define1–3、define8–14（表头的文本自定义项），"
-    "值是字符串（规整后相等：全角空格、不换行空格当半角空格，去两端空格）或 {eq | like | prefix: 字符串}"
-    "（相等、包含、开头是），最多 4 个键，条件之间是 AND；"
-    "其他键 400（field 为 defines.<键>，日期、数字自定义项 define4–7、define15–16 也不收），"
-    "生产订单、物料清单没有表头自定义项 400（field 为 defines）。给了 defines 时每条另有 defines：请求里各键的表头值"
-    "（规整后，空为 null）。"
-    "next 原样放进 after 读下一页。"
+    "按条件查某类单据的表头。\n\n"
+    "**用法**\n"
+    "- 与 vouchers/list 同一套取数：相同的条目、记录级数据权限、按主键续读。\n"
+    "- code_like：单据编号包含。\n"
+    "- partner：客户或供应商（收付款单、应收应付单是往来单位 cDwCode）；有往来单位列的类型每条另有 partner_name。\n"
+    "- warehouse：表头仓库。\n"
+    "- inventory：明细含该存货（表头有存货列的类型按表头）。\n"
+    "- defines：按表头自定义项找单据，如表头自定义项 1 里的纸质合同号。\n"
+    "- next 原样放进 after 读下一页。\n\n"
+    "**规则**\n"
+    "- defines 的键是 define1–3、define8–14（表头的文本自定义项），最多 4 个键，条件之间是 AND。\n"
+    "- defines 的值是字符串（规整后相等）或 `{eq | like | prefix: 字符串}`（相等、包含、开头是）。\n"
+    "- 规整：全角空格、不换行空格当半角空格，去两端空格。\n"
+    "- 给了 defines 时每条另有 defines：请求里各键的表头值（规整后，空为 null）。\n\n"
+    "**错误**\n"
+    "- 该类型没有往来单位列、仓库列、存货列或关闭状态时，对应的 partner、warehouse、inventory、closed 返回 400。\n"
+    "- defines 的其他键 400（field 为 `defines.<键>`）；日期、数字自定义项 define4–7、define15–16 也不收。\n"
+    "- 生产订单、物料清单没有表头自定义项：400（field 为 defines）。"
 )
 
 LOAD_MANY_SUMMARY = "批量读取单据"
 LOAD_MANY_HELP = (
-    "只读。一次读同一类型的 1 到 20 张单据（主键不能重复），整个请求只登录一次。"
-    "U8 组件读取的类型（销售、采购、库存、应收应付的单据）一次最多 5 张，多了 400（field 为 ids）；"
-    "按 SQL 读取的类型（采购发票、生产订单、物料清单、报检单、检验单、不良品处理单）最多 20 张。"
-    "items 按请求顺序：成功的项与 vouchers/load 的响应体相同，失败的项是 {id, error: {code, message}}"
-    "（not_found、no_permission 等），单张失败不影响其它；登录失败、许可满、繁忙等请求级错误照常返回错误。"
-    "fields / compact 只裁剪 items 每一项的顶层键（id、code、ok、error、masked_fields 总是保留），"
-    "不裁剪 items[].head、items[].lines。"
-    "字段权限：无权查看的字段值为 null，该项另带 masked_fields，信封上是各项的并集。"
+    "一次读同一类型的 1 到 20 张单据，整个请求只登录一次。\n\n"
+    "**用法**\n"
+    "- 主键不能重复。\n"
+    "- items 按请求顺序：成功的项与 vouchers/load 的响应体相同。\n"
+    "- 失败的项是 `{id, error: {code, message}}`（not_found、no_permission 等），单张失败不影响其它。\n"
+    "- fields / compact 只裁剪 items 每一项的顶层键（id、code、ok、error、masked_fields 总是保留）。\n"
+    "- fields / compact 不裁剪 items[].head、items[].lines。\n"
+    "- 字段权限：无权查看的字段值为 null，该项另带 masked_fields，信封上是各项的并集。\n\n"
+    "**限制**\n"
+    "- U8 组件读取的类型（销售、采购、库存、应收应付的单据）一次最多 5 张。\n"
+    "- 按 SQL 读取的类型（采购发票、生产订单、物料清单、报检单、检验单、不良品处理单）最多 20 张。\n\n"
+    "**错误**\n"
+    "- U8 组件读取的类型超过 5 张：400（field 为 ids）。\n"
+    "- 登录失败、许可满、繁忙等请求级错误照常返回错误。"
 )
 
 GET_MANY_SUMMARY = "批量读取档案"
-GET_MANY_HELP = (
-    "只读。一次按编码读同一档案的 1 到 20 条（编码不区分大小写，不能重复），编码写法与 archives/get 相同。"
-    "items 按请求顺序：成功的项与 archives/get 的响应体相同，失败的项是 {code, error: {code, message}}"
-    "（not_found、no_permission 等），单条失败不影响其它。"
-    "fields / compact 只裁剪 items 每一项的顶层键（id、code、ok、error 总是保留），不裁剪 items[].fields。"
+GET_MANY_HELP = op_doc(
+    "按编码批量读取同一档案的 1 到 20 条。",
+    (
+        "用法",
+        (
+            "编码写法与 archives/get 相同；不区分大小写，不能重复",
+            "fields / compact 只裁剪 items 每一项的顶层键（id、code、ok、error 总是保留），不裁剪 items[].fields",
+        ),
+    ),
+    (
+        "规则",
+        (
+            "items 按请求顺序；成功的项与 archives/get 的响应体相同",
+            "失败的项是 {code, error: {code, message}}（not_found、no_permission 等）",
+            "单条失败不影响其它",
+        ),
+    ),
 )
 
 FieldsOp = Literal["create", "update", "generate"]
@@ -197,8 +229,10 @@ class VoucherSearchIn(CoAuth):
         None,
         min_length=1,
         max_length=4,
-        description="表头自定义项条件，1 到 4 个键（" + "、".join(DEFINE_KEYS) + "）。值是字符串（规整后相等）"
-        "或 {eq | like | prefix: 字符串}，1 到 120 个字符。键由桥核对，不认识的键 400（field 为 defines.<键>）",
+        description="表头自定义项条件，1 到 4 个键。\n\n"
+        "- 键：" + "、".join(DEFINE_KEYS) + "\n"
+        "- 值：字符串（规整后相等）或 {eq | like | prefix: 字符串}，1 到 120 个字符\n"
+        "- 键由桥核对，不认识的键 400（field 为 defines.<键>）",
         examples=[{"define1": "HT202609039"}, {"define1": {"prefix": "HT2026"}, "define10": {"like": "框架"}}],
     )
 

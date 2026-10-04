@@ -13,10 +13,13 @@ _QTY_MAX = 10**12
 _TEXT_KEYS = {"cbatch": 60, "cposition": 20}
 _LINE_KEYS = frozenset({"source_line_id", "quantity", *_TEXT_KEYS})
 
+# 生单明细说明里「销售出库」小节的各条（co_models_edit_help）。
 SALE_OUT_LINES_HELP = (
-    "销售出库省略 lines 时按整张发货单生成；带 lines 时收 source_line_id（发货单行 iDLsID）、quantity，"
-    "另可带字符串 cbatch（批号，最长 60）、cposition（货位，最长 20）。同一发货行可以列多次、批号或货位不同（拆行），"
-    "各次数量之和不超过发货数量减累计出库数量，没列出的发货行不出库。"
+    "省略 lines 时按整张发货单生成",
+    "带 lines 时收 source_line_id（发货单行 iDLsID）、quantity",
+    "另可带字符串 cbatch（批号，最长 60）、cposition（货位，最长 20）",
+    "同一发货行可以列多次、批号或货位不同（拆行），各次数量之和不超过发货数量减累计出库数量",
+    "没列出的发货行不出库",
 )
 
 

@@ -8,12 +8,17 @@ from __future__ import annotations
 
 import re
 
+from u8co_api.co_doctext import section
 from u8co_api.co_stmisc import check_stmisc_qty
 
-TRANSFER_GEN_HELP = (
-    "调拨单参照调拨申请单（source_type=transfer_request，id 是申请单 ID）：表头只收 dTVDate、cMemo、cODepCode、cIDepCode、"
-    "cPersonCode、cORdCode、cIRdCode、cDefine1–16，仓库取自申请单；行只收 source_line_id（申请单行 autoID）、quantity、cbMemo，"
-    "数量不超过核准数量减累计调拨数量"
+TRANSFER_GEN_HELP = section(
+    "调拨单（source_type=transfer_request，id 是申请单 ID）",
+    (
+        "表头只收 dTVDate、cMemo、cODepCode、cIDepCode、cPersonCode、cORdCode、cIRdCode、cDefine1–16",
+        "仓库取自申请单",
+        "行只收 source_line_id（申请单行 autoID）、quantity、cbMemo",
+        "数量不超过核准数量减累计调拨数量",
+    ),
 )
 _HEAD_KEYS = frozenset({"dtvdate", "cmemo", "codepcode", "cidepcode", "cpersoncode", "cordcode", "cirdcode"})
 _LINE_KEYS = frozenset({"source_line_id", "quantity", "cbmemo"})

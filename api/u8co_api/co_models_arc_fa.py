@@ -10,8 +10,8 @@ FA_CODE_MAX = 20
 _CTRL = "\\x00-\\x1f\\x7f\\uFFFE\\uFFFF"
 _TRIMMED = rf"^[^\s{_CTRL}](?:[^{_CTRL}]*[^\s{_CTRL}])?$"
 FA_RO = (
-    "，fa_card 固定资产卡片（编码是卡片编号，按登录日期所在月的月末取卡片当时的版本和累计折旧；"
-    "列表缺省不含已减少的卡片，可按 type_code、dept_code 过滤）"
+    "`fa_card` 固定资产卡片：编码是卡片编号，按登录日期所在月的月末取卡片当时的版本和累计折旧",
+    "`fa_card` 列表缺省不含已减少的卡片，可按 type_code、dept_code 过滤",
 )
 
 

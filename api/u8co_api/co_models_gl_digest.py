@@ -13,13 +13,16 @@ DIGEST_MAX = 500
 Period = Annotated[StrictInt, Field(ge=1, le=12)]
 
 GL_DIGEST_HELP = (
-    "只读。按会计期间列出每张凭证的指纹，供事件服务发现凭证的新增、删除、审核、出纳签字、记账、作废和修改"
-    "（GL_accvouch 没有 rowversion）。periods 省略时桥取该年度全部未结账期间（GL_mend.bflag=0，1 到 12 期），"
-    "再加最近 closed_periods 个已结账期间（缺省 1），都只在这一个年度里取：上年仍未结账的期间、跨年的上年 12 月要显式给"
-    " fiscal_year 和 periods。响应的 periods 是实际扫描的期间，翻页时原样放进请求。"
-    "fingerprint 是 SUM(md)、SUM(mc)、行数、MAX(i_id)、制单人、审核人、出纳、记账人、记账标志、作废标志的 SHA-256。"
-    "watermark 是所扫期间的 MAX(i_id)，ident 是 GL_accvouch 的 IDENT_CURRENT。keys_only 只返回 period、sign、no、"
-    "fingerprint。next 原样放进 after 读下一页。"
+    "按会计期间列出每张凭证的指纹，供事件服务发现凭证变化。\n\n"
+    "**用法**\n"
+    "- 可发现新增、删除、审核、出纳签字、记账、作废和修改（GL_accvouch 没有 rowversion）\n"
+    "- 翻页：next 放进 after，响应的 periods 原样放进请求\n\n"
+    "**规则**\n"
+    "- periods 省略时取该年度全部未结账期间（GL_mend.bflag=0，1 到 12 期）\n"
+    "- 另加最近 closed_periods 个已结账期间（缺省 1）\n"
+    "- 只在一个年度里取：上年仍未结账的期间、跨年的上年 12 月要显式给 fiscal_year 和 periods\n"
+    "- fingerprint 是 SHA-256，取 SUM(md)、SUM(mc)、行数、MAX(i_id)、制单人、审核人、出纳、"
+    "记账人、记账标志、作废标志"
 )
 
 

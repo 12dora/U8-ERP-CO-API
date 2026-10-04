@@ -6,8 +6,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from u8co_api.co_edit_dispatch_add import DISPATCH_ADD_HELP, check_dispatch_adds
-from u8co_api.co_edit_qm import QM_UPDATE_HELP, check_qm_update
+from u8co_api.co_edit_dispatch_add import check_dispatch_adds
+from u8co_api.co_edit_qm import check_qm_update
 from u8co_api.co_gen_source import (
     SourceType,
     check_arrival,
@@ -18,57 +18,45 @@ from u8co_api.co_gen_source import (
     lines_optional,
     source_of,
 )
-from u8co_api.co_gen_pu_settle import SETTLE_GEN_HELP, SETTLE_KIND, check_settle_gen
+from u8co_api.co_gen_pu_settle import SETTLE_KIND, check_settle_gen
 from u8co_api.co_models_gen_row import check_gen_row
-from u8co_api.co_gen_qm import QM_GEN_HELP, QM_GEN_KINDS, check_qm_gen, nested_head
-from u8co_api.co_gen_red_sale import RED_SALE_HELP, check_red_sale_invoice
-from u8co_api.co_gen_sale_out import SALE_OUT_LINES_HELP, check_sale_out
-from u8co_api.co_gen_sale_return import APPLY_GENERATE_HELP, APPLY_UPDATE_HELP, check_apply_update, check_sale_return
-from u8co_api.co_gen_transfer import TRANSFER_GEN_HELP, check_transfer_gen
-from u8co_api.co_models_bom import BOM_UPDATE_HELP, CoBomComponent, check_bom_update
+from u8co_api.co_gen_qm import QM_GEN_KINDS, check_qm_gen, nested_head
+from u8co_api.co_gen_red_sale import check_red_sale_invoice
+from u8co_api.co_gen_sale_out import check_sale_out
+from u8co_api.co_gen_sale_return import check_apply_update, check_sale_return
+from u8co_api.co_gen_transfer import check_transfer_gen
+from u8co_api.co_models_bom import CoBomComponent, check_bom_update
 from u8co_api.co_models import Cell, CoAuth, CoDocState
 from u8co_api.co_models_dry import DryRunFlag
-from u8co_api.co_models_mo_update import MO_UPDATE_HELP, check_mo_update
+from u8co_api.co_models_edit_help import (
+    GENERATE_HEAD_HELP,
+    GENERATE_ID_HELP,
+    GENERATE_LINES_HELP,
+    GENERATE_SOURCE_HELP,
+    GENERATE_TYPE_HELP,
+    UPDATE_HEAD_HELP,
+    UPDATE_LINES_HELP,
+    UPDATE_TYPE_HELP,
+)
+from u8co_api.co_models_mo_update import check_mo_update
 from u8co_api.co_models_wf import CoLoadState
 from u8co_api.co_models_stock_opening import refuse_no_update
 from u8co_api.co_stmisc import check_stmisc_lines
 
 _OUT = ConfigDict(extra="ignore")
 _ID_MAX = 2147483647
-_UPDATE_TYPE = "可修改的单据类型：销售订单、采购订单、其他入库单、其他出库单、调拨单、采购入库单（无来源）"
 _CLOSE_TYPE = "可关闭或打开的单据类型：销售订单、采购订单"
-# 请购单可修改、可整单关闭或打开。
-_UPDATE_TYPE += "、请购单"
+# 请购单只能整单关闭或打开。
 _CLOSE_TYPE += "、请购单（只能整单，不带 line_ids）"
-# 形态转换单、调拨申请单可修改（盘点单不开修改）。
-_UPDATE_TYPE += "、形态转换单、调拨申请单"
 # 期初结存单（stock_opening）不能修改（U8 的期初单一张一行），API 层直接 400，与桥同文（refuse_no_update）。
 # 生单来的单据（不能新增行，数量只能减少）和应收应付（手工单，可增删行）。只改未审核的单据，见 docs/api-reference.md §8。
 # 销售出库单不在这里拒绝新增行——来源库存的（未启用销售管理的账套）可增删行，来源发货单的由桥拒绝。
 # 发货单可以新增参照来源销售订单的行（co_edit_dispatch_add.check_dispatch_adds），不在这里。
 _NO_ADD = tuple("sale_return sale_invoice product_in material_out arrival purchase_return purchase_invoice".split())
-_UPDATE_TYPE += (
-    "、发货单、退货单、销售发票、销售出库单、产成品入库单、材料出库单、采购入库单（参照生成）、到货单、采购退货单、采购发票"
-    "（这些生单来的类型不能新增行；发货单、来源为库存的销售出库单除外，可增删行、不能换仓库）、收款单、付款单、应收单、应付单"
-)
-# 物料清单（bom，id 是 BomId）按 sort_seq 定位行，只改未审核的标准 BOM。
-_UPDATE_TYPE += "、物料清单"
-# 生产订单（id 是 MoId）经 U8API MOrderLoad + MOrderUpdate 修改，子件全部重送并回读核对。
-# 退货申请单只改已有行（co_return_apply.check_apply_update）。
-_UPDATE_TYPE += "、生产订单、退货申请单"
-# 来料检验单、产品检验单、其他检验单、其他报检单（只收 head，co_edit_qm.check_qm_update）。
-_UPDATE_TYPE += "、来料检验单、产品检验单、其他检验单、其他报检单"
 # 生产订单按行关闭或打开（id 是 MoId，line_ids 是 MoDId）。
 _CLOSE_TYPE += "、生产订单（id 为 MoId，line_ids 为 MoDId）"
 # 到货单整单或按行关闭、打开（只限已审核的蓝字到货单，line_ids 为 Autoid）。
 _CLOSE_TYPE += "、到货单（line_ids 为 Autoid）"
-_GENERATE_TYPE = (
-    "参照生单的目标类型：发货单、销售出库单、采购入库单、销售发票、材料出库单、产成品入库单、采购发票、到货单"
-    "、采购退货单"
-    "、退货单（红字发货单）"
-    "、来料报检单、产品报检单、来料检验单、产品检验单、来料不良品处理单、产品不良品处理单"
-    "、调拨单（参照调拨申请单）" "、采购结算单（参照采购发票，整张自动结算）"
-)
 _SKIP_ADD = frozenset({"op"})
 _SKIP_UPDATE = frozenset({"op", "line_id"})
 _DELETE_KEYS = frozenset({"op", "line_id"})
@@ -249,21 +237,16 @@ def _refuse_out_head(head: dict[str, Cell] | None) -> None:
 
 
 class CoUpdateIn(CoAuth):
-    type: UpdateType = Field(..., description=_UPDATE_TYPE)
+    type: UpdateType = Field(..., description=UPDATE_TYPE_HELP)
     id: int = Field(..., gt=0, le=_ID_MAX, description="单据主键，1 到 2147483647")
     head: GenHead | None = Field(
         None,
-        description="要改的表头。只改列出的字段，值只能是字符串、数字或布尔，不能填主键、单号或审核人"
-        "（检验单的 items 是检验项目列表）。" + QM_UPDATE_HELP,
+        description=UPDATE_HEAD_HELP,
     )
     lines: list[dict[str, Cell]] | None = Field(
         None,
         max_length=200,
-        description="明细变更，0 到 200 行。op 为 add、update 或 delete。"
-        "add 不能带 line_id。update 和 delete 要有不重复的 line_id。"
-        "delete 只能有 op 和 line_id。update 至少再改一个字段。"
-        "生单来的单据不能 add（发货单、来源为库存的销售出库单除外），不能删光明细，数量只能减少（退货单、采购退货单填正数）。"
-        + DISPATCH_ADD_HELP + "。" + BOM_UPDATE_HELP + "。" + MO_UPDATE_HELP + "。" + APPLY_UPDATE_HELP,
+        description=UPDATE_LINES_HELP,
     )
     dry_run: DryRunFlag = False
 
@@ -331,58 +314,25 @@ class CoCloseIn(CoAuth):
 
 
 class CoGenerateIn(CoAuth):
-    type: GenerateType = Field(..., description=_GENERATE_TYPE)
+    type: GenerateType = Field(..., description=GENERATE_TYPE_HELP)
     id: int = Field(
         ...,
         gt=0,
         le=_ID_MAX,
-        description="来源单据主键。发货单来自销售订单，销售出库来自发货单，采购入库来自采购订单、来料检验单或蓝字到货单（ID），"
-        "销售发票来自发货单，材料出库来自生产订单（MoId），"
-        "产成品入库来自产品检验单（检验单 ID）、产品不良品处理单（处理单 ID）或生产订单（MoId），"
-        "采购发票来自采购入库单（红字入库单生成红字发票），到货单来自采购订单（POID），"
-        "采购退货单来自蓝字到货单（ID）或采购订单（POID）"
-        "，退货单（红字发货单）来自已审核的蓝字发货单（DLID）或已审核的退货申请单（source_type=sale_return_apply，申请单 ID）"
-        "，红字销售发票（source_type=sale_return）来自已审核的退货单（DLID）"
-        "，红冲蓝字销售发票（source_type=sale_invoice）来自已复核的蓝字销售发票（SBVID）"
-        "，来料报检单来自到货单（ID），产品报检单来自生产订单（MoId），检验单来自报检单（ID），不良品处理单来自检验单（ID），其他检验单来自其他报检单（ID）"
-        "，调拨单来自已审核的调拨申请单（ID）" "，采购结算单来自已复核的采购发票（PBVID）",
+        description=GENERATE_ID_HELP,
     )
     source_type: SourceType | None = Field(
         None,
-        description="来源单据类型。省略时取缺省来源。采购入库可选 purchase_order（缺省）、qm_incoming_check"
-        "、purchase_return（采购退货单，生成红字采购入库）或 arrival（蓝字到货单，lines 可省）；"
-        "产成品入库可选 qm_product_check（缺省）、qm_product_reject 或 production_order；"
-        "采购发票只能是 purchase_in；采购退货单可选 arrival（缺省）或 purchase_order；"
-        "销售发票可选 dispatch（缺省）、sale_return（退货单，生成红字发票）或 sale_invoice（蓝字发票，红冲）；采购结算单只能是 purchase_invoice；" "其它目标只能是各自唯一的来源",
+        description=GENERATE_SOURCE_HELP,
     )
     head: GenHead | None = Field(
         None,
-        description="目标表头覆盖。销售出库不能带表头。值只能是字符串、数字或布尔，不能填主键、单号或审核人。"
-        "采购发票只收字符串 cPBVCode（必填，最长 30）、cPBVBillType（01 或 02）、dPBVDate（yyyy-MM-dd）、"
-        "cPBVMemo（最长 255）。到货单和采购退货单只收字符串 cWhCode、dDate（yyyy-MM-dd）、cMemo、cDepCode，可省略。"
-        "参照来料检验单的采购入库必须有 cWhCode。"
-        "退货单只收 dDate（yyyy-MM-dd）、cMemo、cDepCode、cPersonCode、cDefine1–16，可省略；"
-        "另可带布尔 invoiced（false 未开票退货，true 已开票退货，省略时按可退数量自动选）。"
-        "只有检验单的 items 可以是列表。" + QM_GEN_HELP + "。" + RED_SALE_HELP + "。" + TRANSFER_GEN_HELP + "。" + SETTLE_GEN_HELP,
+        description=GENERATE_HEAD_HELP,
     )
     lines: list[dict[str, Cell]] | None = Field(
         None,
         max_length=200,
-        description="来源明细，1 到 200 行。每行要有 source_line_id 和大于 0 的 quantity。"
-        + SALE_OUT_LINES_HELP
-        + "材料出库的 source_line_id 是子件分配 AllocateId；材料出库、产成品入库的行另可带 cbatch、cbmemo 和货位 cposition（启用货位管理的仓库必填末级货位，否则不能填）；"
-        "产成品入库参照产品检验单：非合并检验只能有 1 行，source_line_id 是检验单 ID；合并检验（BMERGECHECKFLAG=1）每个来源一行（1 到 20 行），source_line_id 是合并来源 AUTOID（vouchers/load 的 merge_sources），数量不超过该来源的剩余；参照产品不良品处理单（qm_product_reject）或生产订单时只能有 1 行，source_line_id 分别是处理单表体 AUTOID、订单行 MoDId。"
-        "采购发票和到货单的行只能有 source_line_id 和 quantity（到货单是 PO_Podetails.ID）。"
-        "采购退货单同样只收这两项，source_line_id 是原到货单行 Autoid 或 PO_Podetails.ID，quantity 填正数（桥写负数）。"
-        "参照来料检验单的采购入库只能有 1 行（source_line_id 是检验单 ID），可带 cbatch、cbmemo 和货位 cposition"
-        "（启用货位管理的仓库必填末级货位，否则不能填）。"
-        "参照采购退货单的红字采购入库：source_line_id 是退货单行 Autoid，quantity 填正数（桥写负数）。"
-        "参照到货单的采购入库：source_line_id 是到货单行 Autoid，可带 cbatch、cbmemo、cposition、cWhCode（表头没给仓库时各行须一致），"
-        "lines 省略时按各行剩余可入库数量整单生成；需要来料检验的存货 409。"
-        "采购入库（四种来源）的行都可带货位 cposition：表头仓库启用货位管理时每行必填该仓库的末级货位，否则不能填。"
-        "参照红字入库单的采购发票同样 quantity 填正数，桥写负数、表头 bNegative=1。"
-        "退货单的 source_line_id 是原发货单行 iDLsID，quantity 填正数（桥写负数，不超过发货数量减累计退货数量），"
-        "另可带 cWhCode、cMemo、cDefine22–37" + APPLY_GENERATE_HELP,
+        description=GENERATE_LINES_HELP,
     )
     dry_run: DryRunFlag = False
 

@@ -10,6 +10,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, StrictBool, StrictInt, ValidationInfo, field_validator, model_validator
 
+from u8co_api.co_doctext import field_doc
 from u8co_api.co_models import CoAuth
 from u8co_api.co_models_gl import DATE, PASS, Scalar
 
@@ -173,9 +174,18 @@ class ReportAgingIn(ReportArapIn):
         None,
         ge=0,
         le=3650,
-        description="缺省信用天数，0 到 3650，只能和 basis=due 一起用。单据没有收款日期、信用期为 0 或空时，"
-        "到期日 = 信用起算日（没有取单据日期）+ 这么多天；信用期不为 0 的单据仍按信用期"
-        "（信用起算日 + 信用期，没有信用起算日取单据日期）。省略或为 0 时与原来的算法相同",
+        description=field_doc(
+            "缺省信用天数，0 到 3650，只能和 basis=due 一起用。",
+            (
+                "",
+                (
+                    "单据没有收款日期、信用期为 0 或空时：到期日 = 信用起算日 + 本值",
+                    "信用期不为 0 的单据仍按信用期：到期日 = 信用起算日 + 信用期",
+                    "没有信用起算日时取单据日期",
+                    "省略或为 0 时不加天数",
+                ),
+            ),
+        ),
         examples=[30],
     )
 

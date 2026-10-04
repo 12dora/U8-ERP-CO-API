@@ -8,8 +8,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from u8co_api.co_doctext import TEST_ONLY_GATE
 from u8co_api.co_models import CoAuth
-from u8co_api.co_models_arap_proc import has_control
+from u8co_api.co_models_arap_proc import DRY_ROLLBACK_NOTE, has_control
 from u8co_api.co_models_dry import DryRunFlag
 from u8co_api.co_models_gl import PASS, Scalar
 
@@ -34,30 +35,50 @@ _AMOUNT_RULE = "amount 必须大于 0、不超过 1000000000000、最多两位�
 
 BAD_DEBT_SUMMARY = "应收坏账发生 / 收回 / 计提"
 BAD_DEBT_HELP = (
-    "U8 应收款管理「坏账处理」：action 为 occur 坏账发生（处理方式 9G）、recover 坏账收回（9H）、provision 计提坏账准备"
-    "（9F），处理号都是 HZAR + 13 位数字（U8 的 Ap_CancelNo 编号 HZ），取消用 arap/process/cancel，制单用 arap/process/voucher。"
-    "默认关闭（桥未开 enableReplicatedWrites 时 403 feature_disabled），打开后只对 CO 桥配置为测试账套（testAccounts）的账套开放，其他账套 403 test_account_only，不登录 U8。只做应收（登录子系统"
-    " AR）。处理日期就是登录日期 date，须在 U8 的会计期间里、不早于应收启用日期、应收该月未结账（否则 409）；须已设置该会计年度"
-    "的坏账准备参数（应收款管理 › 设置 "
-    "› 坏账准备），U8 按最后一行参数记坏账准备余额，该行年度与 date 不符时 409，不改别的年度。"
-    "occur：customer 客户编码；lines 1 到 50 项 {type, id, line_id?, amount}，type 是 26 / 27 / 28 / 29 销售发票或 R0 到"
-    " R9 应收单，id 是单据号，line_id 是发票表体行（省略按行主键从小到大分摊；应收单按整单，不能带），amount 是原币，"
-    "不超过该单据（行）的正余额；单据须已审核、属于该客户和币种，外币各单据汇率须相同。currency 省略为本位币，digest "
-    "省略（或为空）为「坏账发生」，dept、person 是部门（末级、未停用）、业务员（未停用）编码。每张单据行写一行贷方往来明细，冲减单"
-    "据余额，坏账准备余额减去本币合计；外币坏账发生暂不能用 arap/process/voucher 制单。recover：receipt 是该客户未审核、"
-    "未核销、只有一行应收款的收款单（48）单号，amount 必须等于它的全部余额（U8 整张收款单一起消耗），digest 省略（或为空）"
-    "为「坏账收回」；用 U8 的审核组件审核收款单（审核行贷方），再在收款单上记一行 9H 借方往来明细（科目同收款单行），"
-    "两者相抵、客户应收余额不变，坏账准备余额加上本币金额；9H 制单时一并回写收款单的审核行和表头凭证号。"
-    "provision：不带业务字段，按参数里的计提方法算应计坏账准备：1 应收余额百分比、2 账龄分析、3 销售收入百分比（"
-    "本服务取 date 所在年度 1 月 1 日到 date 已审核的非期初、未作废销售发票本币价税合计；U8 的取数窗口以界面为准），本次"
-    "计提 = 应计 − 当前余额，为 0 时 409「本次计提金额为 0」；只更新该年度的参数行（余额、累计计提、计提日期、处理号）"
-    "，不写往来明细；同一年度多次计提时 U8 只记最后一个处理号，只有最后一次能单独取消。"
-    "响应带 action、cancel_no、style、style_name（处理方式名称）、amount、remain_before / remain_after（坏账准备余额），"
-    "occur 另带 rows（每张单据行的本次金额和余额），provision 另带 base、rate、target、method_name（计提方法名称）。"
-    "404 not_found：客户、单据或收款单不存在。409 state_mismatch：应收该月已结账、未设置坏账准备参数、不支持的计提方"
-    "法、单据未审核或余额不足、币种或汇率不符、收款单已审核或已核销或金额不等、本次计提金额为 0；核对不符回滚，409 "
-    "u8_rejected。功能权限：AR050602 坏账发生 / AR050603 坏账收回 / AR050601 计提；数据权限按客户、部门、"
-    "业务员。dry_run 为 true 时在事务里执行后回滚（rollback 模式），什么都不写入，返回 DryRunOut。"
+    "U8 应收款管理「坏账处理」：坏账发生、坏账收回、计提坏账准备。\n\n"
+    "**用法**\n\n"
+    "| action | 处理 | 处理方式 | 功能权限 |\n"
+    "| --- | --- | --- | --- |\n"
+    "| occur | 坏账发生 | 9G | AR050602 |\n"
+    "| recover | 坏账收回 | 9H | AR050603 |\n"
+    "| provision | 计提坏账准备 | 9F | AR050601 |\n\n"
+    "- 处理号都是 HZAR + 13 位数字（U8 的 Ap_CancelNo 编号 HZ）\n"
+    "- 只做应收（登录子系统 AR）；provision 不带业务字段\n" + DRY_ROLLBACK_NOTE + "\n"
+    "**规则**\n"
+    "- 处理日期就是登录日期 date：须在 U8 会计期间里、不早于应收启用日期、应收该月未结账\n"
+    "- 须已设置该会计年度的坏账准备参数（应收款管理 › 设置 › 坏账准备）\n"
+    "- U8 按最后一行参数记坏账准备余额；该行年度与 date 不符时 409，不改别的年度\n"
+    "- 坏账发生（occur）：\n"
+    "  - 单据须已审核、属于该客户和币种；外币各单据汇率须相同\n"
+    "  - amount 不超过该单据（行）的正余额\n"
+    "  - 每张单据行写一行贷方往来明细，冲减单据余额；坏账准备余额减去本币合计\n"
+    "- 坏账收回（recover）：\n"
+    "  - 收款单须属于该客户、只有一行应收款；amount 须等于它的全部余额（U8 整张一起消耗）\n"
+    "  - 用 U8 的审核组件审核收款单（审核行贷方），再在收款单上记一行 9H 借方往来明细（科目同收款单行）\n"
+    "  - 两者相抵，客户应收余额不变；坏账准备余额加上本币金额\n"
+    "  - 9H 制单时一并回写收款单的审核行和表头凭证号\n"
+    "- 计提（provision）：\n"
+    "  - 按参数里的计提方法算应计坏账准备：1 应收余额百分比、2 账龄分析、3 销售收入百分比\n"
+    "  - 销售收入取 date 所在年度 1 月 1 日到 date 已审核、非期初、未作废销售发票的本币价税合计\n"
+    "  - U8 的取数窗口以界面为准\n"
+    "  - 本次计提 = 应计 − 当前余额\n"
+    "  - 只更新该年度的参数行（余额、累计计提、计提日期、处理号），不写往来明细\n"
+    "  - 同一年度多次计提时 U8 只记最后一个处理号，只有最后一次能单独取消\n\n"
+    "**限制**\n"
+    "- 外币坏账发生暂不能用 arap/process/voucher 制单\n" + TEST_ONLY_GATE + "\n"
+    "**权限**\n"
+    "- 功能权限：见上表\n"
+    "- 数据权限：按客户、部门、业务员\n\n"
+    "**错误**\n"
+    "- 404 not_found：客户、单据或收款单不存在\n"
+    "- 409 state_mismatch：应收该月已结账、未设置坏账准备参数、不支持的计提方法\n"
+    "- 409 state_mismatch：单据未审核或余额不足、币种或汇率不符\n"
+    "- 409 state_mismatch：收款单已审核、已核销或金额不等\n"
+    "- 409 state_mismatch：本次计提金额为 0\n"
+    "- 409 u8_rejected：核对不符，已回滚\n\n"
+    "**相关**\n"
+    "- 取消：arap/process/cancel\n"
+    "- 制单：arap/process/voucher"
 )
 
 
@@ -79,7 +100,9 @@ class BadDebtLineIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: str = Field(..., min_length=2, max_length=2, description="26 / 27 / 28 / 29 销售发票，R0 到 R9 应收单")
     id: str = Field(..., min_length=1, max_length=_DOC_MAX, description="单据号")
-    line_id: int | None = Field(None, gt=0, le=_ID_MAX, description="发票表体行；省略按行依次分摊。应收单不能带")
+    line_id: int | None = Field(
+        None, gt=0, le=_ID_MAX, description="发票表体行；省略按行主键从小到大依次分摊。应收单按整单，不能带"
+    )
     amount: float = Field(
         ..., gt=0, le=_AMOUNT_MAX, allow_inf_nan=False, strict=True, description="本次坏账金额（原币），最多两位小数"
     )
@@ -115,8 +138,12 @@ class CoArapBadDebtIn(CoAuth):
     customer: str | None = Field(None, min_length=1, max_length=_CODE_MAX, description="客户编码（occur、recover 必填）")
     currency: str | None = Field(None, min_length=1, max_length=20, description="币种名称；省略为本位币")
     digest: str | None = Field(None, max_length=_TEXT_MAX, description="摘要；省略或为空为「坏账发生」「坏账收回」")
-    dept: str | None = Field(None, min_length=1, max_length=_DEPT_MAX, description="部门编码（只用于 occur）")
-    person: str | None = Field(None, min_length=1, max_length=_CODE_MAX, description="业务员编码（只用于 occur）")
+    dept: str | None = Field(
+        None, min_length=1, max_length=_DEPT_MAX, description="部门编码（只用于 occur）：末级、未停用"
+    )
+    person: str | None = Field(
+        None, min_length=1, max_length=_CODE_MAX, description="业务员编码（只用于 occur）：未停用"
+    )
     lines: list[BadDebtLineIn] | None = Field(
         None, min_length=1, max_length=_LINES_MAX, description="坏账发生的单据，1 到 50 项（occur 必填）"
     )

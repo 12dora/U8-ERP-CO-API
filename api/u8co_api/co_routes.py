@@ -61,65 +61,124 @@ POST_ROUTES = (
     + PERM_ROUTES
 )
 _DESCRIPTION = """\
-U8 业务操作接口（/v1/co）。调用方每次提交账套、操作员编码和口令。口令只在这一次请求里使用，服务不保存、不写入审计。
+通过 HTTP 调用用友 U8 的业务组件（/v1/co）：单据、凭证、档案和报表的读写与审核。
 
-{accounts}
-不在名单里返回 403，错误码 account_not_allowed。信任项配置了账套声明时，令牌还必须列出该账套。
+## 认证与权限
 
-需要 Bearer JWT。权限分两级（布尔值 true，字符串不算；也可以按信任项配置的 scope 授予）：
-写权限（缺省声明 u8co_write）可以调用全部路径；只有读权限（缺省声明 u8co_read）时
-只能调用只读路径（读取单据、单据列表、现存量、总账凭证读取和列表、档案读取和列表、报表、审批状态、审批历史、待办、
-登录校验、健康检查、档案名称解析、幂等结果查询、字段标签、单据查询、批量读取单据和档案），
-调用写路径返回 403 forbidden，不会访问桥。
-经营管理路径（/v1/co/mgmt/*）另需经营管理权限（信任项的 mgmt_claim 或 mgmt_scope），读、写权限都不代替它，
-没有时返回 403 mgmt_forbidden。多账套汇总、合并报表、公司间对账（reports/aggregate、consolidation、intercompany_match）同样要经营管理权限。
-/v1/co/perm/evaluate（查别的操作员的权限）只给信任项写了 perm_evaluate: true 的调用方（x-u8co-access 为 perm_evaluate）。
-每条路径的说明末尾写明了所需权限，操作上的 x-u8co-access 也标了 read、write 或 mgmt。
-U8CO_ENABLED 关闭时这些路径返回 404。
-已打开但桥未配置时返回 503，错误码 unavailable。
+- 每个请求带 `Authorization: Bearer <JWT>`。
+- 请求体带账套、操作员编码和口令；口令只用于本次请求，服务不保存、不写入审计。
+- 权限声明须为布尔值 true（字符串不算），也可按信任项配置的 scope 授予。
 
-错误体是 {"error":{"code","message","retryable","field","hint","detail"}}：retryable 总是有，为 true 时可以原样稍后重试；
-field 是出错的请求字段路径（只用于 400，如 lines.0.cinvcode）；hint 是简短的修正提示；detail 是桥给的结构化补充（只用于 4xx，
-如存货核算记账 409 时的 uncosted、uncosted_total）。常见错误码：bad_request、unauthorized、forbidden、
-account_not_allowed、test_account_only、feature_disabled、not_found、state_mismatch、u8_rejected、workflow_enabled、workflow_unknown、
-workflow_disabled、already_submitted、not_submitted、not_current_approver、stock_shortage、
-login_failed、busy、rate_limited、unavailable、busy_timeout、stopping、ia_timeout、com_unavailable、
-u8_unavailable、u8_license_full、bad_response、outcome_unknown。
+| 权限 | 可调用路径 |
+|---|---|
+| 读（缺省声明 `u8co_read`） | 只读路径：读取单据、单据列表、现存量、总账凭证读取和列表、档案读取和列表、报表、\
+审批状态、审批历史、待办、登录校验、健康检查、档案名称解析、幂等结果查询、字段标签、单据查询、批量读取单据和档案 |
+| 写（缺省声明 `u8co_write`） | 全部路径（经营管理路径另需下一行的权限） |
+| 经营管理（信任项的 `mgmt_claim` 或 `mgmt_scope`） | `/v1/co/mgmt/*`，以及多账套汇总、合并报表、公司间对账\
+（reports/aggregate、consolidation、intercompany_match）；读、写权限都不代替它 |
+| 权限评估（信任项写了 `perm_evaluate: true`） | `/v1/co/perm/evaluate`（查别的操作员的权限）；令牌还要有读或写权限 |
 
-504 且错误码为 outcome_unknown：请求已经送出，或桥返回了无法解析的 2xx。审核可能已经执行，不要盲目重试。
-502 且错误码为 bad_response：桥的 3xx、4xx 或 5xx 不是可解析的 JSON，错误响应超过 64KiB，或发生了重定向。
-成功响应最多 8MiB，超过按无法解析的 2xx 处理（504 outcome_unknown）。
-健康检查失败一律 503，错误码 unavailable。健康检查不计入每个调用方的频率。
-429 且错误码为 busy 是桥的队列满了；错误码 rate_limited 是本服务的并发或频率限制。
-503 且错误码为 u8_license_full 是 U8 许可点数已满，桥已自己重试过；按 Retry-After（60 秒）稍后再试。
-busy、busy_timeout、stopping 也带 Retry-After（5 秒）。
-503 且错误码为 ia_timeout 是存货核算脚本超时，桥已回滚、没有写入；按 Retry-After（60 秒）稍后再试。
+- 只有读权限时调用写路径：403 `forbidden`，不会访问桥。
+- 缺经营管理权限：403 `mgmt_forbidden`。
+- 每个操作的说明末尾写明所需权限；操作上的 `x-u8co-access` 标为 read、write、mgmt 或 perm_evaluate。
 
-写入策略（U8CO_WRITE_POLICY_FILE，桥上同一份文件）只管写路径，都在登录 U8 之前拒绝，没有写入：
-503 write_policy_unavailable（策略文件缺失或无效）、503 write_frozen（已冻结）、503 write_window（不在允许写入的时段）
-可按 Retry-After 稍后重试；403 write_not_allowed（策略没有放行该账套的这类写入，detail 给出 type、op）、
-403 operator_not_allowed（操作员不能在此账套写入）、400 write_limit（行数或金额超过上限，detail 给出 max、actual）不能重试。
-桥另有 429 write_quota（账套写入限额，Retry-After 按窗口算）和 503 u8_license_hold（接口登录已达上限），都可重试。
+## 账套
 
-not_submitted 表示未提交或没有在途实例。already_submitted 表示已经提交。
-not_current_approver 表示当前操作员不是待办人。workflow_disabled 表示单据未启用审批流。
-stock_shortage 表示库存不足。u8_unavailable 表示 U8 的服务没有运行（例如生产制造服务 U8MPool）。
+- {accounts}
+- 不在名单里：403 `account_not_allowed`。
+- 信任项配置了账套声明时，令牌还必须列出该账套。
 
-总账凭证写操作（新增、修改）由 U8 自己提交，外层事务管不到。收到 504 outcome_unknown 时先用
-/v1/co/gl/vouchers/list 或 load 核对，再决定是否重试。档案的新增、修改、删除同理，先用 /v1/co/archives/get 核对。
+## 错误体
 
-所有写路径（新增、修改、删除、审核、关闭、锁定、审批、总账凭证各操作、记账、期初记账、档案写入、核销、制单）都可带 Idempotency-Key 头：
-同一调用方、账套、路径和键只执行一次，重试原样返回第一次的结果（含 504 outcome_unknown；4xx 不占用键，可以改正后再用）；
-同一个键换了请求内容返回 409 idempotency_mismatch；桥上的幂等记录读写失败返回 503 store_unavailable。
-用 /v1/co/idempotency/get 可以按路径和键查回当时的结果。
+`{"error":{"code","message","retryable","field","hint","detail"}}`
 
-写路由的请求体可带 dry_run: true 预演（旧路由 sale-orders/verify、dispatches/verify 除外；arap/writeoff/auto 的
-dry_run 仍是只算计划）：照常登录、加锁、校验，成功返回 DryRunOut（mode 为 rollback 或 validate），什么都不写入；
-预演不能带 Idempotency-Key（arap/writeoff/auto 只算计划时同样不能带）。操作上标了 x-u8co-dry-run。
+| 字段 | 说明 |
+|---|---|
+| code | 错误码，见下表 |
+| message | 错误说明 |
+| retryable | 总是有；为 true 时可以原样稍后重试 |
+| field | 出错的请求字段路径，只用于 400，如 `lines.0.cinvcode` |
+| hint | 简短的修正提示 |
+| detail | 桥给的结构化补充，只用于 4xx，如存货核算记账 409 时的 `uncosted`、`uncosted_total` |
 
-每条 POST 路径都收查询参数 fields（只返回列出的键）和 compact（去掉空值），只裁剪 head、lines、items、fields
-和预演的 docs[].head、docs[].lines；出参是带必填字段的类型化明细的路径（vouchers/close、核销、应收应付制单）不支持，返回 400。
-/v1/co/archives/resolve 把名称、简称、助记码解析成档案编码。
+### 常见错误码
+
+| 类别 | 错误码 |
+|---|---|
+| 请求与认证 | bad_request、unauthorized、forbidden、account_not_allowed、login_failed |
+| 功能开关 | feature_disabled、test_account_only |
+| 单据与业务 | not_found、state_mismatch、u8_rejected、stock_shortage（库存不足） |
+| 审批流 | workflow_enabled、workflow_unknown、workflow_disabled（单据未启用审批流） |
+| 审批动作 | already_submitted（已经提交）、not_submitted（未提交或没有在途实例）、\
+not_current_approver（当前操作员不是待办人） |
+| 繁忙与限流 | busy、rate_limited、busy_timeout、stopping |
+| 桥与 U8 | unavailable、com_unavailable、u8_unavailable（U8 的服务没有运行，例如生产制造服务 U8MPool）、\
+u8_license_full、ia_timeout |
+| 结果不确定 | bad_response、outcome_unknown |
+
+## 重试与 outcome_unknown
+
+| 状态与错误码 | 含义 | 处理 |
+|---|---|---|
+| 504 `outcome_unknown` | 请求已经送出，或桥返回了无法解析的 2xx；审核等写入可能已经执行 | 先核对，不要盲目重试 |
+| 502 `bad_response` | 桥的 3xx、4xx 或 5xx 不是可解析的 JSON，错误响应超过 64KiB，或发生了重定向 | — |
+| 429 `busy` | 桥的队列满了 | 按 Retry-After（5 秒）重试 |
+| 429 `rate_limited` | 本服务的并发或频率限制 | 稍后重试 |
+| 503 `busy_timeout`、`stopping` | 桥排队超时，或正在停止 | 按 Retry-After（5 秒）重试 |
+| 503 `u8_license_full` | U8 许可点数已满，桥已自己重试过 | 按 Retry-After（60 秒）重试 |
+| 503 `ia_timeout` | 存货核算脚本超时，桥已回滚、没有写入 | 按 Retry-After（60 秒）重试 |
+
+- 成功响应最多 8MiB，超过按无法解析的 2xx 处理（504 `outcome_unknown`）。
+- 总账凭证新增、修改由 U8 自己提交，外层事务管不到：先用 `/v1/co/gl/vouchers/list` 或 load 核对，再决定是否重试。
+- 档案的新增、修改、删除同理，先用 `/v1/co/archives/get` 核对。
+- U8CO_ENABLED 关闭时这些路径返回 404；已打开但桥未配置时 503 `unavailable`。
+- 健康检查失败一律 503 `unavailable`；健康检查不计入每个调用方的频率。
+
+## 写入分级、预演、幂等
+
+- **写入分级**：结账、存货核算、期初等第二级写入缺省关闭（403 `feature_disabled`），打开后只对测试账套开放\
+（403 `test_account_only`），见 [期初记账](#tag/期初记账)、[月末结账](#tag/月末结账)、[存货核算](#tag/存货核算)。
+- **预演**：写路由的请求体带 `dry_run: true`，照常校验但什么都不写入，见 [单据新增删除](#tag/单据新增删除)。
+- **幂等**：写路径带 `Idempotency-Key` 头，重试原样返回第一次的结果，见 [U8 业务操作](#tag/u8-业务操作) 的幂等结果查询。
+
+### 写入策略
+
+写入策略（U8CO_WRITE_POLICY_FILE，桥上同一份文件）只管写路径，都在登录 U8 之前拒绝，没有写入。
+
+| 状态与错误码 | 含义 | 可重试 |
+|---|---|---|
+| 503 `write_policy_unavailable` | 策略文件缺失或无效 | 按 Retry-After |
+| 503 `write_frozen` | 已冻结 | 按 Retry-After |
+| 503 `write_window` | 不在允许写入的时段 | 按 Retry-After |
+| 403 `write_not_allowed` | 策略没有放行该账套的这类写入，detail 给出 type、op | 否 |
+| 403 `operator_not_allowed` | 操作员不能在此账套写入 | 否 |
+| 400 `write_limit` | 行数或金额超过上限，detail 给出 max、actual | 否 |
+| 429 `write_quota`（桥） | 账套写入限额 | 是，Retry-After 按窗口算 |
+| 503 `u8_license_hold`（桥） | 接口登录已达上限 | 是 |
+
+### 预演
+
+- 写路由的请求体可带 `dry_run: true`：照常登录、加锁、校验，成功返回 DryRunOut（mode 为 rollback 或 validate）。
+- 不支持：旧路由 sale-orders/verify、dispatches/verify。
+- arap/writeoff/auto 的 dry_run 仍是只算计划。
+- 预演不能带 Idempotency-Key（arap/writeoff/auto 只算计划时同样不能带）。
+- 支持预演的操作标了 `x-u8co-dry-run`。
+
+### 幂等
+
+- 适用于所有写路径：新增、修改、删除、审核、关闭、锁定、审批、总账凭证各操作、记账、期初记账、档案写入、核销、制单。
+- 同一调用方、账套、路径和键只执行一次；重试原样返回第一次的结果，含 504 `outcome_unknown`。
+- 4xx 不占用键，可以改正后再用。
+- 同一个键换了请求内容：409 `idempotency_mismatch`。
+- 桥上的幂等记录读写失败：503 `store_unavailable`。
+- 用 `/v1/co/idempotency/get` 按路径和键查回当时的结果。
+
+## 裁剪响应与名称解析
+
+- 每条 POST 路径都收查询参数 `fields`（只返回列出的键）和 `compact`（去掉空值）。
+- 只裁剪 head、lines、items、fields 和预演的 docs[].head、docs[].lines。
+- 出参是带必填字段的类型化明细的路径（vouchers/close、核销、应收应付制单）不支持，返回 400。
+- `/v1/co/archives/resolve` 把名称、简称、助记码解析成档案编码。
 """
 
 
@@ -143,7 +202,7 @@ def register_co_routes(app: FastAPI) -> None:
         response_model=CoHealthOut,
         responses=_ERRORS,
         summary="CO 桥健康检查",
-        description="桥不可达时返回 503。" + access_note("co:health"),
+        description="检查 CO 桥是否可达。\n\n**错误**\n- 桥不可达：503 `unavailable`。\n\n" + access_note("co:health"),
         tags=[TAG_CO],
         operation_id="coHealth",
         response_model_exclude_none=True,
@@ -221,7 +280,7 @@ def _add_post(app: FastAPI, route) -> None:
         response_model_exclude_unset=route.keep_null,
         responses=_ERRORS,
         summary=route.summary,
-        description=route.description + access_note(route.action),
+        description=route.description + "\n\n" + access_note(route.action),
         tags=[route.tag],
         operation_id=route.operation_id,
         dependencies=[Depends(co_slot(route.action))],

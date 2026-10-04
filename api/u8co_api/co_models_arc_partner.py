@@ -9,6 +9,8 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
+from u8co_api.co_doctext import section
+
 CUSTOMER_BANK = "customer_bank"
 VENDOR_BANK = "vendor_bank"
 CUSTOMER_CONTACT = "customer_contact"
@@ -70,25 +72,47 @@ _SEX = ("男", "女", "不详")
 _MARRIAGE = ("已婚", "未婚", "离异", "不详")
 _FLAG = (True, False, 0, 1, "0", "1")
 
-PARTNER_WRITE_DESC = (
-    "；customer_bank 客户银行账户、vendor_bank 供应商银行账户（编码 <客户或供应商编码>:<银行账号>，"
-    "账号最长 50；fields：branch 开户银行（新增必填）、bank_code 所属银行编码（须在银行档案里）、"
-    "account_name 账户名称、default 默认账户，以及 province、city、cbb_dep_id、branch_id、branch_id_sec；"
-    "每个客户至多一个默认账户，设为默认时其余账户清成非默认，第一个账户必须是默认，"
-    "默认账户不能取消默认，也不能在还有其他账户时删除）；"
-    "customer_contact 客户联系人（联系人编码由 U8 自动编号：新增的 code 写成 <客户编码>:（冒号后留空），"
-    "响应的 code 是 <客户编码>:<U8 编的号>，修改、删除用它；新增必须给 name；sex 男 / 女 / 不详、"
-    "marriage 已婚 / 未婚 / 离异 / 不详，没给按不详；birthday yyyy-mm-dd；be_main_linker 主要联系人；"
-    "另有 mobile、office_phone、email、position、memo、self_define1–10 等；"
-    "被客户档案的主要联系人、收货地址、销售单据或合同引用的不能删除）；"
-    "vendor_contact 供应商联系人（同样 U8 自动编号，新增的 code 写成 <供应商编码>:；新增走 U8 的 EAI 导入，"
-    "修改、删除由桥直接改表；标签同客户联系人，但没有 position、favorite；每个供应商至多一个主要联系人，"
-    "已有其他主要联系人时设为主要 409；被供应商档案的主要联系人、采购和委外单据、进项发票登记或合同引用的不能删除）"
+PARTNER_WRITE_DESC = "\n\n".join(
+    (
+        section(
+            "customer_bank 客户银行账户、vendor_bank 供应商银行账户",
+            (
+                "编码 `<客户或供应商编码>:<银行账号>`，账号最长 50",
+                "fields：branch 开户银行（新增必填）、bank_code 所属银行编码（须在银行档案里）",
+                "fields 另收 account_name 账户名称、default 默认账户",
+                "以及 province、city、cbb_dep_id、branch_id、branch_id_sec",
+                "每个客户至多一个默认账户；设为默认时其余账户清成非默认",
+                "第一个账户必须是默认；默认账户不能取消默认，也不能在还有其他账户时删除",
+            ),
+        ),
+        section(
+            "customer_contact 客户联系人",
+            (
+                "联系人编码由 U8 自动编号：新增的 code 写成 `<客户编码>:`（冒号后留空）",
+                "响应的 code 是 `<客户编码>:<U8 编的号>`，修改、删除用它",
+                "新增必须给 name",
+                "sex 男 / 女 / 不详，marriage 已婚 / 未婚 / 离异 / 不详，没给按不详",
+                "birthday 写 yyyy-mm-dd；be_main_linker 主要联系人",
+                "另有 mobile、office_phone、email、position、memo、self_define1–10 等",
+                "被客户档案的主要联系人、收货地址、销售单据或合同引用的不能删除",
+            ),
+        ),
+        section(
+            "vendor_contact 供应商联系人",
+            (
+                "同样由 U8 自动编号，新增的 code 写成 `<供应商编码>:`",
+                "新增走 U8 的 EAI 导入；修改、删除由桥直接改表",
+                "标签同客户联系人，但没有 position、favorite",
+                "每个供应商至多一个主要联系人；已有其他主要联系人时设为主要返回 409",
+                "被供应商档案的主要联系人、采购和委外单据、进项发票登记或合同引用的不能删除",
+            ),
+        ),
+    )
 )
 PARTNER_RO_DESC = (
-    "，customer_bank 客户银行账户、vendor_bank 供应商银行账户（编码 <客户或供应商编码>:<银行账号>，"
-    "class_code 是客户或供应商编码），"
-    "customer_contact 客户联系人、vendor_contact 供应商联系人（编码 <客户或供应商编码>:<联系人编码>）"
+    "`customer_bank`、`vendor_bank` 客户、供应商银行账户：编码 `<客户或供应商编码>:<银行账号>`，"
+    "class_code 是客户或供应商编码",
+    "`customer_contact`、`vendor_contact` 客户、供应商联系人：编码 `<客户或供应商编码>:<联系人编码>`",
 )
 
 

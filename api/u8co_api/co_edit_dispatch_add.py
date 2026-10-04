@@ -9,10 +9,15 @@ from __future__ import annotations
 import math
 import re
 
-DISPATCH_ADD_HELP = (
-    "发货单可以 add：source_line_id 是本单来源销售订单的行 iSOsID（同一张订单、同一客户、未关闭、可发数量够），"
-    "必须有大于 0 的 iQuantity 和 cWhCode，另可带 cBatch、cMemo、cFree1–10、cDefine22–37，不能带 line_id；"
-    "同一订单行只能 add 一次"
+from u8co_api.co_doctext import section
+
+DISPATCH_ADD_HELP = section(
+    "发货单可以 add",
+    (
+        "source_line_id 是本单来源销售订单的行 iSOsID（同一张订单、同一客户、未关闭、可发数量够）",
+        "必须有大于 0 的 iQuantity 和 cWhCode，另可带 cBatch、cMemo、cFree1–10、cDefine22–37",
+        "不能带 line_id；同一订单行只能 add 一次",
+    ),
 )
 _KEYS = frozenset({"op", "source_line_id", "iquantity", "cwhcode", "cbatch", "cmemo"})
 _NUMBERED = re.compile(r"(cfree|cdefine)([1-9]\d?)")

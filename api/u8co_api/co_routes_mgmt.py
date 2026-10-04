@@ -19,7 +19,6 @@ from u8co_api.co_models_mgmt import (
     META_HELP,
     META_SUMMARY,
     PNL_HELP,
-    PNL_LINES_HELP,
     PNL_SUMMARY,
     MgmtMetaIn,
     MgmtOut,
@@ -74,7 +73,7 @@ def mgmt_route(name: str, pair: tuple[type, type], text: tuple[str, str], runner
 
 MGMT_ROUTES = (
     mgmt_route("meta", (MgmtMetaIn, MgmtOut), (META_SUMMARY, META_HELP), run_meta, META_PATH),
-    mgmt_route("pnl", (MgmtPnlIn, MgmtOut), (PNL_SUMMARY, PNL_HELP + PNL_LINES_HELP + "。"), run_pnl, PNL_PATH),
+    mgmt_route("pnl", (MgmtPnlIn, MgmtOut), (PNL_SUMMARY, PNL_HELP), run_pnl, PNL_PATH),
     mgmt_route("sales", (MgmtSalesIn, MgmtOut), (SALES_SUMMARY, SALES_HELP), run_sales, SALES_PATH),
     mgmt_route("arap", (MgmtArapIn, MgmtOut), (ARAP_SUMMARY, ARAP_HELP), run_arap, ARAP_PATH),
     mgmt_route("cash_stock", (MgmtCashStockIn, MgmtOut), (CASH_SUMMARY, CASH_HELP), run_cash_stock, CASH_PATH),

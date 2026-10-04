@@ -7,6 +7,7 @@ from decimal import Decimal, InvalidOperation
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from u8co_api.co_doctext import section
 from u8co_api.co_models_mo import _date, _get, _only, _text
 
 _OUT = ConfigDict(extra="ignore")
@@ -21,18 +22,27 @@ _EDIT_HEAD = ("version_desc", "eff_date", "parent_scrap")
 _TEXT = {"inv_code": 60, "op_seq": 4, "wh_code": 10, "remark": 255}
 _ADD_KEYS = ("sort_seq", "op_seq", "inv_code", "base_qty_n", "base_qty_d", "comp_scrap", "wip_type", "wh_code", "remark")
 _EDIT_KEYS = ("op_seq", "base_qty_n", "base_qty_d", "comp_scrap", "wip_type", "wh_code", "remark")
-BOM_CREATE_HELP = (
-    "物料清单（bom）：只建标准 BOM（主 BOM）的新版本。表头 inv_code（母件，自制且允许做 BOM 母件）必填，"
-    "version（整数，省略时取该母件最大版本加版本增量）、version_desc（最长 255）、eff_date（yyyy-MM-dd，缺省登录日期，"
-    "不能与该母件其他版本相同）、parent_scrap（母件损耗率 0 到小于 100）可省；"
-    "明细 1 到 200 行，inv_code（子件）、base_qty_n（基本用量分子，大于 0，最多 6 位小数）必填，"
-    "base_qty_d（分母，缺省 1）、comp_scrap（子件损耗率）、wip_type（1 到 5，缺省 3 领用）、wh_code、remark、"
-    "op_seq（缺省 0000）、sort_seq（缺省按 10、20… 往后排）可省。新版本按账套设置多为未审核。"
+BOM_CREATE_HELP = section(
+    "物料清单（bom）",
+    (
+        "只建标准 BOM（主 BOM）的新版本；新版本按账套设置多为未审核",
+        "表头必填 inv_code（母件，自制且允许做 BOM 母件）",
+        "表头可省 version（整数，省略时取该母件最大版本加版本增量）、version_desc（最长 255）",
+        "表头可省 eff_date（yyyy-MM-dd，缺省登录日期，不能与该母件其他版本相同）",
+        "表头可省 parent_scrap（母件损耗率 0 到小于 100）",
+        "明细 1 到 200 行，必填 inv_code（子件）、base_qty_n（基本用量分子，大于 0，最多 6 位小数）",
+        "明细可省 base_qty_d（分母，缺省 1）、comp_scrap（子件损耗率）、wip_type（1 到 5，缺省 3 领用）",
+        "明细可省 wh_code、remark、op_seq（缺省 0000）、sort_seq（缺省按 10、20… 往后排）",
+    ),
 )
-BOM_UPDATE_HELP = (
-    "物料清单（bom）只改未审核的标准 BOM：表头只收 version_desc、eff_date、parent_scrap；"
-    "明细按 sort_seq 定位（不用 line_id）：update 改 base_qty_n、base_qty_d、comp_scrap、wip_type、wh_code、remark、op_seq，"
-    "不能改 inv_code；delete 只带 op 和 sort_seq；add 同新增的行"
+BOM_UPDATE_HELP = section(
+    "物料清单（bom）",
+    (
+        "只改未审核的标准 BOM；表头只收 version_desc、eff_date、parent_scrap",
+        "明细按 sort_seq 定位（不用 line_id）",
+        "update 改 base_qty_n、base_qty_d、comp_scrap、wip_type、wh_code、remark、op_seq，不能改 inv_code",
+        "delete 只带 op 和 sort_seq；add 同新增的行",
+    ),
 )
 
 

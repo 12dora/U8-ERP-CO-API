@@ -12,7 +12,7 @@ from typing import Literal
 from pydantic import Field, StrictBool, StrictInt, field_validator
 
 from u8co_api.co_clock import login_defaults
-from u8co_api.co_models_mgmt import COMMON_HELP, MgmtIn
+from u8co_api.co_models_mgmt import MgmtIn, mgmt_doc
 from u8co_api.co_models_gl import DATE
 
 SalesDim = Literal["period", "customer", "inventory", "person", "department"]
@@ -128,44 +128,64 @@ class MgmtOverviewIn(MgmtIn):
 
 
 SALES_SUMMARY = "经营管理：销售与毛利"
-SALES_HELP = (
-    "只读。按销售发票（缺省只含已复核）汇总所选期间的销售数量、收入（不含税、价税合计）和存货核算的销售成本，"
-    "按 group_by 分组，算毛利和毛利率；每个账套按收入取前 top 组，其余并成 others，totals 是全部组的合计。"
-    "收入以发票为准，与总账收入可能有期间、口径差，利润以 mgmt/pnl 为准。"
-    "没有启用销售管理的账套 rows 为空、sa_enabled 为 false（见 warnings）。"
-    "合并时：合计减去公司间内部销售（客户是本次所选的其他公司，按公司间对照的 as_customer），"
-    "抵销明细见 eliminations；按存货分组时只按对照里的存货相加（编码相同不等于同一存货），"
-    "没有对照的存货列在 unmapped；不按存货分组时 rows 是各账套去掉内部客户后的行（带 acc），"
-    "客户、业务员、部门编码不跨账套合并。毛利率按合并数重算。" + COMMON_HELP
+SALES_HELP = mgmt_doc(
+    "按销售发票汇总所选期间的销售数量、收入和销售成本，算毛利和毛利率（只读）。",
+    (
+        "发票缺省只含已复核；收入给出不含税和价税合计，成本取存货核算",
+        "按 group_by 分组；每个账套按收入取前 top 组，其余并成 others",
+        "totals 是全部组的合计",
+        "收入以发票为准，与总账收入可能有期间、口径差；利润以 mgmt/pnl 为准",
+        "没有启用销售管理的账套 rows 为空、sa_enabled 为 false（见 warnings）",
+        "合并时合计减去公司间内部销售：客户是本次所选的其他公司（按对照的 as_customer）",
+        "抵销明细见 eliminations；毛利率按合并数重算",
+        "合并且按存货分组时，只按对照里的存货相加（编码相同不等于同一存货），没有对照的列在 unmapped",
+        "合并但不按存货分组时，rows 是各账套去掉内部客户后的行（带 acc）",
+        "客户、业务员、部门编码不跨账套合并",
+    ),
 )
 ARAP_SUMMARY = "经营管理：应收应付与账期"
-ARAP_HELP = (
-    "只读。按往来单位列出截至 as_of 的余额、预收付、按到期日的账龄与逾期、未结票据，"
-    "近 12 个月单据的信用期分布、实际回款（付款）天数（金额加权的平均数与中位数）。"
-    "每个账套按余额绝对值取前 top 个单位，其余并成 others。"
-    "aging、overdue 是毛额（未核销的收款、付款单列在 prepaid）；aging_net、overdue_net 是按单位把 prepaid "
-    "按先进先出冲抵最老账龄段后的净额（分段同 aging），逾期以净额为准；合计的净额是各单位净额之和。"
-    "预收付超过账龄合计 10% 的账套见 warnings。"
-    "周转天数：DSO（应收）/ DPO（应付）= 期末余额 ÷（近 12 个月单据金额 ÷ 天数），余额 ≤ 0 时为 null。"
-    "没有启用应收（应付）款管理的账套 partners 为空（见 warnings）。"
-    "as_of 缺省为 period_to 的自然月末（晚于今天时取今天）。"
-    "合并时：往来单位是本次所选的其他公司（按公司间对照的 as_customer / as_vendor）的余额与单据金额"
-    "（含净额账龄）从合计里去掉（内部往来抵销），DSO、DPO 按抵销后的余额和外部单据金额重算，抵销明细见 eliminations。" + COMMON_HELP
+ARAP_HELP = mgmt_doc(
+    "按往来单位列出截至 as_of 的余额、账龄与逾期和账期指标（只读）。",
+    (
+        "给出余额、预收付、按到期日的账龄与逾期、未结票据",
+        "近 12 个月单据的信用期分布、实际回款（付款）天数（金额加权的平均数与中位数）",
+        "每个账套按余额绝对值取前 top 个单位，其余并成 others",
+        "aging、overdue 是毛额；未核销的收款、付款单列在 prepaid",
+        "aging_net、overdue_net：按单位把 prepaid 按先进先出冲抵最老账龄段后的净额（分段同 aging）",
+        "逾期以净额为准；合计的净额是各单位净额之和",
+        "预收付超过账龄合计 10% 的账套见 warnings",
+        "DSO（应收）/ DPO（应付）= 期末余额 ÷（近 12 个月单据金额 ÷ 天数），余额 ≤ 0 时为 null",
+        "没有启用应收（应付）款管理的账套 partners 为空（见 warnings）",
+        "合并时去掉往来单位是本次所选其他公司（按对照的 as_customer / as_vendor）的余额与单据金额",
+        "内部往来抵销含净额账龄；DSO、DPO 按抵销后的余额和外部单据金额重算；明细见 eliminations",
+    ),
+    ("as_of 缺省为 period_to 的自然月末，晚于今天时取今天",),
 )
 CASH_SUMMARY = "经营管理：资金与存货"
-CASH_HELP = (
-    "只读。按 period_to 一个会计期间出具（period_from 不参与取数）："
-    "货币资金末级科目期末余额（只含已记账）、应收票据科目余额和当前未处理票据、"
-    "存货核算的期末结存数量与金额、产成品入库按存货的数量排行、采购按供应商的金额排行。"
-    "合并时：资金、票据、存货金额按账套相加（存货金额含期末存货中未实现的内部利润，未抵销，见 notes）；"
-    "产量只按公司间对照里的存货相加，没有对照的列在 unmapped；"
-    "采购去掉供应商是本次所选的其他公司（as_vendor）的部分，明细见 eliminations。" + COMMON_HELP
+CASH_HELP = mgmt_doc(
+    "按 period_to 一个会计期间出具资金、票据、存货、产量和采购（只读）。",
+    (
+        "period_from 不参与取数",
+        "货币资金：末级科目期末余额，只含已记账",
+        "应收票据：科目余额和当前未处理票据",
+        "存货：存货核算的期末结存数量与金额",
+        "产成品入库按存货的数量排行；采购按供应商的金额排行",
+        "合并时资金、票据、存货金额按账套相加",
+        "合并的存货金额含期末存货中未实现的内部利润，未抵销（见 notes）",
+        "合并时产量只按公司间对照里的存货相加，没有对照的列在 unmapped",
+        "合并时采购去掉供应商是本次所选其他公司（as_vendor）的部分，明细见 eliminations",
+    ),
 )
 OVERVIEW_SUMMARY = "经营管理：关键指标"
-OVERVIEW_HELP = (
-    "只读。一次给出所选期间的关键指标：营业收入、毛利与毛利率、净利润（同 mgmt/pnl）、"
-    "期末货币资金、存货金额（同 mgmt/cash_stock，取 period_to）、应收、应付余额与逾期应收、逾期应付（冲抵未核销预收付后的净额）、DSO、DPO"
-    "（同 mgmt/arap，截至 as_of，缺省为 period_to 的自然月末）。"
-    "by_account、consolidated 里是 kpis；合并口径同各报表（内部收入成本、内部往来抵销，未实现内部利润不抵销）。"
-    "某一部分读取失败时该账套的指标不完整（missing），见 warnings。" + COMMON_HELP
+OVERVIEW_HELP = mgmt_doc(
+    "一次给出所选期间的关键指标（只读）。",
+    (
+        "营业收入、毛利与毛利率、净利润：同 mgmt/pnl",
+        "期末货币资金、存货金额：同 mgmt/cash_stock，取 period_to",
+        "应收、应付余额与逾期应收、逾期应付（冲抵未核销预收付后的净额）、DSO、DPO：同 mgmt/arap",
+        "by_account、consolidated 里是 kpis",
+        "合并口径同各报表：内部收入成本、内部往来抵销，未实现内部利润不抵销",
+        "某一部分读取失败时该账套的指标不完整（missing），见 warnings",
+    ),
+    ("as_of 缺省为 period_to 的自然月末",),
 )

@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 
+from u8co_api.co_doctext import op_doc
 from u8co_api.co_models_ic import IcLogin
 from u8co_api.co_models_gl import PASS, Scalar
 
@@ -16,27 +17,63 @@ _FORBID = ConfigDict(extra="forbid")
 PnlDim = Literal["dept", "item"]
 PnlDetail = Literal["prefix4", "leaf"]
 
-COMMON_HELP = (
-    "需要经营管理权限（与读、写权限分开）。logins 是 1 到 3 个账套的登录，令牌要能用其中每个账套，"
-    "有一个不行就 403 account_not_allowed。多个账套缺省合并（consolidate 缺省在 2 个以上账套时为 true）："
-    "合并要求这些账套在公司间对照（U8CO_IC_MAP_FILE）的同一组里，没配置对照 404 ic_not_configured，"
-    "不在同一组 400 ic_group_mismatch；不要合并时写 consolidate=false。"
-    "每次请求先读各账套的月结状态和数据水位（mgmt/meta），结果按水位缓存：所选期间在每个账套都已总账结账时缓存 6 小时，"
-    "否则 60 秒；响应的 cache 给出 hit、age_s。部分账套失败时仍返回 200，失败的账套写进 warnings，"
-    "complete 为 false，consolidated 为 null；全部失败返回 503。"
+# 各经营管理报表共用的用法、规则和错误（mgmt/meta 不合并、不缓存，另写）。
+MGMT_USAGE = ("logins 给 1 到 3 个账套的登录", "多个账套缺省合并；不要合并时写 consolidate=false")
+MGMT_RULES = (
+    "合并要求各账套在公司间对照（U8CO_IC_MAP_FILE）的同一组里",
+    "先读各账套的月结状态和数据水位（mgmt/meta），结果按水位缓存",
+    "所选期间各账套都已总账结账时缓存 6 小时，否则 60 秒；响应的 cache 给出 hit、age_s",
+    "部分账套失败仍返回 200：失败的账套写进 warnings，complete 为 false，consolidated 为 null",
 )
+MGMT_ERRORS = (
+    "403 account_not_allowed：令牌不能用其中某个账套",
+    "404 ic_not_configured：合并时没配置对照",
+    "400 ic_group_mismatch：合并时账套不在同一组",
+    "503：全部账套失败",
+)
+
+
+def mgmt_doc(lead: str, rules: tuple[str, ...], usage: tuple[str, ...] = ()) -> str:
+    """经营管理报表的接口说明：本报表的用法、规则在前，共用的在后。"""
+    return op_doc(
+        lead,
+        ("用法", (*usage, *MGMT_USAGE)),
+        ("规则", (*rules, *MGMT_RULES)),
+        ("错误", MGMT_ERRORS),
+    )
+
+
 META_SUMMARY = "经营管理：月结状态与数据水位"
-META_HELP = (
-    "只读。按账套列出会计年度各期间总账、销售、采购、库存、存货核算、应收、应付的结账状态，未记账凭证数，"
-    "各模块是否启用和数据水位（最近的凭证、单据），用来判断数据是否已定稿。不缓存，不合并。" + COMMON_HELP
+META_HELP = op_doc(
+    "按账套列出会计年度各期间的结账状态和数据水位，用来判断数据是否已定稿（只读）。",
+    ("用法", ("logins 给 1 到 3 个账套的登录",)),
+    (
+        "规则",
+        (
+            "结账状态覆盖总账、销售、采购、库存、存货核算、应收、应付",
+            "另给未记账凭证数、各模块是否启用",
+            "数据水位：最近的凭证、单据",
+            "不缓存，不合并；各账套的结果列在 by_account",
+            "部分账套失败仍返回 200：失败的账套写进 warnings，complete 为 false",
+        ),
+    ),
+    ("错误", ("403 account_not_allowed：令牌不能用其中某个账套", "503：全部账套失败")),
 )
 PNL_SUMMARY = "经营管理：利润表"
-PNL_HELP = (
-    "只读。按账套和期间汇总损益科目（不含作废凭证和期末结转本年利润的凭证），缺省只含已记账凭证。"
-    "按利润表行定义（缺省为新会计准则一级科目，现场可用 U8CO_MGMT_LINES_FILE 改）得到营业收入、营业成本、"
-    "各项费用和派生的毛利、营业利润、利润总额、净利润，收入类为贷减借，费用类为借减贷。"
-    "行定义之外的损益科目列在各账套的 unmapped。合并时各行按账套相加，再按公司间对照的 rev_cogs 抵销内部收入和成本，"
-    "毛利率、净利率按合并数重算；期末存货中未实现的内部利润不抵销（见 notes）。" + COMMON_HELP
+PNL_HELP = mgmt_doc(
+    "按账套和期间汇总损益科目，出具利润表（只读）。",
+    (
+        "缺省只含已记账凭证；不含作废凭证和期末结转本年利润的凭证",
+        "按利润表行定义取数：缺省为新会计准则一级科目，部署时可用 U8CO_MGMT_LINES_FILE 改",
+        "行：营业收入、营业成本、各项费用，派生毛利、营业利润、利润总额、净利润",
+        "收入类为贷减借，费用类为借减贷",
+        "行定义之外的损益科目列在各账套的 unmapped（code、name、net 贷减借）",
+        "lines 每行：id、name、kind（line 取数行、derived 派生行）、sign（income、expense，派生行没有）",
+        "lines 每行另有 total（期间合计）、periods（期间 → 金额）；拆维度时取数行另有 by_dim",
+        "ratios：gross_margin_pct、net_margin_pct（百分比）",
+        "合并时各行按账套相加，再按公司间对照的 rev_cogs 抵销内部收入和成本",
+        "合并时毛利率、净利率按合并数重算；期末存货中未实现的内部利润不抵销（见 notes）",
+    ),
 )
 
 
@@ -138,10 +175,3 @@ class MgmtOut(BaseModel):
     warnings: list[str] | None = Field(None, description="提醒，如失败的账套、没有对照的科目")
     notes: list[str] | None = Field(None, description="口径说明，如没有抵销的未实现内部利润")
     cache: dict[str, Any] | None = Field(None, description="hit（是否命中缓存）、age_s（缓存结果的秒数）")
-
-
-PNL_LINES_HELP = (
-    "lines：每行 id、name、kind（line 取数行、derived 派生行）、sign（income、expense，派生行没有）、"
-    "total（期间合计）、periods（期间 → 金额）；拆维度时取数行另有 by_dim（维度编码 → 期间合计）。"
-    "unmapped：行定义之外的损益科目 code、name、net（贷减借）。ratios：gross_margin_pct、net_margin_pct（百分比）"
-)

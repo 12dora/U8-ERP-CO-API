@@ -11,14 +11,29 @@ from __future__ import annotations
 import math
 import re
 
-RED_SALE_HELP = (
-    "红字销售发票（type=sale_invoice、source_type=sale_return）参照已审核、已开票退货（bneedbill=1）的退货单"
-    "（id 是退货单 DLID）：表头只收 cVouchType（26 或 27，省略时同原蓝字发票类型，缺省 26）、dDate、cMemo、cDefine1–16；"
-    "lines 可省略（全部有剩余的退货行按剩余数量生成），给了每行是 source_line_id（退货单行 iDLsID）和正数 quantity，"
-    "另可带 cMemo、cDefine22–37。"
-    "红冲蓝字销售发票（source_type=sale_invoice）同样的表头和行：id 是已复核、非现结的蓝字发票 SBVID，"
-    "cVouchType 省略时同蓝字发票（给了必须相同），source_line_id 是蓝字发票行 AutoID，"
-    "quantity 不超过该行数量减去已红冲数量；lines 省略时全部有剩余的行按剩余数量红冲"
+from u8co_api.co_doctext import section
+
+RED_SALE_HELP = "\n\n".join(
+    (
+        section(
+            "红字销售发票（type=sale_invoice、source_type=sale_return）",
+            (
+                "参照已审核、已开票退货（bneedbill=1）的退货单，id 是退货单 DLID",
+                "表头只收 cVouchType（26 或 27，省略时同原蓝字发票类型，缺省 26）、dDate、cMemo、cDefine1–16",
+                "lines 可省略：全部有剩余的退货行按剩余数量生成",
+                "给了 lines：每行 source_line_id（退货单行 iDLsID）和正数 quantity，另可带 cMemo、cDefine22–37",
+            ),
+        ),
+        section(
+            "红冲蓝字销售发票（source_type=sale_invoice）",
+            (
+                "表头和行同红字销售发票；id 是已复核、非现结的蓝字发票 SBVID",
+                "cVouchType 省略时同蓝字发票（给了必须相同）",
+                "source_line_id 是蓝字发票行 AutoID；quantity 不超过该行数量减去已红冲数量",
+                "lines 省略时全部有剩余的行按剩余数量红冲",
+            ),
+        ),
+    )
 )
 _ID_MAX = 2147483647
 _QTY_MAX = 10**12

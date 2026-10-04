@@ -13,43 +13,70 @@ from u8co_api.co_models import CoAuth
 from u8co_api.co_models_dry import DryRunFlag
 from u8co_api.co_models_gl import DATE, PASS, Scalar
 
-_GATE = (
-    "默认关闭（桥未开 enableReplicatedWrites 时 403 feature_disabled），打开后只对 CO 桥配置为测试账套（testAccounts）的账套开放（含预演），其他账套 403 test_account_only，不登录 U8。"
-    "fiscal_year 必须是登录日期（date）的年份，period 是 1 到 12；voucher_date 是凭证日期，缺省取该期间最后一天，"
-    "必须在该期间内。功能权限同填制凭证（GL0201）；数据权限同总账查询：科目（开了「明细账查询权限控制到科目」时）、部门、"
-    "人员、客户、供应商、项目受控时，取数和入账涉及的科目、辅助项有一个没有查询权限就 403 no_permission（预演同样，不返回金额）。"
-    "取数只取已记账的期末余额（同 U8），所以要求：该期间总账未结账、本期没有未作废的未记账凭证，否则 409 state_mismatch。"
-    "凭证照 U8 自动转账生成的样子标记：外部业务类型（coutsign）、外部业务号（coutno_id，GL 加 13 位）、附单据数 -1，"
-    "制单系统为空；生成的凭证未审核、未记账，之后按 gl/vouchers/verify、gl/vouchers/post 审核、记账，"
-    "要重做时作废后删除（gl/vouchers/void、gl/vouchers/delete）。"
-    "dry_run 为 true 时算完、校验完停在凭证导入之前（validate 模式），返回 DryRunOut，"
-    "要生成的凭证和分录在 detail.transfer.vouchers（每张：sign、digest、debit、credit、lines，期间损益另有 pack，"
-    "自定义转账另有 tran_id），跳过的定义在 detail.transfer.skipped。"
-    "exclude_existing 只能和 dry_run 一起用：余额里去掉本期已生成的同类结转凭证及其后的结转凭证，不查结账、未记账、重复三道闸门，"
-    "用来与 U8 已生成的凭证逐行核对，去掉的凭证在 detail.transfer.excluded。"
-    "U8 保存后自己提交；收到 504 outcome_unknown 时先用 gl/vouchers/list 核对再决定是否重试。"
+_USAGE = (
+    "- 跳过的定义在 detail.transfer.skipped\n"
+    "- exclude_existing（只和 dry_run 一起用）：余额里去掉本期已生成的同类结转凭证及其后的结转凭证\n"
+    "- exclude_existing 不查结账、未记账、重复三道闸门，用来与 U8 已生成的凭证逐行核对\n"
+    "- exclude_existing 去掉的凭证在 detail.transfer.excluded\n"
+    "- 生成的凭证未审核、未记账：之后用 gl/vouchers/verify、gl/vouchers/post 审核、记账\n"
+    "- 要重做时作废后删除：gl/vouchers/void、gl/vouchers/delete\n\n"
+)
+_RULES = (
+    "- 取数只取已记账的期末余额（同 U8）\n"
+    "- 凭证照 U8 自动转账标记：外部业务类型（coutsign）、外部业务号（coutno_id，GL 加 13 位）\n"
+    "- 附单据数 -1，制单系统为空\n\n"
+)
+_TAIL = (
+    "**限制**\n"
+    "- 默认关闭：桥未开 enableReplicatedWrites 时 403 feature_disabled\n"
+    "- 打开后只对桥配置的测试账套（testAccounts）开放（含预演）；其他账套 403 test_account_only，不登录 U8\n\n"
+    "**权限**\n"
+    "- 功能权限同填制凭证（GL0201）\n"
+    "- 数据权限同总账查询：科目（开了「明细账查询权限控制到科目」时）、部门、人员、客户、供应商、项目\n"
+    "- 取数和入账涉及的科目、辅助项有一个没有查询权限就 403 no_permission（预演同样，不返回金额）\n\n"
+)
+_ERRORS = (
+    "- 409 state_mismatch：该期间总账已结账，或本期有未作废的未记账凭证\n"
+    "- 504 outcome_unknown：U8 保存后已自己提交，先用 gl/vouchers/list 核对再决定是否重试"
 )
 
+
+def _help(first: str, usage: str, rules: str, errors: str) -> str:
+    # 各节顺序：用法、规则、限制、权限、错误；两条转账共用的条目接在各自条目之后。
+    return (
+        f"{first}\n\n**用法**\n{usage}{_USAGE}**规则**\n{rules}{_RULES}{_TAIL}**错误**\n{errors}{_ERRORS}"
+    )
+
+
+_DRY = "- dry_run：算完、校验完停在凭证导入之前（validate 模式），返回 DryRunOut\n"
+
 PNL_SUMMARY = "期间损益结转"
-PNL_HELP = (
-    "期间损益结转（U8 总账「期间损益」）：按 U8 的期间损益结转定义，把损益类末级科目（带辅助核算的按辅助项）"
-    "已记账的期末余额结平，差额转入本年利润科目。贷方性质的科目（收入）一张凭证、借方性质的（费用）一张，"
-    "摘要「期间损益结转」，凭证类别取定义上的类别；余额为反方向的写成同一边的负数。"
-    "定义里的科目不存在或不是末级时跳过该定义（响应和预演的 skipped）。本期已做过期间损益结转（有未作废的结转凭证）时 409；"
-    "例外是只存了一张（收入或费用）：把它审核、记账后再调用，只补生成缺的那张，响应的 existing 列出已有的凭证。"
-    + _GATE
+PNL_HELP = _help(
+    "按 U8 的期间损益结转定义（总账「期间损益」）把损益类末级科目结平，差额转入本年利润科目。",
+    _DRY + "- 预演要生成的凭证在 detail.transfer.vouchers：sign、digest、debit、credit、lines、pack\n",
+    "- 结平已记账的期末余额；带辅助核算的科目按辅助项结转\n"
+    "- 收入（贷方性质）一张凭证、费用（借方性质）一张，摘要「期间损益结转」\n"
+    "- 凭证类别取定义上的类别；反方向余额写成同一边的负数\n"
+    "- 定义里的科目不存在或不是末级时跳过该定义（skipped）\n"
+    "- 本期只存了收入或费用一张时：先审核、记账它，再调用只补生成缺的那张\n"
+    "- 补生成时响应的 existing 列出已有的凭证\n",
+    "- 409：本期已做过期间损益结转（有未作废的结转凭证），只存一张的补生成除外\n",
 )
 CUSTOM_SUMMARY = "自定义转账"
-CUSTOM_HELP = (
-    "自定义转账（U8 总账「自定义转账」）：按 U8 的自定义转账定义，每个转账序号生成一张凭证；"
-    "tran_id 只生成这一个序号，缺省生成全部。行的科目、方向取定义，金额按公式计算："
-    "支持 QM(科目, 月|年, [借|贷], [辅助项])（已记账的期末余额，科目可以是非末级，按下级合计）、CE()（借贷差额）、"
-    "数字和 + - * / 括号；用了别的函数（FS、JE、QC 等）返回 400 bad_request 并写明函数名，不猜。"
-    "金额为 0 的行不写。按年取数（QM 年）的定义只在第 12 期生成。"
-    "本期已生成（同期、外部业务类型「自定义转账」、摘要相同的未作废凭证）、科目不存在或不是末级、"
-    "行科目要辅助核算而定义和公式都给不出、算出来全为 0 的定义跳过（skipped）；全部跳过时 409。"
-    "不给 tran_id 时，后面的定义 QM 取数的科目与前面定义本次生成的分录科目重叠则 409（U8 按序号逐个结转、记账后再取数），"
-    "请用 tran_id 逐个生成、审核、记账。" + _GATE
+CUSTOM_HELP = _help(
+    "按 U8 的自定义转账定义（总账「自定义转账」）生成凭证，每个转账序号一张。",
+    _DRY + "- 预演要生成的凭证在 detail.transfer.vouchers：sign、digest、debit、credit、lines、tran_id\n"
+    "- 定义之间有取数依赖时，用 tran_id 逐个生成、审核、记账\n",
+    "- 行的科目、方向取定义，金额按公式计算\n"
+    "- 支持 QM(科目, 月|年, [借|贷], [辅助项])：已记账的期末余额，非末级科目按下级合计\n"
+    "- 支持 CE()（借贷差额）、数字和 + - * / 括号\n"
+    "- 金额为 0 的行不写；按年取数（QM 年）的定义只在第 12 期生成\n"
+    "- 跳过（skipped）：本期已生成（同期、外部业务类型「自定义转账」、摘要相同的未作废凭证）\n"
+    "- 跳过：科目不存在或不是末级、行科目要辅助核算而定义和公式都给不出、算出来全为 0\n",
+    "- 400 bad_request：用了别的函数（FS、JE、QC 等），写明函数名，不猜\n"
+    "- 409：全部定义都被跳过\n"
+    "- 409：不给 tran_id 时，后面定义 QM 取数的科目与前面定义本次生成的分录科目重叠"
+    "（U8 按序号逐个结转、记账后再取数）\n",
 )
 
 

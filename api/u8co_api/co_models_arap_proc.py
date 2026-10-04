@@ -29,65 +29,74 @@ SIDE_TYPES = {"AR": ("26", "27", "R0"), "AP": ("01", "02", "P0")}
 _BILLS = frozenset({"R0", "P0"})
 _SIDE_NAMES = {"AR": "26、27、R0（销售发票、应收单）", "AP": "01、02、P0（采购发票、应付单）"}
 
-_LINE_HELP = (
-    "type 是 U8 单据类型代码，id 是单据号；line_id 是发票表体行（= 往来明细 iBVid），"
-    "省略时按行主键从小到大依次分摊；应收单、应付单按整单，不能带 line_id。amount 是原币，大于 0、最多两位小数"
-)
-_DATE_NOTE = "处理日期就是登录日期 date（缺省今天），须在应收、应付都未结账的期间内。"
-_DRY_NOTE = "dry_run 为 true 时在事务里执行后回滚（rollback 模式），什么都不写入，返回 DryRunOut。"
+# 接口说明共用的 Markdown 条目：预演（只对测试账套开放的开关见 co_doctext.TEST_ONLY_GATE）。
+DRY_ROLLBACK_NOTE = "- dry_run 为 true：在事务里执行后回滚（rollback 模式），不写入，返回 DryRunOut\n"
+_RELATED = "**相关**\n- 撤销：arap/process/cancel\n- 制单：arap/process/voucher"
+_CHECK_REJECTED = "- 409 u8_rejected：核对不符，已回滚\n"
+_CONTROLLED = "- 409 workflow_enabled：单据受审批流控制\n"
 
 TRANSFER_SUMMARY = "应收冲应付 / 应付冲应收"
 TRANSFER_HELP = (
-    "U8 应收（应付）款管理「转账」里的应收冲应付（flag AR，处理方式 9I，处理号 YCFAP…）和应付冲应收（flag AP，9J，"
-    "处理号 FCYAR…）：用同一往来对象的应收余额抵应付余额，两边各写一组处理行（往来明细两张表），发票累计核销经 U8 的"
-    "回写组件。customer、vendor 是客户、供应商编码；ar_lines 收 26 / 27 销售发票、R0 应收单，"
-    "ap_lines 收 01 / 02 采购发票、P0 应付单（收付款单不参与转账，请用核销），各 1 到 50 项，两侧 amount 合计必须相等"
-    "；同一单据行不能重复，同一单据也不能既按"
-    "行又按"
-    "整单。currency 省略为本位币，各单据须同币种。digest 是摘要，"
-    "省略用 U8 的缺省摘要。" + _DATE_NOTE + "响应带处理号 cancel_no、处理方式 style，"
-    "ar_rows / ap_rows 是每张单据每一行的"
-    "本次金额（amount 原币、amount_native 本币）和转账后的余额 remaining。"
-    "404 not_found：单据不存在。409 workflow_enabled：单据受审批流控制。409 state_mismatch：单据未审核、往来单位或币"
-    "种不符、"
-    "余额不足、转账日期早于单据日期或系统启用日期、期间已结账、外币两侧折合本币不等；核对不符回滚，409 u8_rejected。"
-    "撤销用 arap/process/cancel，制单用 arap/process/voucher。"
-    "功能权限：AR050502 / AP050502（上级 AR0505 / AP0505）；数据权限按两侧单据的往来单位、部门、业务员。"
-    + _DRY_NOTE
+    "用同一往来对象的应收余额抵应付余额，对应 U8「转账」里的应收冲应付、应付冲应收。\n\n"
+    "**用法**\n\n"
+    "| flag | 处理 | 处理方式 | 处理号 |\n"
+    "| --- | --- | --- | --- |\n"
+    "| AR | 应收冲应付 | 9I | YCFAP… |\n"
+    "| AP | 应付冲应收 | 9J | FCYAR… |\n\n"
+    "- ar_lines 收 26 / 27 销售发票、R0 应收单；ap_lines 收 01 / 02 采购发票、P0 应付单\n"
+    "- 收付款单不参与转账，请用核销\n" + DRY_ROLLBACK_NOTE + "\n"
+    "**规则**\n"
+    "- 各单据须同币种\n"
+    "- 同一单据行不能重复，同一单据不能既按行又按整单\n"
+    "- 处理日期就是登录日期 date（缺省今天），须在应收、应付都未结账的期间内\n"
+    "- 两边各写一组处理行（往来明细两张表），发票累计核销经 U8 的回写组件\n\n"
+    "**权限**\n"
+    "- 功能权限：AR050502 / AP050502（上级 AR0505 / AP0505）\n"
+    "- 数据权限：按两侧单据的往来单位、部门、业务员\n\n"
+    "**错误**\n"
+    "- 404 not_found：单据不存在\n" + _CONTROLLED + "- 409 state_mismatch：单据未审核、往来单位或币种不符、余额不足\n"
+    "- 409 state_mismatch：日期早于单据日期或系统启用日期、期间已结账\n"
+    "- 409 state_mismatch：外币两侧折合本币不等\n" + _CHECK_REJECTED + "\n" + _RELATED
 )
 MERGE_SUMMARY = "应收 / 应付并账"
 MERGE_HELP = (
-    "U8「转账」里的并账（处理方式 BZ，处理号 BZAR… / BZAP…）：把若干单据在往来单位 from 名下的余额并到 to 名下，每张"
-    "单据"
-    "（行）写一对 ± 处理行，单据本身不改。flag 为 AR 时 lines 收 26 / 27 销售发票、R0 应收单，为 AP 时收 01 / 02 采购"
-    "发票、"
-    "P0 应付单；lines 1 到 50 项，amount 可省略（并入该单据或行在 from 名下的全部余额）。from、to 是客户（供应商）编"
-    "码，"
-    "不能相同。digest 省略为「并账」。并账日期就是登录日期 date，须在本系统未结账的期间内。响应带 cancel_no、amount "
-    "合计，"
-    "rows 是每张单据（行）的本次金额和并账后两边的余额（from_remaining、to_remaining）。"
-    "404 not_found：单据不存在。409 workflow_enabled：单据受审批流控制。409 state_mismatch：单据未审核、不属于 from、"
-    "余额不足、"
-    "日期早于单据日期或系统启用日期、期间已结账、一次超过 500 行；核对不符回滚，409 u8_rejected。"
-    "撤销用 arap/process/cancel，制单用 arap/process/voucher。"
-    "功能权限：AR050504 / AP050504（上级 AR0505 / AP0505）；数据权限按各单据和 from、to 两个往来单位。"
-    + _DRY_NOTE
+    "把若干单据在往来单位 from 名下的余额并到 to 名下，对应 U8「转账」里的并账（处理方式 BZ，处理号 BZAR… / BZAP…）。\n\n"
+    "**用法**\n"
+    "- flag AR：lines 收 26 / 27 销售发票、R0 应收单\n"
+    "- flag AP：lines 收 01 / 02 采购发票、P0 应付单\n" + DRY_ROLLBACK_NOTE + "\n"
+    "**规则**\n"
+    "- 每张单据（行）写一对 ± 处理行，单据本身不改\n"
+    "- 并账日期就是登录日期 date，须在本系统未结账的期间内\n\n"
+    "**权限**\n"
+    "- 功能权限：AR050504 / AP050504（上级 AR0505 / AP0505）\n"
+    "- 数据权限：按各单据和 from、to 两个往来单位\n\n"
+    "**错误**\n"
+    "- 404 not_found：单据不存在\n" + _CONTROLLED + "- 409 state_mismatch：单据未审核、不属于 from、余额不足\n"
+    "- 409 state_mismatch：日期早于单据日期或系统启用日期、期间已结账、一次超过 500 行\n"
+    + _CHECK_REJECTED
+    + "\n"
+    + _RELATED
 )
 RED_OFFSET_SUMMARY = "应收 / 应付红票对冲"
 RED_OFFSET_HELP = (
-    "U8「转账」里的红票对冲（处理方式 9N，处理号 HRAR… / HPAP…）：同一往来单位的红字单据冲抵蓝字单据，走 U8 应收应付的"
-    "对冲组件 U8ApCancel.cLsCancel.AP_JZ_Red，在桥的事务里；发票累计核销由 U8 一并回写。flag 为 AR 时 red、blue 收 26"
-    " / 27 "
-    "销售发票、R0 应收单，为 AP 时收 01 / 02 采购发票、P0 应付单；各 1 到 50 项，两侧 amount 合计必须相等，同一单据不"
-    "能同时"
-    "出现在两侧。partner 是客户（供应商）编码，currency 省略为本位币，各单据须同币种。digest 若 U8 组件不收则忽略。"
-    "对冲日期就是登录日期 date，须在本系统未结账的期间内。响应带 cancel_no、amount，red_rows / blue_rows 是两侧每张单据"
-    "（行）的本次金额。404 not_found：单据不存在。409 workflow_enabled：单据受审批流控制。409 state_mismatch：单据未"
-    "审核、"
-    "红蓝方向不对、往来单位或币种不符、余额不足、期间已结账；U8 拒绝时 409 u8_rejected（带回 U8 原文），核对不符同样"
-    "回滚。"
-    "撤销用 arap/process/cancel，制单用 arap/process/voucher。"
-    "功能权限：AR050503 / AP050503（上级 AR0505 / AP0505）；数据权限按往来单位、部门、业务员。" + _DRY_NOTE
+    "用同一往来单位的红字单据冲抵蓝字单据，对应 U8「转账」里的红票对冲（处理方式 9N，处理号 HRAR… / HPAP…）。\n\n"
+    "**用法**\n"
+    "- flag AR：red、blue 收 26 / 27 销售发票、R0 应收单\n"
+    "- flag AP：red、blue 收 01 / 02 采购发票、P0 应付单\n" + DRY_ROLLBACK_NOTE + "\n"
+    "**规则**\n"
+    "- 同一单据不能同时出现在两侧；各单据须同币种\n"
+    "- 对冲日期就是登录日期 date，须在本系统未结账的期间内\n"
+    "- 在桥的事务里调用 U8 对冲组件 U8ApCancel.cLsCancel.AP_JZ_Red\n"
+    "- 发票累计核销由 U8 一并回写\n\n"
+    "**权限**\n"
+    "- 功能权限：AR050503 / AP050503（上级 AR0505 / AP0505）\n"
+    "- 数据权限：按往来单位、部门、业务员\n\n"
+    "**错误**\n"
+    "- 404 not_found：单据不存在\n"
+    + _CONTROLLED
+    + "- 409 state_mismatch：单据未审核、红蓝方向不对、往来单位或币种不符\n"
+    "- 409 state_mismatch：余额不足、期间已结账\n"
+    "- 409 u8_rejected：U8 拒绝（带回 U8 原文），或核对不符，均已回滚\n\n" + _RELATED
 )
 
 
@@ -112,12 +121,13 @@ class ProcLineIn(BaseModel):
     """一张单据（或它的一行）及本次金额。"""
 
     model_config = _FORBID
-    type: str = Field(
-        ..., min_length=2, max_length=2, description="U8 单据类型代码（26 / 27 / R0、01 / 02 / P0）"
-    )
+    type: str = Field(..., min_length=2, max_length=2, description="U8 单据类型代码（26 / 27 / R0、01 / 02 / P0）")
     id: str = Field(..., min_length=1, max_length=_DOC_MAX, description="单据号")
     line_id: int | None = Field(
-        None, gt=0, le=_ID_MAX, description="发票表体行；省略按行依次分摊。应收单、应付单不能带"
+        None,
+        gt=0,
+        le=_ID_MAX,
+        description="发票表体行（= 往来明细 iBVid）；省略时按行主键从小到大依次分摊。应收单、应付单按整单，不能带",
     )
     amount: float = Field(
         ..., gt=0, le=_AMOUNT_MAX, allow_inf_nan=False, strict=True, description="本次金额（原币），最多两位小数"
@@ -177,7 +187,7 @@ class CoArapTransferIn(CoAuth):
     vendor: str = Field(..., min_length=1, max_length=_PARTNER_MAX, description="供应商编码")
     currency: str | None = Field(None, min_length=1, max_length=20, description="币种名称；省略为本位币")
     ar_lines: list[ProcLineIn] = Field(
-        ..., min_length=1, max_length=_LINES_MAX, description="应收一侧，1 到 50 项（26 / 27 / R0）。" + _LINE_HELP
+        ..., min_length=1, max_length=_LINES_MAX, description="应收一侧，1 到 50 项（26 / 27 / R0）"
     )
     ap_lines: list[ProcLineIn] = Field(
         ...,
@@ -221,7 +231,7 @@ class CoArapMergeIn(CoAuth):
         ...,
         min_length=1,
         max_length=_LINES_MAX,
-        description="并账的单据，1 到 50 项：AR 收 26 / 27 / R0，AP 收 01 / 02 / P0。" + _LINE_HELP + "；amount 可省略",
+        description="并账的单据，1 到 50 项：AR 收 26 / 27 / R0，AP 收 01 / 02 / P0；amount 可省略",
     )
     digest: str | None = Field(None, min_length=1, max_length=_TEXT_MAX, description="摘要；省略为「并账」")
     dry_run: DryRunFlag = False
@@ -256,7 +266,7 @@ class CoArapRedOffsetIn(CoAuth):
         ...,
         min_length=1,
         max_length=_LINES_MAX,
-        description="红字一侧，1 到 50 项（红字发票或负余额的应收单 / 应付单）。" + _LINE_HELP,
+        description="红字一侧，1 到 50 项（红字发票或负余额的应收单 / 应付单）",
     )
     blue: list[ProcLineIn] = Field(
         ..., min_length=1, max_length=_LINES_MAX, description="蓝字一侧，1 到 50 项，合计须等于 red"

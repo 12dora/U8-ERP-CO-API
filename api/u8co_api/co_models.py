@@ -120,13 +120,17 @@ class CoCreateIn(CoAuth):
         ...,
         min_length=1,
         max_length=SETTLE_LINES_MAX,
-        description="明细，1 到 200 行（生产订单 1 到 50 行，采购手工结算 1 到 400 行）。"
-        "每行的值只能是字符串、数字或布尔，不能嵌套。"
-        + MO_CREATE_HELP
-        + BOM_CREATE_HELP
-        + QM_OTHER_CREATE_HELP
-        + RETURN_APPLY_CREATE_HELP
-        + SETTLE_CREATE_HELP,
+        description="\n\n".join(
+            (
+                "明细，1 到 200 行（生产订单 1 到 50 行，采购手工结算 1 到 400 行）。"
+                "每行的值只能是字符串、数字或布尔，不能嵌套。",
+                MO_CREATE_HELP,
+                BOM_CREATE_HELP,
+                QM_OTHER_CREATE_HELP,
+                RETURN_APPLY_CREATE_HELP,
+                SETTLE_CREATE_HELP,
+            )
+        ),
     )
     dry_run: DryRunFlag = False
 

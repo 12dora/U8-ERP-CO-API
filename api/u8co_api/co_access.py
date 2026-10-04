@@ -156,12 +156,10 @@ ACCESS = {
 MGMT_ACTIONS = frozenset(action for action, level in ACCESS.items() if level == MGMT and action.startswith("co:mgmt/"))
 
 _NOTE = {
-    READ: "权限：只读。令牌要有读权限或写权限（缺省声明 u8co_read 或 u8co_write）。",
-    WRITE: "权限：写。令牌要有写权限（缺省声明 u8co_write）；只有读权限返回 403。",
-    MGMT: "权限：经营管理。令牌要有经营管理权限（信任项的 mgmt_claim 或 mgmt_scope），读、写权限都不代替它；"
-    "没有时返回 403 mgmt_forbidden。",
-    PERM_EVALUATE: "权限：权限评估。只有信任项写了 perm_evaluate: true 的调用方可用，令牌还要有读或写权限；"
-    "否则返回 403 forbidden。",
+    READ: "**令牌权限：只读**（读或写权限均可，缺省声明 u8co_read / u8co_write）。",
+    WRITE: "**令牌权限：写**（缺省声明 u8co_write）；只有读权限返回 403。",
+    MGMT: "**令牌权限：经营管理**（信任项的 mgmt_claim / mgmt_scope，读、写权限不能代替）；没有时 403 mgmt_forbidden。",
+    PERM_EVALUATE: "**令牌权限：权限评估**（信任项写了 perm_evaluate: true，且有读或写权限）；否则 403 forbidden。",
 }
 
 
