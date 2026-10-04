@@ -67,7 +67,7 @@ CLI="uv run --no-project --python 3.12 --with cryptography python -m co.client.u
 $CLI health
 $CLI login-check --acc 801 --year 2026 --operator op001 --date 2026-01-31
 $CLI meta
-$CLI load --acc 801 --year 2026 --operator op001 --date 2026-01-31 --type sale_order --id 1000000003
+$CLI load --acc 801 --year 2026 --operator op001 --date 2026-01-31 --type sale_order --id 9000000003
 ```
 
 口令只从终端读取。之后按下列顺序验证要使用的每一种写操作：

@@ -141,11 +141,11 @@ IV 为每次随机生成的 16 字节，置于密文之前。完整性由请求�
 | 口令 | `测试Pass#01` |
 | `password_enc` | `Dw4NDAsKCQgHBgUEAwIBAK86wvyLgq4AmzNMoENmeZU=` |
 | 方法、路径 | `POST`、`/u8co/v1/sale-orders/verify` |
-| 请求体 | `{"acc":"998","year":"2026","operator":"op001","password_enc":"Dw4NDAsKCQgHBgUEAwIBAK86wvyLgq4AmzNMoENmeZU=","date":"2026-09-26","id":1000000003,"action":"verify"}` |
-| 请求体 SHA-256 | `d1e19ce73e0391436e1e3eb76870e4237a113da406669a9f7e835abb920c2c58` |
+| 请求体 | `{"acc":"998","year":"2026","operator":"op001","password_enc":"Dw4NDAsKCQgHBgUEAwIBAK86wvyLgq4AmzNMoENmeZU=","date":"2026-09-26","id":9000000003,"action":"verify"}` |
+| 请求体 SHA-256 | `98c5d2571d4765701ddcfc1ade19102114b4c8658a0d4b4e3596ece98084c106` |
 | `X-U8co-Ts` | `1790434800` |
 | `X-U8co-Nonce` | `a1b2c3d4e5f60718293a4b5c6d7e8f90` |
-| `X-U8co-Sig` | `7ca396c444e8bd5f5ad0163ad12bb365688ce638d7bb4bb46da0b278e666061f` |
+| `X-U8co-Sig` | `dfc80957a80e21188add47a0bea3cfc917379139105a48337f91933a43b27a3a` |
 
 同一组向量出现在 `co/client/tests/test_u8co_client.py`、`api/tests/test_co_crypto.py` 和桥的 `--selftest`（`co/bridge/src/SelfTest.cs`），修改时三处须同步。
 

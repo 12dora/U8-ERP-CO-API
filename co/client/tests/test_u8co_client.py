@@ -55,12 +55,12 @@ PASSWORD_ENC = "Dw4NDAsKCQgHBgUEAwIBAK86wvyLgq4AmzNMoENmeZU="
 BODY = (
     '{"acc":"998","year":"2026","operator":"op001","password_enc":"'
     + PASSWORD_ENC
-    + '","date":"2026-09-26","id":1000000003,"action":"verify"}'
+    + '","date":"2026-09-26","id":9000000003,"action":"verify"}'
 )
-BODY_SHA = "d1e19ce73e0391436e1e3eb76870e4237a113da406669a9f7e835abb920c2c58"
+BODY_SHA = "98c5d2571d4765701ddcfc1ade19102114b4c8658a0d4b4e3596ece98084c106"
 TS = "1790434800"
 NONCE = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
-SIG = "7ca396c444e8bd5f5ad0163ad12bb365688ce638d7bb4bb46da0b278e666061f"
+SIG = "dfc80957a80e21188add47a0bea3cfc917379139105a48337f91933a43b27a3a"
 SALE_PATH = "/u8co/v1/sale-orders/verify"
 
 
@@ -173,7 +173,7 @@ class VectorTests(unittest.TestCase):
         self.assertNotEqual(encrypt_password(k_enc, PASSWORD), encrypt_password(k_enc, PASSWORD))
 
     def test_body_and_signature(self) -> None:
-        call = U8Call("998", "2026", "op001", "不进正文", "2026-09-26", 1000000003, "verify")
+        call = U8Call("998", "2026", "op001", "不进正文", "2026-09-26", 9000000003, "verify")
         raw = body_bytes(call, PASSWORD_ENC)
         self.assertEqual(raw.decode("ascii"), BODY)
         self.assertEqual(hashlib.sha256(raw).hexdigest(), BODY_SHA)

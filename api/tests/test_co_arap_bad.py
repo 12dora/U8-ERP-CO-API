@@ -251,7 +251,7 @@ def test_route_is_in_openapi_as_a_write() -> None:
     assert operation["tags"] == ["应收应付处理"]
     assert operation["x-u8co-access"] == "write"
     assert operation["x-u8co-dry-run"] is True
-    words = ("9G", "9H", "9F", "HZAR", "testAccounts", "test_account_only", "本次计提金额为 0", "AR050602", "待实测")
+    words = ("9G", "9H", "9F", "HZAR", "testAccounts", "test_account_only", "本次计提金额为 0", "AR050602", "取数窗口以界面为准")
     for word in words:
         assert word in operation["description"], word
     for path in (_CANCEL, _VOUCHER):

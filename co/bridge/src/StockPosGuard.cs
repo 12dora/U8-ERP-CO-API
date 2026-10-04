@@ -8,7 +8,7 @@ namespace U8Co
     // 为 true 而不先清货位则回「存货[..]已经指定了货位」。所以库存删除在事务里先 ClearPosition，再以 bList=true 删除
     // （ClearOnDelete，u8-notes §8；库存删除与材料出库、产成品入库的删除 MfgGen.Delete 都走它）。修改时有货位的行只能改备注和自定义项，
     // 已有行不改货位（Update 改货位未实测）。
-    // InvPosition.cvouchtype 与库存单据类型短码一致（01、09、32 已在账套数据上核对），按 RdID + 短码查。
+    // InvPosition.cvouchtype 与库存单据类型短码一致，按 RdID + 短码查。
     internal static class StockPosGuard
     {
         const string CountSql = "select count(*) as n from InvPosition where RdID=? and cvouchtype=?";
