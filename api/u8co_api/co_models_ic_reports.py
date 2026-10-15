@@ -70,7 +70,8 @@ AGGREGATE_HELP = op_doc(
             "403 account_not_allowed：令牌不能用其中某个账套",
             "404 ic_not_configured：没配置对照",
             "400 ic_group_mismatch：账套不在同一组",
-            "503：全部账套失败",
+            "403 no_permission：全部账套都功能权限不足",
+            "503：全部账套失败（原因不都是权限不足）",
         ),
     ),
 )
@@ -93,7 +94,7 @@ CONSOLIDATION_HELP = op_doc(
             "部分账套失败仍返回 200：complete 为 false，consolidated 为 null，涉及失败账套的抵销对跳过",
         ),
     ),
-    ("错误", ("503：全部账套失败",)),
+    ("错误", ("403 no_permission：全部账套都功能权限不足", "503：全部账套失败（原因不都是权限不足）")),
 )
 
 

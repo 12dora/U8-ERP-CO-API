@@ -78,6 +78,30 @@ namespace U8Co
             // 经营管理销售分析、往来账期（ReportsMgmtSales*.cs、ReportsMgmtArap*.cs）：只用 ctx.Conn、账套号、登录日期和权限快照。
             new string[] { ReportsMgmtSalesReq.Path, Any },
             new string[] { ReportsMgmtArapReq.Path, Any },
+            // 质量统计（ReportsQm*.cs）：只用 ctx.Conn、账套号、登录日期和权限快照。
+            new string[] { "/u8co/v1/reports/qm_indicators", Any },
+            new string[] { "/u8co/v1/reports/qm_pass_rate", Any },
+            // 生产日报、生产订单完工与用料（ReportsMfg*.cs）：只用 ctx.Conn、账套号、登录日期和权限快照。
+            new string[] { "/u8co/v1/reports/production_daily", Any },
+            new string[] { "/u8co/v1/reports/mo_progress", Any },
+            new string[] { "/u8co/v1/reports/mo_consumption", Any },
+            // 库龄分析（ReportsStockAge*.cs）：只用 ctx.Conn、账套号、登录日期和权限快照。
+            new string[] { "/u8co/v1/reports/stock_age", Any },
+            // 采购综合统计、采购时效（ReportsPu*.cs）：只用 ctx.Conn、账套号、登录日期和权限快照。
+            new string[] { "/u8co/v1/reports/purchase_analysis", Any },
+            new string[] { "/u8co/v1/reports/arrival_otif", Any },
+            // 销售订单执行、单据历史价格、客户流失（ReportsSa*.cs）：只用 ctx.Conn、账套号、登录日期和权限快照。
+            new string[] { "/u8co/v1/reports/open_orders", Any },
+            new string[] { "/u8co/v1/reports/sales_price_history", Any },
+            new string[] { "/u8co/v1/reports/customer_churn", Any },
+            // 收付款汇总、到期票据、现金流量统计（ReportsFin*.cs）：只用 ctx.Conn、账套号、登录日期和权限快照。
+            new string[] { "/u8co/v1/reports/receipts_payments", Any },
+            new string[] { "/u8co/v1/reports/notes_due", Any },
+            new string[] { "/u8co/v1/reports/cash_flow", Any },
+            // 月末结账检查、存货核算检查、完工产品成本（ReportsAcct*.cs）：只用 ctx.Conn、账套号、登录日期和权限快照。
+            new string[] { "/u8co/v1/reports/close_check", Any },
+            new string[] { "/u8co/v1/reports/ia_anomalies", Any },
+            new string[] { "/u8co/v1/reports/cost_unit", Any },
             // 期初余额（ReportsOpening*.cs）、凭证附件和单据附件列表（GlAttach、VoucherAttach）：只用 ctx.Conn 和权限快照。
             new string[] { "/u8co/v1/reports/opening_balance", Any },
             // 核销记录（ReportsArapWriteoff*.cs）：只用 ctx.Conn、登录账套和权限快照；能否取消用取消核销的闸门规则只读判断。

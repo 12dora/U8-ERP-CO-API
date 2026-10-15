@@ -2,6 +2,38 @@
 
 本文件的格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 新增
+
+- `vouchers/search`、`reports/order_execution` 新增 `order`（`asc` 缺省，与以前完全一致；`desc` 最新在前）：按单据（订单）日期降序、主键降序，用 keyset 游标续读（`next` 原样放回 `after`，游标不能跨 `order` 使用），一次调用就能取到最新的单据。`vouchers/search` 的 `after` 在 `desc` 时是游标文本，`asc` 时仍是整数主键。响应在 `desc` 时另有 `order`，API 在请求给了 `order` 时另加 `order_applied`。**升级顺序：先桥，后 API**（API 对旧桥仍可用：旧桥回「含未知字段」/「不能设置字段」时去掉 `order` 重试一次，`order_applied` 为 `false`，列表仍是最旧在前）。桥的 `--selftest` 增加 `order`、游标编解码和降序 SQL 的核对。
+- `stock/current` 每行新增 `inv_unit`（存货主计量单位名，`Inventory.cComUnitCode` → `ComputationUnit.cComUnitName`），不同存货的数量可以先看单位再比较。**升级顺序：先桥，后 API**（旧桥的行里没有该键）。
+- `mgmt/sales` 按存货分类汇总：`group_by` 新增 `inventory_class`，`class_grade`（1 到 9）往上取该级次的祖先分类，`inv_class` 按存货分类编码前缀过滤收入行和成本行；`inventory` 维度的行另有 `inventory_unit`、`inventory_class_code`。
+- `mgmt/sales` 关联方标注：按客户分组的行有 `ic_account`，每个账套有 `ic_totals`（所有关联方客户的合计，不受 `top` 影响）。桥新增 `ic_customers` 参数，多跑一遍只含这些客户的汇总；API 只在按客户分组时发送它。**升级顺序：先桥，后 API**（API 对不认识该字段的旧桥会去掉它重试一次，`ic_totals` 为 `null` 并提醒）。
+- `mgmt/cash_stock` 的产量按存货分类：`production.items` 每项有 `class_code`、`class_name`，新增 `class_grade`、`inv_class`（只过滤产量）。
+- `stock/current` 接受 `nonzero`（布尔），转给桥。
+- `mgmt/cash_stock` 新增 `sections`（`cash`、`notes`、`inventory`、`production`、`purchases` 的不重复子集，缺省全部）：桥只算要的段，API 合并也只合要的段。只要 `production` 时功能权限改为产成品入库单查询（`ASM0301`，规则 key `report:mgmt/cash_stock#production`），不要总账权限，登录子系统 `ST`，不读 `mgmt/meta`、不出 `closed`；有其他段仍走原来的总账规则。产量段的数据权限对象与 `voucher:product_in` 相同（部门、仓库、存货必有，客户、供应商、业务员、收发类别可空）。桥的 `--selftest` 增加参数、规则选择、登录子系统、权限登记和产量 SQL 数据权限条件的核对。**部署顺序：先升级桥，再升级 API**（旧桥不认识 `sections`，API 会去掉它重试一次并在 `warnings` 提醒）。
+- 质量统计报表 `reports/qm_indicators`（检验指标统计）、`reports/qm_pass_rate`（检验合格率）：`kind` 选 `incoming`（来料检验单）或 `product`（产品检验单），只含已审核（审核人非空）的检验单，`include_unverified` 可放开。`qm_indicators` 按（存货、检验指标）给检验行数、可转为数字的行数、均值、最小、最大、样本标准差（少于 2 个数值时为 `null`）、不良行数、按月走势和最近的不良批次，统计在桥里按小数解析后计算。`qm_pass_rate` 以一张检验单为一个批次，结论含「不合格」记不合格，含「让步」按合格计，按月份、供应商（仅来料）或存货分组，另给检验数量、合格数量、让步数量、不合格数量的合计；不返回比率，比率由调用方用返回的数量和批次数计算。其他检验单（QM15）不计。功能权限：来料指标 `QM040125_01`、产品指标 `QM040329_01`、来料合格率 `QM040101_01`、产品合格率 `QM040301_01`（规则 key 带 `:incoming` / `:product` 后缀，由请求里的 `kind` 选）；数据权限：存货必有，供应商可空（仅来料）。登录子系统同检验单列表。**升级顺序：先桥，后 API**（旧桥没有这两个路径）。
+- 生产报表 `reports/production_daily`（产成品入库日报）、`reports/mo_progress`（生产订单完工状况）、`reports/mo_consumption`（生产订单用料分析）：日报按日或月、按产品或存货分类级次汇总已审核（`cHandler` 非空）的产成品入库数量和单据数，另给有入库的天数；完工状况每个订单行一行，给订单数量、合格入库数量、关闭状态和状态，`open_only` 只看未完成；用料分析按（母件、子件）汇总订单个数、订单数量、合格入库数量、子件的物料清单用量和已领用数量。完工率、单耗由调用方用返回的数量计算（分母用合格入库数量）。功能权限：日报 `ASM0301`（登录子系统库存 `ST`）、完工状况 `MO04005_01`、用料分析 `MO04005_01` 或 `MO03005Q`（登录子系统同生产订单读取）；数据权限对象分别同产成品入库单、生产订单。**升级顺序：先桥，后 API**。
+- 库存：`reports/stock_age`（库龄分析）按（存货、仓库）列现存量，给最后一次已审核入库日期、最后一次已审核出库日期、库龄（距最后入库的天数）、`idle_days` 内没有出库的呆滞标记、按 `buckets` 分档的件数和金额，金额取最近已结账存货核算月份的结存单价乘数量；`sort` 可按金额或库龄，`by_wh=false` 合并仓库。`reports/stock_summary` 新增 `include_amount` 和每行 `unit`：请求区间正好是整月（月初到月末）时，给期初、收入、发出、结存金额（取存货核算期间汇总，`amount_basis: "month"`），区间不是整月时只有数量（`"partial"`），按仓库分组而存货核算不按仓库记账时也只有数量（`"no_wh"`）。库龄和收发存的金额需要存货核算查询权限 `IA3011_01`（规则 key `mask:amount`）；没有该权限的操作员照给数量，金额字段为 `null`，响应带 `masked_fields: ["amount"]`，不返回 403。库龄功能权限 `ST020205_01` 或 `ST020204_01`，数据权限：仓库、存货必有。**升级顺序：先桥，后 API**（旧桥不认 `include_amount`）。
+- 采购报表 `reports/purchase_analysis`（采购综合统计）、`reports/arrival_otif`（采购时效）：综合统计的 `source` 取 `invoice`（采购发票，缺省，不含期初发票）或 `receipt`（已审核采购入库），按物料、供应商、月份任意组合（1 到 3 项）汇总数量、金额、价税合计、单据数，另给合计；发票口径金额取本币列。时效按订单行的计划到货日期窗口统计（已审核、未关闭的采购订单行，截至登录日期）：到货行数、准时（首次到货日期不晚于计划日期）、晚到、已逾期未到货、未到期，并列出最久的 `overdue_limit` 行逾期明细，到货日期取到货单。功能权限：采购综合统计 `PU050307_01`（供应商可空）、采购时效 `PU050314_01`（供应商必有），存货必有；登录子系统 `PU`。**升级顺序：先桥，后 API**。
+- 销售报表 `reports/open_orders`（销售订单执行）、`reports/sales_price_history`（单据历史价格）、`reports/customer_churn`（客户新增、流失、下滑）：执行统计按 `basis`（`ship` 发货、`out` 出库、`invoice` 开票，缺省 `ship`）算每个订单行的未执行数量，只含未关闭且未执行数量大于 0 的行，按客户、存货或订单汇总，给未执行数量、未执行金额（未执行数量乘订单行本币含税单价）、已逾期行数和最早到期日；历史价格列出已审核销售发票的明细，新的在前，给本币无税单价和含税单价（金额除以数量，6 位小数），`customer` 和 `inv` 至少给一个；客户变化以已审核销售发票的无税收入为准，把 `date_from` 起的当前窗口与之前 `lookback_months` 个月的基线比较，分新增（基线前无发票）、流失（基线有收入、当前无）、下滑（月均低于基线月均的 `100 - decline_pct`%）三个清单，各清单按收入大小排序。功能权限：订单执行 `SA030105_01`（数据权限同销售订单）、历史价格 `SA031209` 或 `SA040401_01`、销售统计 `SA040401_01`；客户必有，业务员可空；登录子系统 `SA`。**升级顺序：先桥，后 API**。
+- 收付款与现金流报表 `reports/receipts_payments`（收款单、付款单汇总）、`reports/notes_due`（票据到期分析）、`reports/cash_flow`（现金流量统计）：收付款按 `side` 取应收（收款单）或应付（付款单），已审核（审核人非空，期初除外），按日、月、往来单位、业务员、部门或结算方式最多两层分组，给单据数、收付款金额、退款金额和净额；票据到期按 `expire_from`、`expire_to`（缺省登录日期起 30 天）列票据，`open_only`（缺省 true）只含余额不为 0 的，给到期天数和状态（未结清、已结算、贴现、背书、退回）；现金流量统计按期间取 `GL_CashTable` 的现金流量项目金额，另给已记账但没有指定现金流量项目的现金科目凭证（`unassigned`）。功能权限：收款单查询 `AR0601031`、付款单查询 `AP0601031`、应收票据到期 `AR212013` 或 `AR2231`、应付票据 `AP212013` 或 `AP2231`、现金流量统计 `GL1302` 或 `GL1301`（规则 key 带 `:ar` / `:ap` 后缀，由请求里的 `side` 选）；数据权限：往来单位按收付款为必有、票据为可空，部门、业务员可空；现金流量统计无数据权限对象。登录子系统：收付款、票据按 `side` 为 `AR` / `AP`，现金流量 `GL`。**升级顺序：先桥，后 API**。
+- 账务核对报表 `reports/close_check`（月末结账检查）、`reports/ia_anomalies`（存货核算检查）、`reports/cost_unit`（完工产品单位成本）：月末检查给各模块结账标志，以及期间内未审核的发货、销售发票、采购发票、各类出入库单，未记账凭证，存货核算未记账，应收应付未制单，损益未结转的数量和最多 5 个样例单号，只给该期间还开着的模块相关的项目；存货核算检查列出截至期末已审核采购入库中未开票的行（剩余数量乘单价估算金额、天数）和期间内没有存货核算明细的已审核出入库行；单位成本取成本核算模块的完工产品单位成本，按成本要素给每主计量单位的成本，缺省取最近已结账的期间。功能权限：月末检查同 `close_status`（`GL1512`、`GL1520`、`GL030301`、`GL0305`）、存货核算检查 `IA3017_01` 或 `IA3011_01`、完工产品成本 `CA0504_01` 或 `CA0512`；数据权限：存货核算检查按存货、供应商（可空）、仓库（可空）过滤，成本按存货过滤。登录子系统：月末检查、成本 `GL`，存货核算检查 `IA`。**升级顺序：先桥，后 API**。
+- 字段权限（`AA_ColumnAuth`）同样作用于新增的分族报表：采购综合统计按 `source` 取采购入库单（`24`）或采购发票（`25`）的拒绝字段，订单执行取销售订单（`17`、`VCH_17`、`solist`），历史价格与客户新增 / 流失取销售发票（`07`、`VCH_07`、`VCH_13`），收付款汇总取收款单 / 付款单（`VCH_AR48` 等，按 `side`），存货核算检查的暂估金额取采购入库单，收发存汇总与库龄的金额取各自报表对象并从严并上出入库单列表。被拒绝的金额字段连同同行其他金额（含 `amount_tax`、`unit_price`、`unit_price_tax`、`est_amount`、`open_amount`、`refund_amount`、`net_amount`、`*_amt`）一起置 `null`，响应带 `masked_fields`；数量、单号、日期照给。销售订单、销售发票、采购发票的单据读取（`vouchers/*`）改按各自的字段权限对象遮蔽。质量统计、生产、采购时效、到期票据、现金流量、月末检查没有金额，完工产品单位成本在 U8 里没有字段权限对象，均不遮。
+- 字段权限遮金额时，报表不再按被遮的金额排序、截断：`stock_age`（同没有 `IA3011_01` 的路径）、`purchase_analysis`、`receipts_payments`、`open_orders`、`customer_churn`、`ia_anomalies` 在查询前判断（`PermMask.WillMaskAmounts`），会遮时改按键、单据数、编码或日期，并回显实际用的排序（`sort` / `order`）。报表自己的字段权限对象上的任何拒绝按金额组处理（栏目标题对不上响应的键）；收款单、付款单及退款的单据读取按 `VCH_AR48` 等对象遮蔽。
+
+### 变更
+
+- 桥按操作员固定写线程：需要登录的请求（写、`login-check`、需要登录对象的读、未命中登录缓存的纯 SQL 读）按操作员编码（去首尾空白、不分大小写）固定到一个写线程，同一操作员的这些请求在该线程上逐笔执行，桥自己的线程之间不再因同一操作员同时登录而回 422 `login_failed`「登录状态不是 0」。代价是时延：同一操作员的并发请求排队依次执行，哈希到同一写线程的不同操作员共用该线程；读路由和 `login-check` 最多排队 75 秒、写路由 45 秒内开始不了即放弃，都返回 503 `busy_timeout`（可重试）。命中登录缓存的纯 SQL 读路由仍在读线程池上并行；读线程不再登录，缓存失效时把任务转回该操作员固定的写线程。登录复用时，写线程为同一操作员新建登录前先关掉本线程缓存的该操作员的其他闲置登录（计入 `logins_closed`），同一操作员在几个账套之间交替时复用效果有限。健康检查新增 `pinning` 和按写线程的 `worker_queued`，原有字段不变。桥的 `--selftest` 增加固定规则、取任务和同一操作员腾退的核对。
+- `mgmt/sales`、`mgmt/arap` 不再依赖总账：`mgmt/meta` 因功能权限不足（`no_permission`）读不到的账套照样出报表（没有水位和结账状态，`accounts[].close` 为 `null`，不缓存）。其他原因的 meta 失败行为不变。
+- `mgmt/overview` 不再依赖总账水位，某一部分无权限时只缺这一部分：账套结果的 `missing` 列出读不到的部分，新增 `missing_reasons`（部分名 → 原因码，`no_permission` 或读取故障）；三部分都无权限才是 403。`mgmt/arap` 的 `side: "both"` 一边因权限读不到时，账套仍给另一边并带 `missing_sides`，`complete` 为 `false`。
+- 经营管理（`/v1/co/mgmt/*`）和公司间汇总、合并试算：全部账套都因功能权限不足（`no_permission`）失败时回 403 `no_permission`，不再是 503 `unavailable`；有账套因其他原因失败时仍是 503，部分账套失败仍留在 `by_account`（`ok: false`、`error.code: no_permission`）。
+
+### 修复
+
+- 桥 `reports/mgmt/sales` 在 `group_by` 含 `period` 且 `period_from` 等于 `period_to` 时拼出只有 `ELSE` 的 `CASE`，SQL 语法错误；单个期间现在直接用期间号。
+
 ## [1.0.0] - 2026-10-04
 
 首个公开版本。

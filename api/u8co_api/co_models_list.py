@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from u8co_api.co_models import CoAuth, VoucherType
 from u8co_api.co_models_arc import Ufts
@@ -63,6 +63,7 @@ class CoStockIn(CoAuth):
     wh: Word | None = Field(None, description="仓库编码")
     inv: Word | None = Field(None, description="存货编码")
     batch: Word | None = Field(None, description="批号")
+    nonzero: StrictBool | None = Field(None, description="为 true 时只要现存量不为 0 的行。缺省 false")
     after: int | None = Field(None, ge=0, le=_ID_MAX, description="上一页响应的 next（CurrentStock.AutoID）")
     limit: int | None = Field(None, ge=1, le=500, description="每页条数，1 到 500，缺省 100")
 
@@ -95,7 +96,7 @@ class CoStockOut(BaseModel):
     ok: bool = Field(description="是否读到现存量")
     items: list[dict[str, Any]] | None = Field(
         None,
-        description="按 CurrentStock.AutoID 排序：id、wh_code、wh_name、inv_code、inv_name、batch、qty、"
+        description="按 CurrentStock.AutoID 排序：id、wh_code、wh_name、inv_code、inv_name、inv_unit（存货主计量单位名）、batch、qty、"
         "qty_frozen、qty_pending_in、qty_pending_out、qty_trans_in、qty_trans_out、qty_available、ufts 等。"
         "qty_available = 现存量 − 冻结量 − 待出库量 − 调拨待出量 + 待入库量 + 调拨待入量"
         "（iQuantity − fStopQuantity − fOutQuantity − fTransOutQuantity + fInQuantity + fTransInQuantity），"

@@ -4,7 +4,8 @@
 
 某部分的金额被字段权限置空时，取自它的指标为 null，指标名记入该账套（或合并）的 masked_fields。
 
-整份结果按 overview 自己的缓存键缓存（内层不单独缓存）。某一部分全部账套失败时只记 warnings，三部分都失败才 503。
+整份结果按 overview 自己的缓存键缓存（内层不单独缓存）。某一部分全部账套失败时只记 warnings，三部分都失败才抛错（全是功能权限不足时 403 no_permission，否则 503 等）。
+不依赖总账水位（mgmt/meta 因权限不足读不到的账套照样往下算）；读不到的部分列在账套的 missing，原因码在 missing_reasons。
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from u8co_api.co_mgmt_arap import compute_arap
+from u8co_api.co_mgmt_arap import SIDE_NAME, compute_arap
 from u8co_api.co_mgmt_cash import compute_cash_stock, section
 from u8co_api.co_mgmt_core import MASKED, MgmtRun, serve
 from u8co_api.co_mgmt_lines import COGS, REVENUE
@@ -65,18 +66,20 @@ def compute_overview(run: MgmtRun, body: MgmtOverviewIn) -> dict[str, Any]:
     }
     parts: dict[str, dict] = {}
     warnings: list[str] = []
-    failed: list[ApiError] = []
+    failed: dict[str, ApiError] = {}
     for name, compute in computes.items():
         try:
             parts[name] = compute()
         except ApiError as exc:
-            failed.append(exc)
+            failed[name] = exc
             warnings.append(f"{PART_NAME[name]}全部账套读取失败（{exc.code}）：{exc.message}")
             continue
         warnings += [f"{PART_NAME[name]}：{line}" for line in parts[name].get("warnings") or []]
     if not parts:
-        raise failed[0]
-    by_account = {acc: _account_kpis(acc, parts) for acc in run.accs if acc in run.ok_accs}
+        # 三部分都失败：有服务故障（非 403）时报它，全是功能权限不足才是 403 no_permission。
+        errors = list(failed.values())
+        raise next((exc for exc in errors if exc.status != 403), errors[0])
+    by_account = {acc: _account_kpis(acc, parts, failed) for acc in run.accs if acc in run.ok_accs}
     complete = len(parts) == len(computes) and all(part.get("complete") is True for part in parts.values())
     out: dict[str, Any] = {
         "by_account": by_account,
@@ -164,16 +167,37 @@ def _masked(views: dict[str, dict | None], kpis: dict[str, Any]) -> list[str]:
     return names
 
 
-def _account_kpis(acc: str, parts: dict[str, dict]) -> dict[str, Any]:
+def _failure_code(name: str, acc: str, parts: dict[str, dict], failed: dict[str, ApiError]) -> str:
+    """这一部分在这个账套读不到的原因码：整个部分抛错时取错误码，否则取该账套的 error.code；都没有时按 unavailable。"""
+    if name in failed:
+        return failed[name].code
+    found = ((parts.get(name) or {}).get("by_account") or {}).get(acc)
+    error = found.get("error") if isinstance(found, dict) else None
+    code = error.get("code") if isinstance(error, dict) else None
+    return code if isinstance(code, str) and code else "unavailable"
+
+
+def _missing(views: dict[str, dict | None], acc: str, parts: dict[str, dict], failed: dict[str, ApiError]) -> dict[str, str]:
+    """读不到的部分（部分名 → 原因码）。应收应付只有一边因权限读不到时，那一边（应收 / 应付）也列在里面。"""
+    found = {PART_NAME[name]: _failure_code(name, acc, parts, failed) for name, view in views.items() if view is None}
+    sides = (views["arap"] or {}).get("missing_sides")
+    if isinstance(sides, dict):
+        found.update({SIDE_NAME.get(side, side): str(code) for side, code in sides.items()})
+    return found
+
+
+def _account_kpis(acc: str, parts: dict[str, dict], failed: dict[str, ApiError]) -> dict[str, Any]:
     views = {name: _ok(parts.get(name), acc) for name in PART_NAME}
     kpis = {**pnl_kpis(views["pnl"]), **cash_kpis(views["cash_stock"]), **arap_kpis(views["arap"])}
-    missing = [PART_NAME[name] for name, view in views.items() if view is None]
+    missing = _missing(views, acc, parts, failed)
     out: dict[str, Any] = {"ok": True, "kpis": _shape(kpis)}
     masked = _masked(views, kpis)
     if masked:
         out[MASKED] = masked
     if missing:
-        out["missing"] = missing
+        # missing 是读不到的部分名；missing_reasons 给每个部分的原因码（no_permission 是操作员无权，其余是读取故障）。
+        out["missing"] = list(missing)
+        out["missing_reasons"] = missing
     return out
 
 

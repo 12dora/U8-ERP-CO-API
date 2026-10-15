@@ -7,10 +7,13 @@ namespace U8Co
     // reports/mgmt/cash_stock：一个会计期间的资金与存货概况（读线程，只用 ctx.Conn、账套号和权限快照）。
     // cash：货币资金末级科目的期末余额（GL_accsum，只含已记账）；notes_receivable：应收票据科目期末余额（total），另给应收票据
     // 当前的未处理余额（Ap_Note，查询时点）；inventory：存货核算汇总表该期间的结存数量、金额；production：产成品入库按存货
-    // 的数量排行；purchases：采购按供应商的金额排行（auto：账套有采购发票时取发票，否则取采购入库）。排行取前 top 个，
+    // 的数量排行（每个存货带 unit 和分类 class_code / class_name；class_grade 往上取分类，inv_class 按分类前缀过滤，只作用于产量）；
+    // purchases：采购按供应商的金额排行（auto：账套有采购发票时取发票，否则取采购入库）。排行取前 top 个，
     // 其余合到 others。日期类数据按该会计期间的起止日期（与 mgmt/sales 同一取法 ReportsMgmtSales.Bounds：UA_Period 去掉已删除
     // 期间、逐期连续才用，不连续或无权读系统库时按自然月，period_source 标明 u8 / calendar，无权读时另给 warnings）。
     // 数据权限按段过滤（ReportsMgmtCashSql.Perm）：科目、客户（未处理票据）、存货与仓库、供应商。
+    // sections（缺省五段全要）只算请求的段，响应里没要的段没有对应的键，请求带了 sections 时回显；只要 production 时不读结账状态（closed），
+    // 功能权限也不同（见 PermRegistryMgmtGl）。
     internal static class ReportsMgmtCash
     {
         const int MaxLeaves = 2000;
@@ -28,17 +31,45 @@ namespace U8Co
             body["period_start"] = range[0];
             body["period_end"] = range[1];
             body["period_source"] = source;
-            body["closed"] = Closed(ctx, y, m.Period);
-            body["cash"] = Leaves(ctx, y, m.Period, m.CashAccounts);
-            Dictionary<string, object> notes = Leaves(ctx, y, m.Period, m.NotesAccounts);
-            notes["open"] = NotesOpen(ctx);
-            body["notes_receivable"] = notes;
-            body["inventory"] = Inventory(ctx, y, m.Period);
-            body["production"] = Production(ctx, m, range);
-            body["purchases"] = Purchases(ctx, m, range);
+            if (m.SectionsGiven)
+            {
+                body["sections"] = new List<object>(m.Sections);
+            }
+            if (!m.ProductionOnly)
+            {
+                body["closed"] = Closed(ctx, y, m.Period);
+            }
+            AddFinance(ctx, m, y, body);
+            if (m.Wants(ReportsMgmtGlReq.SecProduction))
+            {
+                body["production"] = Production(ctx, m, range);
+            }
+            if (m.Wants(ReportsMgmtGlReq.SecPurchases))
+            {
+                body["purchases"] = Purchases(ctx, m, range);
+            }
             body["include_unverified"] = m.Unverified;
             ReportsMgmtSales.AddWarning(body, warning);
             return ApiResult.Ok(body);
+        }
+
+        // 资金、应收票据、存货三段（总账规则的段）：只算请求要的。
+        static void AddFinance(WorkContext ctx, MgmtGlArgs m, int y, Dictionary<string, object> body)
+        {
+            if (m.Wants(ReportsMgmtGlReq.SecCash))
+            {
+                body["cash"] = Leaves(ctx, y, m.Period, m.CashAccounts);
+            }
+            if (m.Wants(ReportsMgmtGlReq.SecNotes))
+            {
+                Dictionary<string, object> notes = Leaves(ctx, y, m.Period, m.NotesAccounts);
+                notes["open"] = NotesOpen(ctx);
+                body["notes_receivable"] = notes;
+            }
+            if (m.Wants(ReportsMgmtGlReq.SecInventory))
+            {
+                body["inventory"] = Inventory(ctx, y, m.Period);
+            }
         }
 
         // ReportsMgmtSales.Bounds 的一期（起始日、次期起始日）→ 起止日期（止 = 次期起始日前一天）。
@@ -194,6 +225,8 @@ namespace U8Co
             else
             {
                 item["unit"] = Reports.Text(row, "unit");
+                item["class_code"] = Reports.Text(row, "class_code");
+                item["class_name"] = Reports.Text(row, "class_name");
             }
             item["qty"] = Reports.Qty(row, "qty");
             item["docs"] = GlSql.Int(row, "docs");

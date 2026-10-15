@@ -10,6 +10,8 @@ namespace U8Co
     {
         const string Load = "/u8co/v1/vouchers/load";
         const string WfRoot = "/u8co/v1/workflow/";
+        // 产成品入库单查询的功能 id：voucher:product_in 和只要产量的 mgmt/cash_stock（PermRegistryMgmtGl）共用。
+        internal const string ProductInAuth = "ASM0301";
 
         static readonly Dictionary<string, PermRule> Map = Build();
 
@@ -132,7 +134,7 @@ namespace U8Co
             return type.Length == 0 ? null : "voucher:" + type;
         }
 
-        // 往来报表按 side 分应收 / 应付两条。
+        // 报表：往来按 side 分应收 / 应付两条，质量统计按 kind 分来料 / 产品两条（PermRegistryFamilies.SplitKey），其余一条。
         static string ReportKey(WorkItem item)
         {
             if (!item.Path.StartsWith(Requests.ReportRoot, StringComparison.Ordinal))
@@ -140,21 +142,28 @@ namespace U8Co
                 return null;
             }
             string name = item.Path.Substring(Requests.ReportRoot.Length);
-            if (name == "arap_balance" || name == "arap_aging" || name == "arap_detail")
+            // 按 side / kind 分两条的报表（往来、质量、收付款、到期票据，SplitKey 的名单）。
+            string split = SplitKey(name, item);
+            if (split != null)
             {
-                return "report:" + name + ":" + (BodyText(item, "side") == "ap" ? "ap" : "ar");
+                return split;
             }
             // 核销记录按 flag（AR / AP）分两条。
             if (ReportsArapWriteoffReq.Owns(name))
             {
                 return ReportsArapWriteoffReq.RuleKey(item.Body);
             }
-            // 经营管理往来账期按 side 分两条。
+            return MgmtReportKey(name, item.Body) ?? "report:" + name;
+        }
+
+        // 经营管理往来账期按 side 分应收 / 应付两条，资金存货只要产量时另用产量规则；不是这两张时返回 null。
+        static string MgmtReportKey(string name, Dictionary<string, object> body)
+        {
             if (ReportsMgmtArapReq.Owns(name))
             {
-                return ReportsMgmtArapReq.RuleKey(item.Body);
+                return ReportsMgmtArapReq.RuleKey(body);
             }
-            return "report:" + name;
+            return name == ReportsMgmtGlReq.CashName ? ReportsMgmtGlReq.CashRuleKey(body) : null;
         }
 
         static string BodyText(WorkItem item, string key)
@@ -235,6 +244,8 @@ namespace U8Co
             AddAll(map, PermSnapshotRules());
             // 固定资产卡片新增 / 撤销、变动单新增、设备台账（PermRegistryFa.cs）。
             AddAll(map, FaEqRules());
+            // 按角色分族的报表（质量、生产、库龄、采购、销售、收付款与现金流、账务核对），PermRegistryFamilies.cs，只读。
+            AddAll(map, FamilyReportRules());
             return map;
         }
 
@@ -256,14 +267,22 @@ namespace U8Co
             return ids;
         }
 
+        // 销售订单的数据权限对象：销售订单查询 voucher:sale_order 和销售订单执行统计表 report:open_orders 共用。
+        static PermObj[] SaleOrderObjs()
+        {
+            return new PermObj[]
+            {
+                PermObj.H(PermObj.Customer, "cCusCode"), PermObj.H(PermObj.Department, "cDepCode"),
+                PermObj.H(PermObj.Person, "cPersonCode"), PermObj.H(PermObj.SaleType, "cSTCode"),
+                PermObj.B(PermObj.Inventory, "SO_SODetails", "ID", "ID", "cInvCode")
+            };
+        }
+
         static PermRule[] SaRules()
         {
             return new PermRule[]
             {
-                V("sale_order", "销售订单", A("SA03010104", "SA03010201"),
-                    PermObj.H(PermObj.Customer, "cCusCode"), PermObj.H(PermObj.Department, "cDepCode"),
-                    PermObj.H(PermObj.Person, "cPersonCode"), PermObj.H(PermObj.SaleType, "cSTCode"),
-                    PermObj.B(PermObj.Inventory, "SO_SODetails", "ID", "ID", "cInvCode")),
+                V("sale_order", "销售订单", A("SA03010104", "SA03010201"), SaleOrderObjs()),
                 V("dispatch", "发货单", A("SA03020104", "SA03020301"),
                     PermObj.H(PermObj.Customer, "cCusCode"), PermObj.H(PermObj.Department, "cDepCode"),
                     PermObj.H(PermObj.Person, "cPersonCode"), PermObj.H(PermObj.SaleType, "cSTCode"),
@@ -332,7 +351,7 @@ namespace U8Co
                 Rd("purchase_in", "采购入库单", "ASM0101", "rdrecords01", false, true),
                 Rd("other_in", "其他入库单", "ASM0501", "rdrecords08", false, false),
                 Rd("other_out", "其他出库单", "ASM0601", "rdrecords09", false, false),
-                Rd("product_in", "产成品入库单", "ASM0301", "rdrecords10", false, false),
+                Rd("product_in", "产成品入库单", ProductInAuth, "rdrecords10", false, false),
                 Rd("material_out", "材料出库单", "ASM0401", "rdrecords11", false, false),
                 Rd("sale_out", "销售出库单", "ASM0201", "rdrecords32", true, false),
                 // 期初结存：期初结存菜单（浏览）ST000101，或卡片 0319 的修改、审核、弃审、取数、删除 ST000102–ST000106，任一即可。

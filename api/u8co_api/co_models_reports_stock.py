@@ -18,6 +18,10 @@ _LIMIT = "每页条数，1 到 1000，缺省 200"
 _QTY = "数量为数字（六位小数）"
 _UNVERIFIED = "为 true 时连未审核的收发记录一起算（期初也含）。缺省只含已审核，与现存量一致"
 _NONZERO = "缺省 true：去掉数量为 0 的行"
+_AMOUNT = (
+    "缺省 false。为 true 且区间正好是已记账的整月（date_from 为月初、date_to 为月末，且不按仓库分行时存货核算须按存货记账）时，"
+    "每行另给 opening_amt、in_amt、out_amt、closing_amt（存货核算金额，本币）；否则不给，原因见 amount_basis"
+)
 
 
 def _order(low: str | None, high: str | None) -> None:
@@ -58,6 +62,7 @@ class ReportStockSummaryIn(_Range):
     inv_class: CodePrefix | None = Field(None, description="存货分类编码前缀（含下级），1 到 40 位数字、字母、点或短横")
     by_wh: StrictBool | None = Field(None, description="缺省 true：按存货 + 仓库分行；false 时每个存货一行（仓库合计）")
     nonzero: StrictBool | None = Field(None, description="缺省 true：去掉期初、入库、出库都为 0 的行")
+    include_amount: StrictBool | None = Field(None, description=_AMOUNT)
 
 
 class _Stock(CoAuth):
@@ -160,10 +165,26 @@ class ReportStockSummaryOut(_Page):
     date_from: Scalar = Field(None, description="起始日期")
     date_to: Scalar = Field(None, description="截止日期")
     by_wh: Scalar = Field(None, description="是否按仓库分行")
+    amount_basis: Scalar = Field(
+        None,
+        description="只在 include_amount=true 时给出：month 已按整月给金额；partial 区间不是整月或含未记账月份，只给数量；"
+        "no_wh 存货核算不按仓库记账，而按仓库分行（by_wh=true）或指定了 wh，只给数量",
+    )
+    amount_reason: Scalar = Field(
+        None,
+        description="amount_basis 为 partial 时的原因代码：range 区间不是整月；unbooked 区间内有月份存货核算尚未记账；"
+        "no_base 没有期初月份的数据。其他情况为 null",
+    )
+    amount_note: Scalar = Field(None, description="amount_basis 不是 month 时的原因文字；是 month 时为 null")
+    masked_fields: list[str] | None = Field(
+        None,
+        description="操作员没有存货核算金额查询权限时为 [\"amount\"]：四个金额字段为 null。有权限时省略",
+    )
     items: list[dict[str, Any]] | None = Field(
         None,
-        description="按存货、仓库编码排序：inv_code、inv_name、inv_std、inv_class、wh_code、wh_name（by_wh=false 时为 null）、"
-        "opening、in_qty、out_qty、closing。只有数量，没有金额。" + _QTY,
+        description="按存货、仓库编码排序：inv_code、inv_name、inv_std、inv_class、unit（计量单位名）、wh_code、wh_name"
+        "（by_wh=false 时为 null）、opening、in_qty、out_qty、closing；include_amount 且 amount_basis=month 时另有 "
+        "opening_amt、in_amt、out_amt、closing_amt。" + _QTY + "，金额为数字（本币，两位小数）",
     )
 
 

@@ -7,17 +7,20 @@ from __future__ import annotations
 
 import calendar
 import datetime as dt
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, StrictBool, StrictInt, field_validator
 
 from u8co_api.co_clock import login_defaults
-from u8co_api.co_models_mgmt import MgmtIn, mgmt_doc
+from u8co_api.co_models_mgmt import META_OPTIONAL, META_REQUIRED, META_SKIP, MgmtIn, mgmt_doc
 from u8co_api.co_models_gl import DATE
+from u8co_api.co_models_reports import Word
 
-SalesDim = Literal["period", "customer", "inventory", "person", "department"]
+SalesDim = Literal["period", "customer", "inventory", "inventory_class", "person", "department"]
 ArapSide = Literal["ar", "ap", "both"]
 PurchaseSource = Literal["auto", "invoice", "receipt"]
+CashSection = Literal["cash", "notes", "inventory", "production", "purchases"]
+CASH_SECTIONS: tuple[str, ...] = ("cash", "notes", "inventory", "production", "purchases")
 DEFAULT_BUCKETS = (30, 60, 90, 180)
 
 
@@ -36,13 +39,22 @@ def _real_date(value: str | None) -> str | None:
     return value
 
 
+CLASS_GRADE_DOC = (
+    "存货分类级次，1 到 9：分类维度、产量分类往上取到该级次的祖先分类（存货的分类比它浅时保持自己的分类）；"
+    "缺省取存货自己的分类"
+)
+INV_CLASS_DOC = "存货分类编码前缀（含下级）：只统计存货分类编码以它开头的存货"
+
+
 class MgmtSalesIn(MgmtIn):
     group_by: list[SalesDim] = Field(
         default_factory=lambda: ["customer"],
-        max_length=5,
-        description="分组维度（不重复）：period 期间、customer 客户、inventory 存货、person 业务员、department 部门；"
-        "缺省按客户，空数组只出合计",
+        max_length=6,
+        description="分组维度（不重复）：period 期间、customer 客户、inventory 存货、inventory_class 存货分类、person 业务员、"
+        "department 部门；缺省按客户，空数组只出合计",
     )
+    class_grade: StrictInt | None = Field(None, ge=1, le=9, description=CLASS_GRADE_DOC + "；也作用于 inventory 维度的分类编码")
+    inv_class: Word | None = Field(None, description=INV_CLASS_DOC + "，收入行和成本行都按它过滤")
     top: StrictInt = Field(
         200, ge=1, le=500, description="每个账套按收入从高到低取前几组，1 到 500，缺省 200，其余并成 others"
     )
@@ -52,6 +64,9 @@ class MgmtSalesIn(MgmtIn):
     @classmethod
     def _dims(cls, value: list[str]) -> list[str]:
         return _distinct(value, "group_by")
+
+    def meta_mode(self) -> str:
+        return META_OPTIONAL  # 数据来自销售发票，不需要总账数据水位
 
 
 def default_as_of(fiscal_year: int, period: int) -> str:
@@ -94,6 +109,9 @@ class MgmtArapIn(MgmtIn):
     def sides(self) -> list[str]:
         return ["ar", "ap"] if self.side == "both" else [self.side]
 
+    def meta_mode(self) -> str:
+        return META_OPTIONAL  # 数据来自往来账，不需要总账数据水位
+
     def effective_as_of(self) -> str:
         return self.as_of or default_as_of(self.fiscal_year, self.period_to)
 
@@ -109,6 +127,37 @@ class MgmtCashStockIn(MgmtIn):
         "auto", description="采购取数：auto（有采购发票时取发票，否则取采购入库，缺省）、invoice 发票、receipt 采购入库"
     )
     include_unverified: StrictBool = Field(False, description="为 true 时产成品入库、采购入库含未审核单据")
+    class_grade: StrictInt | None = Field(None, ge=1, le=9, description="产量的" + CLASS_GRADE_DOC)
+    inv_class: Word | None = Field(None, description="只过滤产量：" + INV_CLASS_DOC)
+    sections: list[CashSection] | None = Field(
+        None,
+        min_length=1,
+        max_length=5,
+        description="只出哪几段（不重复）：cash 货币资金、notes 应收票据、inventory 存货、production 产量、purchases 采购；"
+        "缺省五段全出。只要 production 时不需要总账权限（改查产成品入库单的查询权限），也不读总账数据水位",
+    )
+
+    @field_validator("sections")
+    @classmethod
+    def _sections(cls, value: list[str] | None) -> list[str] | None:
+        return value if value is None else _distinct(value, "sections")
+
+    def wanted(self) -> tuple[str, ...]:
+        """要出的段（缺省全部）。"""
+        return CASH_SECTIONS if self.sections is None else tuple(self.sections)
+
+    def production_only(self) -> bool:
+        return self.wanted() == ("production",)
+
+    def meta_mode(self) -> str:
+        return META_SKIP if self.production_only() else META_REQUIRED
+
+    def cache_params(self) -> dict[str, Any]:
+        """没带 sections 时不进缓存键（同没有这个字段之前的键）。"""
+        params = super().cache_params()
+        if self.sections is None:
+            del params["sections"]
+        return params
 
     def period_range(self) -> tuple[int, int] | None:
         return self.period_to, self.period_to
@@ -126,6 +175,9 @@ class MgmtOverviewIn(MgmtIn):
     def _as_of(cls, value: str | None) -> str | None:
         return _real_date(value)
 
+    def meta_mode(self) -> str:
+        return META_OPTIONAL  # 某一部分无权限时只缺这一部分，不因为读不到总账水位整体失败
+
 
 SALES_SUMMARY = "经营管理：销售与毛利"
 SALES_HELP = mgmt_doc(
@@ -133,6 +185,10 @@ SALES_HELP = mgmt_doc(
     (
         "发票缺省只含已复核；收入给出不含税和价税合计，成本取存货核算",
         "按 group_by 分组；每个账套按收入取前 top 组，其余并成 others",
+        "inventory_class 维度按存货分类汇总（行带 inventory_class_code、inventory_class_name），class_grade 往上取到该级次",
+        "inv_class 只统计存货分类以它开头的收入行和成本行；inventory 维度的行另带 inventory_unit、inventory_class_code",
+        "按客户分组的行带 ic_account（该客户在本账套里代表的公司组内账套，不是则 null）；"
+        "按客户分组时每个账套另有 ic_totals（公司组内其他账套客户的合计，不受 top 限制；其他分组、对照里没有这些客户时 null）",
         "totals 是全部组的合计",
         "收入以发票为准，与总账收入可能有期间、口径差；利润以 mgmt/pnl 为准",
         "没有启用销售管理的账套 rows 为空、sa_enabled 为 false（见 warnings）",
@@ -169,7 +225,10 @@ CASH_HELP = mgmt_doc(
         "货币资金：末级科目期末余额，只含已记账",
         "应收票据：科目余额和当前未处理票据",
         "存货：存货核算的期末结存数量与金额",
-        "产成品入库按存货的数量排行；采购按供应商的金额排行",
+        "产成品入库按存货的数量排行，每个存货带 unit、class_code、class_name；采购按供应商的金额排行",
+        "class_grade 把产量的分类往上取到该级次，inv_class 按分类前缀过滤产量（不影响资金、存货、采购）",
+        "sections 只出指定的段（cash、notes、inventory、production、purchases），没要的段不出现在响应里；"
+        "只要 production 时功能权限改为产成品入库单查询（不要总账权限），不读 mgmt/meta，也不出 closed；有任何别的段仍要总账权限",
         "合并时资金、票据、存货金额按账套相加",
         "合并的存货金额含期末存货中未实现的内部利润，未抵销（见 notes）",
         "合并时产量只按公司间对照里的存货相加，没有对照的列在 unmapped",
@@ -185,7 +244,8 @@ OVERVIEW_HELP = mgmt_doc(
         "应收、应付余额与逾期应收、逾期应付（冲抵未核销预收付后的净额）、DSO、DPO：同 mgmt/arap",
         "by_account、consolidated 里是 kpis",
         "合并口径同各报表：内部收入成本、内部往来抵销，未实现内部利润不抵销",
-        "某一部分读取失败时该账套的指标不完整（missing），见 warnings",
+        "某一部分读取失败时该账套的指标不完整：missing 列出读不到的部分，missing_reasons 给每个部分的原因码"
+        "（no_permission 是操作员没有权限，其余是读取故障），见 warnings；只有三部分都没有权限才是 403 no_permission",
     ),
     ("as_of 缺省为 period_to 的自然月末",),
 )

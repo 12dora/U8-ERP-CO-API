@@ -26,6 +26,24 @@ namespace U8Co
         public int Top = 200;
         public string PurchaseSource = "auto";
         public bool Unverified;
+        // cash_stock 的产量：分类往上取到的级次（0 为存货自己的分类）、存货分类编码前缀过滤（null 不过滤，只作用于产量）。
+        public int ClassGrade;
+        public string InvClass;
+        // cash_stock 只算哪几段（cash、notes、inventory、production、purchases）；缺省全部。
+        public string[] Sections = ReportsMgmtGlReq.AllSections;
+        // 请求里带了 sections（响应才回显它）。
+        public bool SectionsGiven;
+
+        public bool Wants(string section)
+        {
+            return Array.IndexOf(Sections, section) >= 0;
+        }
+
+        // 只要产量：功能权限改按产成品入库单查询（ReportsMgmtGlReq.ProductionRule），不收总账权限，也不读结账状态。
+        public bool ProductionOnly
+        {
+            get { return Sections.Length == 1 && Sections[0] == ReportsMgmtGlReq.SecProduction; }
+        }
     }
 
     internal static class ReportsMgmtGlReq
@@ -39,6 +57,17 @@ namespace U8Co
         internal const string PnlRule = "report:" + PnlName;
         internal const string MetaRule = "report:" + MetaName;
         internal const string CashRule = "report:" + CashName;
+        // 只要产量的 cash_stock 另登记一条规则（PermRegistryMgmtGl），key 在 CashRule 后加 #production。
+        internal const string ProductionRule = CashRule + "#production";
+        internal const string SecCash = "cash";
+        internal const string SecNotes = "notes";
+        internal const string SecInventory = "inventory";
+        internal const string SecProduction = "production";
+        internal const string SecPurchases = "purchases";
+        internal static readonly string[] AllSections = new string[]
+        {
+            SecCash, SecNotes, SecInventory, SecProduction, SecPurchases
+        };
         // 一次返回的行数上限（聚合结果，不翻页）；超过时 400，请调用方缩小期间或减少维度。
         internal const int MaxRows = 20000;
         const int CodeMax = 40;
@@ -50,10 +79,58 @@ namespace U8Co
             return name == PnlName || name == MetaName || name == CashName;
         }
 
-        // 三张都按总账登录；不是这三张时返回 null。
-        public static string SubOf(string name)
+        // 三张都按总账登录，只要产量的 cash_stock 按产成品入库单的登录子系统 ST（车间操作员没有总账）；不是这三张时返回 null。
+        public static string SubOf(string name, Dictionary<string, object> body)
         {
-            return Owns(name) ? "GL" : null;
+            if (!Owns(name))
+            {
+                return null;
+            }
+            return name == CashName && CashRuleKey(body) == ProductionRule ? "ST" : "GL";
+        }
+
+        // cash_stock 的权限规则：sections 只有 production 时用产量规则，其余（含 sections 不合法，由请求校验回 400）用总账规则。
+        public static string CashRuleKey(Dictionary<string, object> body)
+        {
+            object raw = GlReq.Field(body, "sections");
+            string[] list = raw == null ? null : SectionList(raw);
+            return list != null && list.Length == 1 && list[0] == SecProduction ? ProductionRule : CashRule;
+        }
+
+        // sections 的取值：1 到 5 个、不重复，取值只能是五段之一；不合法时返回 null。
+        internal static string[] SectionList(object raw)
+        {
+            IList list = AsList(raw);
+            if (list == null || list.Count < 1 || list.Count > AllSections.Length)
+            {
+                return null;
+            }
+            List<string> seen = new List<string>();
+            for (int i = 0; i < list.Count; i++)
+            {
+                string text = list[i] as string;
+                if (text == null || Array.IndexOf(AllSections, text) < 0 || seen.Contains(text))
+                {
+                    return null;
+                }
+                seen.Add(text);
+            }
+            return seen.ToArray();
+        }
+
+        static string[] ParseSections(Dictionary<string, object> body)
+        {
+            object raw = GlReq.Field(body, "sections");
+            if (raw == null)
+            {
+                return AllSections;
+            }
+            string[] list = SectionList(raw);
+            if (list == null)
+            {
+                throw GlReq.Bad("sections 必须是 cash、notes、inventory、production、purchases 中的 1 到 5 个（不重复）", "sections");
+            }
+            return list;
         }
 
         public static MgmtGlArgs Parse(string name, Dictionary<string, object> body)
@@ -139,6 +216,10 @@ namespace U8Co
                 throw GlReq.Bad("purchase_source 只能是 auto、invoice 或 receipt", "purchase_source");
             }
             m.Unverified = OptBool(body, "include_unverified");
+            m.ClassGrade = ReportsMgmtSalesReq.ClassGrade(body);
+            m.InvClass = ReportsMgmtSalesReq.InvClass(body);
+            m.Sections = ParseSections(body);
+            m.SectionsGiven = GlReq.Field(body, "sections") != null;
         }
 
         static bool OptBool(Dictionary<string, object> body, string key)

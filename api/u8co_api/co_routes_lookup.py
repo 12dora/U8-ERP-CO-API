@@ -20,6 +20,7 @@ from u8co_api.co_models_lookup import (
     VoucherSearchIn,
     VoucherSearchOut,
 )
+from u8co_api.co_order_fallback import run_ordered
 from u8co_api.co_routes_gl_arc import TAG_ARC
 from u8co_api.co_table import TAG_CO, TAG_READ, CoRoute
 
@@ -45,6 +46,7 @@ LOOKUP_ROUTES = (
         "coVoucherSearch",
         "co:vouchers/search",
         TAG_READ,
+        runner=run_ordered,
     ),
     CoRoute(
         "/v1/co/vouchers/load_many",

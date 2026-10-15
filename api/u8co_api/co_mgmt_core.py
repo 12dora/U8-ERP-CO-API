@@ -2,7 +2,9 @@
 
 - mgmt_guard(request, caller=None)：令牌要有经营管理权限，否则 403 mgmt_forbidden。
 - begin_mgmt(request, caller, action, body)：审计（一行、全部账套）、权限、账套授权（全有或全无）、
-  需要合并时确认同一公司组，再并行读各账套的 mgmt/meta。返回 MgmtRun。
+  需要合并时确认同一公司组，再并行读各账套的 mgmt/meta。返回 MgmtRun。读不读 meta 由 body.meta_mode() 定，三种方式：
+  META_REQUIRED（缺省，总账口径的报表）meta 读不到的账套不再往下算；META_OPTIONAL（销售、往来，不依赖总账）meta 因功能权限不足
+  （no_permission）读不到的账套照样出报表，只是没有水位、结账状态，也不缓存；META_SKIP（只要产量的资金存货）不读 meta。
 - run_mgmt(request, body, report_path, inner_params_fn, only=None)：每个账套调一次桥报表
   （请求体 = 登录 + inner_params_fn(login)），结果按账套给 FanResult，单个账套失败不抛出。
 - cached(key_parts, accounts_meta, compute_fn, cache)：按各账套水位缓存（co_mgmt_cache）；路由里 cache 传
@@ -10,7 +12,8 @@
 - serve(request, caller, action, body, compute)：上面几步串起来并套上响应信封；compute(run) 返回
   {by_account, consolidated, eliminations, warnings, notes, complete}（缺的键按空处理）。
 - finish、envelope：serve 的后两步，不走缓存的路由（mgmt/meta）直接用。
-- account_error、report_failures、ratio：计算函数共用的小工具。
+- account_error、report_failures、meta_warnings、ratio：计算函数共用的小工具。全部账套都因功能权限不足失败时，
+  report_failures 抛 403 no_permission（不是 503），部分失败仍留在 by_account。
 - mdec、madd、masked_union：桥按字段权限置空的金额保持 null，含它的合计也为 null，字段名记入 masked_fields。
 
 桥的经营管理报表在 /v1/reports/mgmt/*，只查数据库。合并的抵销规则见公司间对照（co_ic_map）。
@@ -28,14 +31,17 @@ from u8co_api.co_ic_aggregate import ZERO, dec, failures, money
 from u8co_api.co_ic_core import FanResult, IcGroup, allow_accs, fanout, ic_map_of, remember_ic
 from u8co_api.co_mgmt_cache import cache_of, cached, credential_mark, period_entry
 from u8co_api.co_models_ic import IcLogin
-from u8co_api.co_models_mgmt import MgmtYearIn
+from u8co_api.co_models_mgmt import META_OPTIONAL, META_REQUIRED, META_SKIP, MgmtYearIn
 from u8co_api.deps import current_caller
 from u8co_api.errors import ApiError, forbidden
 
 __all__ = [
     "MGMT_BRIDGE",
     "MASKED",
+    "META_OPTIONAL",
     "META_PATH",
+    "META_REQUIRED",
+    "META_SKIP",
     "ZERO",
     "MgmtRun",
     "account_error",
@@ -48,9 +54,11 @@ __all__ = [
     "madd",
     "masked_union",
     "mdec",
+    "meta_warnings",
     "mgmt_guard",
     "money",
     "ratio",
+    "rejected_field",
     "report_failures",
     "run_mgmt",
     "serve",
@@ -82,6 +90,8 @@ class MgmtRun:
     group: IcGroup | None
     names: dict[str, str]
     meta: dict[str, FanResult] = field(default_factory=dict)
+    # 没有 meta 也往下算的账套（META_OPTIONAL 下 meta 因 no_permission 失败的，META_SKIP 下全部）。
+    skipped: set[str] = field(default_factory=set)
 
     @property
     def accs(self) -> list[str]:
@@ -89,7 +99,7 @@ class MgmtRun:
 
     @property
     def ok_accs(self) -> set[str]:
-        return {acc for acc, result in self.meta.items() if result.ok}
+        return {acc for acc, result in self.meta.items() if result.ok} | self.skipped
 
     @property
     def consolidating(self) -> bool:
@@ -111,8 +121,18 @@ def begin_mgmt(request, caller: Caller, action: str, body: MgmtYearIn) -> MgmtRu
     group = _group(request, body)
     names = {login.acc: group.name(login.acc) if group else login.acc for login in body.logins}
     run = MgmtRun(request, action, body, group, names)
+    meta = body.meta_mode()
+    if meta == META_SKIP:
+        run.skipped = set(run.accs)
+        return run
     run.meta = run_mgmt(request, body, META_PATH, lambda _login: {"fiscal_year": body.fiscal_year})
+    if meta == META_OPTIONAL:
+        run.skipped = {acc for acc, result in run.meta.items() if _no_permission(result)}
     return run
+
+
+def _no_permission(result: FanResult) -> bool:
+    return not result.ok and (result.error or {}).get("code") == "no_permission"
 
 
 def _audit(request, action: str, body: MgmtYearIn) -> None:
@@ -155,8 +175,24 @@ def run_mgmt(
     return fanout(request, logins, report_path, inner_params_fn)
 
 
+# 旧桥对不认识的请求字段回 400 + 这两句消息之一（Requests.RejectUnknown 等）。
+_UNKNOWN_FIELD = ("含未知字段", "不能设置字段")
+
+
+def rejected_field(result: FanResult) -> bool:
+    """旧桥因不认识新增的请求字段（ic_customers、sections）拒绝了请求。调用方只在自己加了那个字段时才据此去掉字段重试一次。"""
+    message = (result.error or {}).get("message")
+    return not result.ok and result.status == 400 and isinstance(message, str) and any(m in message for m in _UNKNOWN_FIELD)
+
+
 def account_error(result: FanResult) -> dict[str, Any]:
     return {"ok": False, "status": result.status, "error": result.error}
+
+
+def meta_warnings(run: MgmtRun) -> list[str]:
+    """meta 读取失败账套的提醒；没有一个账套能往下算时抛错（同 report_failures）。不要 meta 的账套（skipped）不算失败。"""
+    shown = {acc: FanResult(True, 200, {}, None) if acc in run.skipped else result for acc, result in run.meta.items()}
+    return report_failures(shown)
 
 
 def report_failures(results: dict[str, FanResult]) -> list[str]:
@@ -195,7 +231,7 @@ def ratio(numerator: Decimal, denominator: Decimal, scale: Decimal = _HUNDRED) -
 def serve(request, caller: Caller, action: str, body: MgmtYearIn, compute: Callable[[MgmtRun], dict]) -> dict:
     """完整的一次经营管理请求：begin_mgmt → 缓存 → compute → 响应信封。"""
     run = begin_mgmt(request, caller, action, body)
-    meta_warnings = report_failures(run.meta)
+    warnings = meta_warnings(run)
     accounts_meta = {acc: (result.body or {}) if result.ok else None for acc, result in run.meta.items()}
     key_parts = {
         "action": action,
@@ -210,7 +246,7 @@ def serve(request, caller: Caller, action: str, body: MgmtYearIn, compute: Calla
     }
     value, info = cached(key_parts, accounts_meta, lambda: finish(run, compute(run)), cache_of(request.app))
     request.state.mgmt_audit["cache_hit"] = info["hit"]
-    return envelope(run, value, meta_warnings, info)
+    return envelope(run, value, warnings, info)
 
 
 def _who(request, caller: Caller | None) -> str:
@@ -224,16 +260,16 @@ def finish(run: MgmtRun, computed: dict) -> dict:
     value = dict(computed)
     by_account = dict(value.get("by_account") or {})
     for acc, result in run.meta.items():
-        if not result.ok:
+        if not result.ok and acc not in run.skipped:
             by_account[acc] = account_error(result)
-    complete = value.get("complete", True) is True and len(run.ok_accs) == len(run.meta)
+    complete = value.get("complete", True) is True and len(run.ok_accs) == len(run.accs)
     value.update(by_account={acc: by_account[acc] for acc in run.accs if acc in by_account}, complete=complete)
     if not complete:
         value["consolidated"] = None
     return value
 
 
-def envelope(run: MgmtRun, value: dict, meta_warnings: list[str], info: dict) -> dict:
+def envelope(run: MgmtRun, value: dict, warnings: list[str], info: dict) -> dict:
     """响应信封（字段见 co_models_mgmt.MgmtOut）。"""
     periods = run.body.period_range()
     return {
@@ -247,7 +283,7 @@ def envelope(run: MgmtRun, value: dict, meta_warnings: list[str], info: dict) ->
         "by_account": value.get("by_account") or {},
         "consolidated": value.get("consolidated"),
         "eliminations": list(value.get("eliminations") or []),
-        "warnings": meta_warnings + list(value.get("warnings") or []),
+        "warnings": warnings + list(value.get("warnings") or []),
         "notes": list(value.get("notes") or []),
         "cache": info,
     }

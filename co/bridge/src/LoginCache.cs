@@ -14,6 +14,9 @@ namespace U8Co
     // 或连接上留着事务时不放回（StaExec.KeepAfter）。读线程（MarkNoKeepThread）一律用完即关。
     // 缓存中的登录在 ShutDown 之前一直占着该子系统在本工作站的许可点数和 UA_TaskLog 行。
     // 关闭时与原来完全一样：每次新登录、用完即关。
+    // 同一操作员在同一台机器上只能保持一个登录（第二个回「登录状态不是 0」）。操作员已按 OperatorPin 固定在一个写线程，
+    // 但键里还有账套、子系统、日期：本线程为操作员 X 真实登录之前，先关掉本线程缓存里 X 的其他闲置登录
+    // （操作员按 OperatorPin.Norm 比较，不分大小写、去首尾空白；在用的不动），计入 logins_closed。
     // 停用时段（配置 loginReuseOffHours，ReuseWindow）：开着复用时，时段内每次取用、放回都按关闭处理（用完即关），
     // 本线程已缓存的登录在下一次取用或空闲清理时在本线程上全部关掉；时段外照常复用。每次取用、放回、清理都现算。
     //
@@ -30,6 +33,8 @@ namespace U8Co
         sealed class Entry
         {
             public string Key;
+            // OperatorPin.Norm 后的操作员，真实登录前据此关掉同一操作员的其他缓存登录。
+            public string Operator;
             public U8Session Session;
             public long BornTicks;
             public long ExpiresTicks;
@@ -148,6 +153,8 @@ namespace U8Co
                 }
                 Kill(hit.Session);
             }
+            // 同一操作员的其他闲置登录（别的账套、子系统、日期）不关掉，新登录会回「登录状态不是 0」。
+            DropOperator(OperatorOf(item));
             U8Session fresh = OpenNew(item, subId);
             MarkOut(fresh, Clock());
             return fresh;
@@ -172,16 +179,18 @@ namespace U8Co
                 return;
             }
             string key;
+            string op;
             try
             {
                 key = AuthCache.KeyOf(item, subId);
+                op = OperatorOf(item);
             }
             catch (Exception)
             {
                 Kill(s);
                 return;
             }
-            Put(key, s, born);
+            Put(key, op, s, born);
         }
 
         // 线程空闲时（StaPool.Loop，同一 STA、不持队列锁）关掉本线程已过期的登录和腾退轮次之前放回的登录；
@@ -274,6 +283,34 @@ namespace U8Co
             list.Clear();
         }
 
+        // 在本线程上关掉本线程缓存里该操作员的全部闲置登录（op 为空不动）。在用的登录不在缓存里，不受影响。
+        static void DropOperator(string op)
+        {
+            List<Entry> list = _entries;
+            if (list == null || string.IsNullOrEmpty(op))
+            {
+                return;
+            }
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                if (string.Equals(list[i].Operator, op, StringComparison.Ordinal))
+                {
+                    U8Session s = list[i].Session;
+                    list.RemoveAt(i);
+                    Kill(s);
+                }
+            }
+            if (list.Count == 0)
+            {
+                _entries = null;
+            }
+        }
+
+        static string OperatorOf(WorkItem item)
+        {
+            return item == null || item.Operator == null ? null : OperatorPin.Norm(item.Operator);
+        }
+
         // 此刻在停用时段内（没设时段为假）。按桥所在机器的本地时间算。
         static bool Paused()
         {
@@ -356,7 +393,7 @@ namespace U8Co
 
         // 最近用过的排在末尾；同键旧条目先关掉；超出上限从头部（最久没用）关起。
         // 有效期取「现在 + 闲置 TTL」与「真实登录 + MaxAgeSeconds」中较早的，已到期的直接关掉。
-        static void Put(string key, U8Session s, long born)
+        static void Put(string key, string op, U8Session s, long born)
         {
             long now = Clock();
             long expires = Math.Min(now + Interlocked.Read(ref _ttlTicks), born + MaxAgeSeconds * TimeSpan.TicksPerSecond);
@@ -375,6 +412,7 @@ namespace U8Co
             DropKey(list, key, s);
             Entry e = new Entry();
             e.Key = key;
+            e.Operator = op;
             e.Session = s;
             e.BornTicks = born;
             e.ExpiresTicks = expires;

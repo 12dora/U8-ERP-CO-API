@@ -51,6 +51,8 @@ namespace U8Co
         // 入队时算好的单据锁键。取到任务的线程持有它们，跑完在 finally 里放掉。
         public string[] LockKeys;
         public bool KeysHeld;
+        // 入队时算好的固定线程序号（OperatorPin.Index）：写线程池里只有这条线程取它；None 表示任一线程可取。
+        public int Pin = OperatorPin.None;
         // 只给读线程：登录缓存里的连接串和姓名。跑完清掉，不进审计和响应。
         public AuthEntry Auth;
         // 解析后的请求体（不含 password_enc）。总账、档案、列表的领域类从这里读路由字段。

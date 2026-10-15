@@ -139,6 +139,13 @@
 | POST | `reports/close_status`、`gl_balance`、`gl_aux_balance`、`gl_detail`、`arap_balance`、`arap_aging`、`arap_detail`、`arap_writeoffs`、`bom` | 读 | 只读报表：月结状态、科目余额表、辅助核算余额表、科目明细账、往来余额、账龄分析、往来明细账、核销记录、物料清单（§19） |
 | POST | `reports/stock_ledger`、`stock_summary`、`position_stock`、`batch_stock`、`customer_credit`、`price_list` | 读 | 只读报表：库存台账、收发存汇总表、货位存量、批次存量、客户信用、价格表（§19） |
 | POST | `reports/order_execution`、`doc_trace` | 读 | 只读报表：订单执行、单据追溯（§19） |
+| POST | `reports/qm_indicators`、`qm_pass_rate` | 读 | 只读报表：来料、产品检验的指标统计、合格率（§19） |
+| POST | `reports/production_daily`、`mo_progress`、`mo_consumption` | 读 | 只读报表：产成品入库日报、生产订单完工状况、生产订单用料分析（§19） |
+| POST | `reports/stock_age` | 读 | 只读报表：库龄与呆滞分析，金额需存货核算查询权限（§19）；`stock_summary` 的 `include_amount` 同 |
+| POST | `reports/purchase_analysis`、`arrival_otif` | 读 | 只读报表：采购综合统计、采购到货时效（§19） |
+| POST | `reports/open_orders`、`sales_price_history`、`customer_churn` | 读 | 只读报表：销售订单执行、单据历史价格、客户新增 / 流失 / 下滑（§19） |
+| POST | `reports/receipts_payments`、`notes_due`、`cash_flow` | 读 | 只读报表：收付款汇总、票据到期分析、现金流量统计（§19） |
+| POST | `reports/close_check`、`ia_anomalies`、`cost_unit` | 读 | 只读报表：月末结账检查、存货核算检查、完工产品单位成本（§19） |
 | POST | `reports/opening_balance` | 读 | 只读报表：期初余额（库存、应收应付、总账，§19） |
 | POST | `reports/fa_changes`、`fa_depreciation` | 读 | 只读报表：固定资产变动单、按卡片和期间的折旧（§19） |
 | POST | `reports/account_readiness` | 读 | 账套体检：空账套能不能跑回归，逐项给出状态和修复提示（§30） |
@@ -1921,7 +1928,7 @@ U8 的已知缺陷：记账组件回写记账标志时按（期间、类别序�
 
 ### `stock/current`
 
-可选 `wh`、`inv`、`batch`、`nonzero`（只要现存量不为 0 的行）、`changed_since`、`after`、`limit`。响应 `{"ok":true,"items","next","watermark"}`。每项有仓库、存货、批次、自由项和各项数量，以及三种可用量：
+可选 `wh`、`inv`、`batch`、`nonzero`（布尔，缺省 `false`；`true` 时只要现存量不为 0 的行，API 原样转给桥）、`changed_since`、`after`、`limit`。响应 `{"ok":true,"items","next","watermark"}`。每项有仓库、存货、批次、自由项和各项数量，以及三种可用量。`inv_unit` 是存货的主计量单位名（`Inventory.cComUnitCode` → `ComputationUnit.cComUnitName`，与经营管理报表同一个连接；没有主计量单位时为 `null`），数量（`qty`、`qty_available` 等）都是这个单位下的数，不同存货的数量要先看单位再比较。**升级顺序：先桥，后 API**（旧桥的行里没有 `inv_unit`，API 不拦也不补）：
 
 | 字段 | 口径 |
 | --- | --- |
@@ -1954,6 +1961,7 @@ U8 的已知缺陷：记账组件回写记账标志时按（期间、类别序�
 | 字段 | 说明 |
 | --- | --- |
 | `version`、`workers`、`read_workers`、`queued`、`read_queued`、`running` | 版本，写、读线程数，写、读队列里的任务数，正在执行的任务数 |
+| `pinning`、`worker_queued` | 是否把需要登录的任务按操作员固定写线程（`true`）；按写线程序号列出排给各线程的任务数（不含不带操作员和已过期、已放弃的任务；命中登录缓存但已失效的读转到写线程时可能 429 `busy` 或 503 `stopping`） |
 | `signatures` | COM 签名自检摘要：`pending`、`ok`、`mismatch:<n>`、`unknown`（细节见 `meta` 的 `features.signatures` 和 getting-started.md） |
 | `license` | U8 许可点数：`ok`、`near`（将满）、`full`（已满）、`unknown`（读不到或还没采到） |
 | `license_detail` | 按子系统两位码给出点数，如 `{"SA":{"used":3,"limit":10,"full_24h":0}}`：`used` 已用、`limit` 总数、`full_24h` 近 24 小时出现「已满」的次数 |
@@ -2157,6 +2165,14 @@ API 把桥的错误码原样带上，HTTP 状态按下表：
 | `stock_ledger`、`stock_summary`、`position_stock`、`batch_stock` | ST |
 | `price_list` | `kind=vendor` 为 PU，其余 SA |
 | `opening_balance` | `stock` 为 ST，`arap` 按 `side` 为 AR 或 AP，`gl` 为 GL |
+| `qm_indicators`、`qm_pass_rate` | 同 `kind` 对应的检验单列表（来料检验单、产品检验单） |
+| `production_daily`、`stock_age` | ST |
+| `mo_progress`、`mo_consumption` | 同生产订单的 `vouchers/load` |
+| `purchase_analysis`、`arrival_otif` | PU |
+| `open_orders`、`sales_price_history`、`customer_churn` | SA |
+| `receipts_payments`、`notes_due` | 按 `side`：AR 或 AP |
+| `cash_flow`、`close_check`、`cost_unit` | GL |
+| `ia_anomalies` | IA |
 
 公共约定：
 
@@ -2193,6 +2209,23 @@ API 把桥的错误码原样带上，HTTP 状态按下表：
 | `account_readiness` | 账套主管，或 `GL1512`、`GL0202` |
 | `fa_changes` | 变动单查看 `FA1603` |
 | `fa_depreciation` | 折旧清单查看 `FA2403`、折旧清单表 `FA18105` |
+| `qm_indicators` | 来料 `QM040125_01`，产品 `QM040329_01`（由 `kind` 选） |
+| `qm_pass_rate` | 来料 `QM040101_01`，产品 `QM040301_01`（由 `kind` 选） |
+| `production_daily` | 产成品入库单查询 `ASM0301` |
+| `mo_progress` | `MO04005_01` |
+| `mo_consumption` | `MO04005_01`、`MO03005Q` |
+| `stock_age` | `ST020205_01`、`ST020204_01`；金额另需存货核算 `IA3011_01`，没有时金额为 `null`，响应带 `masked_fields: ["amount"]`（`stock_summary` 的 `include_amount` 同） |
+| `purchase_analysis` | `PU050307_01` |
+| `arrival_otif` | `PU050314_01` |
+| `open_orders` | `SA030105_01` |
+| `sales_price_history` | `SA031209`、`SA040401_01` |
+| `customer_churn` | `SA040401_01` |
+| `receipts_payments` | 收款单查询 `AR0601031`（`side=ap` 为付款单查询 `AP0601031`） |
+| `notes_due` | 应收 `AR212013`、`AR2231`（`side=ap` 为 `AP212013`、`AP2231`） |
+| `cash_flow` | `GL1302`、`GL1301` |
+| `close_check` | 同 `close_status` |
+| `ia_anomalies` | `IA3017_01`、`IA3011_01` |
+| `cost_unit` | `CA0504_01`、`CA0512` |
 
 数据权限见 §22，各报表的过滤对象在各小节说明。
 
@@ -2331,9 +2364,10 @@ API 把桥的错误码原样带上，HTTP 状态按下表：
 | `date_from`、`date_to` | 订单日期范围（含两端），`date_from` 不能晚于 `date_to` |
 | `partner` | 客户（销售）或供应商（采购）编码等于，1 到 20 个字符 |
 | `only_open` | 只要未执行完且未关闭的行，缺省 false |
+| `order` | `asc`（缺省）或 `desc`，见下「最新在前」 |
 | `after`、`limit` | 翻页，`limit` 1 到 1000，缺省 200 |
 
-响应 `{"ok":true,"type","only_open","items","next"}`。`items` 按订单 id、行 id 排序，每行一项：`id`、`code`、`date`、`partner`、`partner_name`、`currency`、`verified`、`closed`（订单或该行已关闭）、`open`、`line_id`、`row_no`、`inv_code`、`inv_name`、`inv_std`、`due_date`（销售为预发货日期，采购为计划到货日期）、`qty`、`amount`（原币价税合计）、`nat_amount`（本币价税合计），以及执行数：
+响应 `{"ok":true,"type","only_open","items","next"}`（`order` 为 `desc` 时另有 `order`，给了 `order` 时 API 另加 `order_applied`）。`items` 缺省按订单 id、行 id 排序，每行一项：`id`、`code`、`date`、`partner`、`partner_name`、`currency`、`verified`、`closed`（订单或该行已关闭）、`open`、`line_id`、`row_no`、`inv_code`、`inv_name`、`inv_std`、`due_date`（销售为预发货日期，采购为计划到货日期）、`qty`、`amount`（原币价税合计）、`nat_amount`（本币价税合计），以及执行数：
 
 | 销售订单 | U8 列 | 采购订单 | U8 列 |
 | --- | --- | --- | --- |
@@ -2347,6 +2381,9 @@ API 把桥的错误码原样带上，HTTP 状态按下表：
 - 采购入库：直接参照订单入库记在 `iReceivedQTY`，经到货单（及来料检验）入库记在 `freceivedqty`，`in_qty` 是两者之和。
 - 收付款列随发票核销回写，可能超过订单金额（例如开票金额大于订单金额）；预收款按订单核销时同样回写。
 - `only_open`：订单和该行都未关闭（采购订单表头 `cState=2` 也算关闭），且销售的累计发货、出库、开票（采购的累计入库、开票）至少一项的绝对值小于订单数量。未审核的订单也算。
+
+**最新在前（`order`）**：缺省 `asc` 与以前完全一样（订单 id、行 id 升序，`after` / `next` 是 `{订单 id, 行 id}` 游标）。`desc` 按订单日期降序，同日按订单 id、再按行 id 降序，同一页里一张订单的行也是行 id 从大到小。`next` 换成 `{订单日期, 订单 id, 行 id}` 的不透明游标，原样放回 `after`，下一页严格接在上一页最后一行之后（keyset，不用 OFFSET，不重读前面的页）。游标只对产生它的 `order` 有效，换了 `order` 要从头读，错的游标 400（`field` 为 `after`）。订单日期是 NULL 的订单排在最后。续读条件 `(日期 <= D AND (日期 < D OR 订单 id < H OR (订单 id = H AND 行 id < L))) OR 日期 IS NULL`（等价于 `日期 < D OR 日期 IS NULL OR (日期 = D AND (订单 id, 行 id) 在游标之后)`），日期按 datetime 全精度比较（游标里的日期文本是 `CONVERT(varchar(23), CONVERT(datetime, 日期), 121)`，须在 datetime 范围 1753-01-01 到 9999-12-31 23:59:59.997 内，否则 400）。`日期 <= D` 是可用日期索引的区间条件，是否 seek 由优化器决定；没有日期索引时每页要扫一遍筛选后的行再取前 N 行。`order` 不是 `asc` / `desc`：400，`field` 为 `order`。
+- **升级顺序：先桥，后 API。** 新 API 对旧桥仍可用：`order` 为 `desc` 而旧桥回 400（`field` 为 `order`，消息「含未知字段」/「不能设置字段」）时，API 去掉 `order` 重试一次，响应带 `order_applied: false`，列表是最旧在前、`next` 是旧游标，继续读时不要带 `order`。`order_applied: true` 表示按请求的顺序排；`asc` 不转给桥，总是 `true`；没给 `order` 时响应没有 `order_applied`。
 
 数据权限同该订单类型的 `vouchers/list`：记录级条件（客户、供应商、部门、业务员、销售 / 采购类型、表体存货）加在订单表头上，整张订单要么全列要么不列。
 
@@ -2404,9 +2441,26 @@ API 把桥的错误码原样带上，HTTP 状态按下表：
 
 ### `stock_summary` 收发存汇总表
 
-必填 `date_from`；可选 `date_to`、`wh`、`inv`、`inv_class`（存货分类编码前缀，含下级）、`by_wh`（缺省 true 按存货 + 仓库分行，false 每个存货一行）、`include_unverified`、`nonzero`（缺省 true，去掉期初、入库、出库都为 0 的行）、`after`、`limit`（1 到 1000，缺省 200）。
+必填 `date_from`；可选 `date_to`、`wh`、`inv`、`inv_class`（存货分类编码前缀，含下级）、`by_wh`（缺省 true 按存货 + 仓库分行，false 每个存货一行）、`include_unverified`、`nonzero`（缺省 true，去掉期初、入库、出库都为 0 的行）、`include_amount`（缺省 false，见下）、`after`、`limit`（1 到 1000，缺省 200）。
 
-每项 `inv_code`、`inv_name`、`inv_std`、`inv_class`、`wh_code`、`wh_name`（`by_wh=false` 时为 null）、`opening`、`in_qty`、`out_qty`、`closing`（= 期初 + 入 − 出）。按存货、仓库编码排序。只有数量，不给金额（出库成本在存货核算记账后才有）。`date_to` 为今天时 `closing` 等于现存量。
+每项 `inv_code`、`inv_name`、`inv_std`、`inv_class`、`unit`（计量单位名）、`wh_code`、`wh_name`（`by_wh=false` 时为 null）、`opening`、`in_qty`、`out_qty`、`closing`（= 期初 + 入 − 出）。按存货、仓库编码排序。数量来自已审核的收发记录；`date_to` 为今天时 `closing` 等于现存量。
+
+`include_amount=true` 时按存货核算另给金额。区间是整月（`date_from` 为月初、`date_to` 为月末；缺省的 `date_to` 是登录日期，一般不是月末）、区间内每个月都已记账、起始月的期初有数据时，每项另有 `opening_amt`、`in_amt`、`out_amt`、`closing_amt`（本币，两位小数），响应 `amount_basis` 为 `month`。取自 `IA_Summary`：
+
+- `closing_amt` = 末月 `iMoney`；`opening_amt` = 起始月上一个月的 `iMoney`（起始月为 1 月、或存货核算年中启用而上一个月没有数据时，取同年的年初结转行 `iMonth=0`，两者之间不能有别的月份）；`in_amt`、`out_amt` = 区间各月 `iIMoney`、`iOMoney` 之和。`opening_amt + in_amt − out_amt = closing_amt`。存货核算里没有这个存货（仓库）的行，四项金额为 0。
+- 金额只含操作员有数据权限的仓库、存货（与数量同一规则）；`by_wh=false` 时只加有权限的仓库。
+- 金额与数量是两个口径（数量来自已审核收发记录，金额来自存货核算记账），整月已记账时两者对得上；数量以 `opening`、`in_qty`、`out_qty`、`closing` 为准。
+
+不能给金额时各项没有金额字段，响应带 `amount_basis` 和中文说明 `amount_note`：
+
+| `amount_basis` | `amount_reason` | 情形 |
+| --- | --- | --- |
+| `partial` | `range` | 区间不是整月 |
+| `partial` | `unbooked` | 区间内有月份存货核算尚未记账 |
+| `partial` | `no_base` | 没有期初月份的数据（起始月上一个月和年初结转行都没有） |
+| `no_wh` | null | 存货核算不按仓库记账（区间内有仓库为空的行），而 `by_wh=true` 或带了 `wh`；`by_wh=false` 且不带 `wh` 时可取每个存货的金额 |
+
+没有存货核算查询权限 `IA3011_01` 时，`amount_basis` 为 `month` 的响应里四项金额为 null，带 `masked_fields: ["amount"]`（不 403）。不带 `include_amount` 时响应没有 `amount_basis`、`amount_reason`、`amount_note`。
 
 ### `position_stock` 货位存量
 
@@ -2552,6 +2606,417 @@ API 把桥的错误码原样带上，HTTP 状态按下表：
 
 `fa_changes`、`fa_depreciation` 的数据权限：部门受控、操作员不是账套主管也不是部门的数据权限管理员时，按卡片使用部门过滤——卡片全部版本的全部使用部门（`fa_DeptScale`）都在授权内、且至少有一个使用部门，卡片的行才出现（部门转移过的卡片要转出、转入两边都有权限）。变动单另要求部门明细上的非空部门都在授权内。越权的行不出现，照常 200。卡片档案 `fa_card` 的 `archives/list` 同样过滤，`archives/get`、`get_many` 对越权卡片 403「没有该档案的数据权限」（卡片不存在仍 404）。
 
+### 质量统计报表
+
+`qm_indicators`（检验指标统计）、`qm_pass_rate`（检验合格率统计）读检验单 `QMCHECKVOUCHER` 加 `QMCHECKVOUCHERS`：来料检验单（`QM03`）和产品检验单（`QM04`）分开统计，`kind` 必填（`incoming` 来料、`product` 产品）；其他检验单（`QM15`）不统计。共同约定：
+
+- 缺省只算已审核（`CVERIFIER` 非空）；`include_unverified` 为 true 时连未审核的一起算。
+- `date_from` 必填，`date_to` 缺省为 `date`，两端含当天，`date_from` 晚于 `date_to` 时 400。
+- `inv`、`vendor` 各 1 到 20 个编码（每个 1 到 60 个字符），`inv_class` 是存货分类编码前缀（含下级，1 到 40 位数字、字母、点或短横）。`vendor` 和 `group_by=vendor` 只能和 `kind=incoming` 一起用，否则 400。
+- 数量和统计值（均值、标准差）是六位小数；比率不在响应里，由调用方自己算。
+
+数据权限按检验单表头：来料按供应商 `CVENCODE`（可空）和存货 `CINVCODE`（必需），产品按存货；有功能权限但数据权限受限时只统计授权范围内的检验单（不 403）。操作员没有对应 `kind` 的功能权限时 403。没有字段遮蔽（只有数量）。
+
+### `qm_indicators` 检验指标统计
+
+按（存货，检验指标）汇总检验行：检验次数、数值型检验值的分布、不良次数、逐月走势和最近的不良批次。
+
+| 字段 | 说明 |
+| --- | --- |
+| `kind`、`date_from`、`date_to`、`inv`、`inv_class`、`vendor`、`include_unverified` | 见上 |
+| `guide` | 检验指标编码（`QMCHECKGUIDE.CCHKGUIDECODE`），1 到 20 个 |
+| `limit` | 最多返回的（存货，指标）行数，1 到 1000，缺省 200 |
+
+响应 `{"ok":true,"kind","date_from","date_to","include_unverified","items","count","truncated"}`。`truncated` 为 true 表示还有更多行。`items` 按存货编码、指标编码排序，每项：
+
+| 键 | 内容 |
+| --- | --- |
+| `inv_code`、`inv_name`、`guide_code`、`guide_name` | 存货、检验指标 |
+| `guide_unit` | 检验行上的计量单位（`CGUIDEUNIT`）。实际存的是存货的计量单位，不是指标的量纲（量纲看 `guide_name`，如「水分/%」） |
+| `standard` | 标准值文字（如 `≤10.0`），取出现次数最多的，同数取字典序最小 |
+| `n`、`numeric_n` | 检验行数、其中检验值能解析成小数的行数 |
+| `mean`、`min`、`max` | 数值型检验值的均值、最小、最大；`numeric_n` 为 0 时为 null |
+| `stdev` | 样本标准差（n−1）；`numeric_n` 小于 2 时为 null |
+| `bad_n` | 单项判定 `CTARGETQJUG` 含「不良」或「不合格」的行数 |
+| `months` | 逐月 `{month(YYYY-MM), n, mean, bad_n}`，升序 |
+| `bad_batches` | 最近的不良批次，最多 10 条，新的在前：`date`、`check_code`、`batch`（可为 null）、`value`（检验值原文） |
+
+口径：
+
+- 检验值（`CCHECKVALUE`，文字列）去掉首尾空白后只含正负号、数字和一个小数点才算数值；`外观` 一类文字、`9.5-11.0`、`≥95.0`、千分位、指数写法、绝对值超过 1e12 的串只计入 `n`。
+- 不良以 U8 记下的单项判定为准，不按标准值重判（检验行的上下限字段实际不填）。
+- 区间内检验明细超过 100000 行时 400（`field` 为 `date_from`），请缩小日期范围或指定存货。
+
+### `qm_pass_rate` 检验合格率统计
+
+按月份、供应商或存货统计检验单张数和各类数量，不含比率。
+
+| 字段 | 说明 |
+| --- | --- |
+| `kind`、`date_from`、`date_to`、`inv`、`inv_class`、`vendor`、`include_unverified` | 见上 |
+| `group_by` | `month`（缺省）、`vendor`（只限 `kind=incoming`）、`inventory` |
+| `limit` | 最多返回的分组行数，1 到 1000，缺省 200 |
+
+响应 `{"ok":true,"kind","date_from","date_to","group_by","include_unverified","items","count","truncated","totals"}`。`items` 每项是分组键加度量，按分组键排序；`totals` 是全部分组的度量合计，不受 `limit` 影响。
+
+分组键：`month`（`YYYY-MM`）；`vendor_code`、`vendor_name`；`inv_code`、`inv_name`、`unit`（存货主计量单位名）。度量：
+
+| 度量 | 内容 |
+| --- | --- |
+| `docs` | 检验单张数（一张表头一单） |
+| `pass_docs` | 合格单数 = `docs` − `fail_docs` − `undecided_docs`（含让步） |
+| `fail_docs` | 不合格单：结论 `CCHKCONCLUSION` 含「不合格」或「不接受」，或结论为空且 `FDISQUANTITY` 大于 0 |
+| `undecided_docs` | 未判定单：结论为空且没有不合格数量；不算合格也不算不合格 |
+| `concession_docs` | 让步单：结论含「让步」且不是不合格单（已含在 `pass_docs` 里） |
+| `qty`、`reg_qty`、`con_qty`、`dis_qty` | 报检、合格、让步、不合格数量合计（`FQUANTITY`、`FREGQUANTITY`、`FCONQUANTIY`、`FDISQUANTITY`） |
+
+口径：
+
+- 批次合格率 = `pass_docs ÷ (docs − undecided_docs)`（未判定单不进分母）；数量合格率 = `(reg_qty + con_qty) ÷ qty`。来料检验单常整批只记合格数量，数量合格率接近 100%，批次合格率受个别不合格单影响，两者可能差很多。
+- 一张检验单只有一个月份（`DDATE`）、一个供应商、一个存货，分组不会重复计数。分组超过 20000 个时 400。
+
+### 生产类报表
+
+`production_daily`（产成品入库日报）、`mo_progress`（生产订单完工状况）、`mo_consumption`（生产订单用料分析）。三张都是聚合结果，没有游标（不收 `after`）：最多返回 `limit` 行，超过时 `truncated` 为 true；响应都有 `ok`、`items`、`count`、`truncated`。数量是六位小数，单位是存货主计量单位（`unit`），吨、万件等换算以及完工率、单耗、差异都由调用方算。`date_from` 必填，`date_to` 缺省为 `date`、早于 `date_from` 时 400。
+
+| 报表 | 功能权限 | 数据权限（同对应单据） |
+| --- | --- | --- |
+| `production_daily` | 产成品入库单查询 `ASM0301` | 产成品入库单：部门、仓库、存货必需，客户、供应商、业务员、收发类别可空 |
+| `mo_progress` | `MO04005_01` | 生产订单：存货必需，部门、仓库可空 |
+| `mo_consumption` | `MO04005_01`、`MO03005Q`（任一） | 同生产订单 |
+
+存货按行逐行过滤，只统计有权限的行（比单据级「表体有一行放行就保留」更严）；没有授权的对象受控时结果为空，不报错。没有字段遮蔽。
+
+### `production_daily` 产成品入库日报
+
+| 字段 | 说明 |
+| --- | --- |
+| `group_by` | `day` 按日（缺省）、`month` 按月 |
+| `by` | `product` 按产品（缺省）、`class` 按存货分类 |
+| `class_grade` | `by=class` 时往上取的分类级次，1 到 9，缺省 2；存货分类比该级次浅时保持自己的分类。`by=product` 时忽略 |
+| `inv` | 存货编码，1 到 20 个 |
+| `inv_class` | 存货分类编码前缀（含下级，按存货自己的分类） |
+| `include_unverified` | 含未审核的入库单，缺省 false |
+| `limit` | 1 到 5000，缺省 1000 |
+
+响应另有 `days`（区间内有入库的日期个数，同样的过滤条件，不受 `limit` 影响）。每项 `date`（`yyyy-MM-dd`，`group_by=month` 时 `yyyy-MM`）；`by=product` 为 `inv_code`、`inv_name`、`unit`，`by=class` 为 `class_code`、`class_name`（不给单位）；`qty`（入库数量合计，红字为负）、`docs`（入库单张数，组内去重）。按日期升序，同日期内数量从大到小、再按编码。
+
+来源是产成品入库单 `rdrecord10` / `rdrecords10`，日期取表头 `dDate`，已审核（`cHandler` 非空）的判断和取日期方式与 `mgmt/cash_stock` 的 `production` 段相同（同一自然月数量一致）。U8 自带的生产日报表没有数据，所以按入库单汇总。
+
+### `mo_progress` 生产订单完工状况
+
+| 字段 | 说明 |
+| --- | --- |
+| `inv` | 产品存货编码，1 到 20 个 |
+| `inv_class` | 产品所属存货分类编码前缀（含下级） |
+| `open_only` | true 时只要没关闭的订单行（含未审核的计划行），缺省 false |
+| `limit` | 最多返回的订单行数，1 到 2000，缺省 500 |
+
+`date_from`、`date_to` 按订单制单日期（`mom_order.CreateDate`）取区间。每个订单行一项，按制单日期、订单号、行号排序：`mo_code`、`mo_line`、`create_date`、`start_date`、`due_date`（可为 null）、`inv_code`、`inv_name`、`unit`、`dept_name`（生产部门）、`qty`（订单数量）、`qualified_in`（合格入库数量累计 `QualifiedInQty`，含不良品处理单入库的合格量）、`closed`（`Status=4`）、`status`。
+
+`status`：`closed` 已关闭，`open` 已审核生产中（`Status=3`），`planned` 未审核的计划（`Status` 1、2）。U8 订单行没有单独的「锁定」状态，不会出现 `locked`。合格入库量达到订单数量时 U8 自动关闭订单行，所以 `closed` 行的 `qualified_in` 可以大于或小于 `qty`（超产、人工关闭）。
+
+### `mo_consumption` 生产订单用料分析
+
+| 字段 | 说明 |
+| --- | --- |
+| `parent` | 母件存货编码，1 到 20 个 |
+| `inv_class` | 母件所属存货分类编码前缀（含下级） |
+| `limit` | 最多返回的（母件，子件）行数，1 到 2000，缺省 500 |
+
+`date_from`、`date_to` 按订单制单日期取区间。每项一个（母件，子件），按母件、子件编码排序：`parent_code`、`parent_name`、`parent_unit`、`mo_count`（订单张数）、`mo_qty`（订单数量合计）、`qualified_in`（合格入库合计）、`comp_code`、`comp_name`、`comp_unit`、`bom_qty`（子件标准用量合计 `mom_moallocate.Qty`，U8 已按订单数量折算）、`issued_qty`（子件已领数量合计 `mom_moallocate.IssQty`，U8 累计）。
+
+- 只含已审核（含已关闭）的订单行；未审核的计划行没有领料，副产品（`ByproductFlag=1`）不是耗用，都不计。
+- 母件的 `mo_count`、`mo_qty`、`qualified_in` 在各子件行上重复，已先按订单行合计再连子件，不会被子件行数翻倍。
+- 标准单耗 = `bom_qty ÷ mo_qty`，实际单耗 = `issued_qty ÷ qualified_in`，由调用方算。实际领用取 `IssQty` 而不汇总材料出库单：出库单的 `iMPoIds` 关联在订单被修改后可能指向已删除的子件。子件与母件的单位可能不同（如 KG、千克），按 `comp_unit` 换算。
+
+### `stock_age` 库龄分析
+
+按（存货，仓库）列出现存量的库龄、呆滞和库存金额，并给出库龄分段合计、呆滞合计和总计。登录日期（`date`）作为计算日期。登录子系统 ST，数据权限按仓库 `cWhCode`、存货 `cInvCode`。
+
+| 字段 | 说明 |
+| --- | --- |
+| `idle_days` | 多少天没有出库算呆滞，1 到 3650，缺省 180 |
+| `buckets` | 库龄分段上界（天），1 到 6 个，严格递增，每个 1 到 3650，缺省 `[30,90,180]`。n 个上界分 n+1 段，上界含本身，最后一段无上界 |
+| `wh`、`inv` | 仓库、存货编码，各 1 到 20 个 |
+| `inv_class` | 存货分类编码前缀（含下级） |
+| `by_wh` | 缺省 true 按（存货，仓库）分行；false 每个存货一行，数量与金额相加 |
+| `sort` | `amount`（缺省）按金额从大到小，无成本的排最后；`age` 按库龄从大到小，无入库记录的最前。同值再按存货、仓库编码。没有金额权限时一律按库龄排，响应的 `sort` 是实际用的，避免排名泄露金额高低 |
+| `limit` | `items` 行数，1 到 2000，缺省 200。不翻页：分段、呆滞、总计覆盖全部行 |
+
+响应 `{"ok":true,"as_of","cost_month","by_wh","idle_days","sort","count","truncated","items","buckets","idle_total","total","uncosted_items"}`，没有金额权限时另有 `masked_fields: ["amount"]`。
+
+- `cost_month`：成本取自的存货核算月份（`yyyy-MM`），没有已记账月份时为 null、所有金额为 null。`truncated` 为 true 表示全部行多于 `limit`。
+- `items` 每项：`inv_code`、`inv_name`、`inv_std`、`unit`、`wh_code`、`wh_name`（`by_wh=false` 时没有）、`qty`（现存量，六位小数）、`last_in`、`last_out`（没有记录为 null）、`age_days`（没有入库记录为 null）、`idle`、`unit_cost`（六位小数）、`amount`（本币，两位小数）。
+- `buckets` 每项：`from_days`（含，第一段为 0）、`to_days`（含，最后一段为 null）、`items`（行数）、`amount`。`idle_total`、`total`：`items`、`amount`。`uncosted_items`：`amount` 为 null 的行数，无金额权限时为 null。
+
+口径：
+
+- 现存量取 `CurrentStock`（按存货、仓库合并批次，数量不为 0 的行；负库存照列，金额为负），行数超过 50000 时 400，请用 `wh`、`inv`、`inv_class` 缩小范围。
+- 库龄 = 登录日期 − 最后一次已审核入库的日期。入库 = 采购入库 01、其他入库 08、产成品入库 10、库存期初 34（调拨、盘点、形态转换在 U8 里生成其他入库 / 出库，所以调入也刷新入库日期）；红字不算。`CurrentStock.dMdate` 是空的，不用。没有入库记录的行 `age_days` 为 null，分段归最后一段；`by_wh=false` 时取各仓里最近一次入库。
+- 呆滞：最后一次已审核出库（其他出库 09、材料出库 11、销售出库 32，红字不算）至今不少于 `idle_days` 天；从没出过库的按最后入库算（刚入库的不算呆滞）；入库也没有记录的算呆滞。
+- 金额 = `qty` × 成本月份的结存单价。成本月份 = 不晚于登录月份的最近一个已记账（`IA_Summary.iPeriod=1`）的存货核算月份；单价 = 该月（存货，仓库）的 `iMoney / iNum`，数量为 0 时用该存货各仓合计的单价，仍没有则 `unit_cost`、`amount` 为 null。分段、呆滞和总计的 `amount` 只加有成本的行，某组有行却一行也没有成本时该组 `amount` 为 null。`by_wh=false` 时 `unit_cost` 是加权单价。
+- 功能权限 `ST020205_01`、`ST020204_01` 任一。金额另需存货核算查询权限 `IA3011_01`：没有时 `unit_cost`、`amount` 及各合计的 `amount` 为 null，带 `masked_fields: ["amount"]`，不 403。字段权限另见 §22。
+
+### `purchase_analysis` 采购综合统计
+
+按物料、供应商、月份汇总采购数量和金额，用于采购额排名、单价走势和同物料多供应商比价。不分页，登录子系统 PU。
+
+| 字段 | 说明 |
+| --- | --- |
+| `date_from`、`date_to` | `date_from` 必填；`date_to` 缺省为 `date`。发票按开票日期 `dPBVDate`，入库单按入库日期 `dDate` |
+| `group_by` | 数组，取 `material`、`vendor`、`month` 中的 1 到 3 个，不重复，缺省 `["material"]` |
+| `inv`、`vendor` | 存货、供应商编码，各 1 到 20 个，每个 1 到 60 个字符 |
+| `inv_class` | 存货分类编码前缀（含下级） |
+| `source` | `invoice` 采购发票（缺省）；`receipt` 已审核的采购入库单 |
+| `limit` | 1 到 1000，缺省 200 |
+
+响应 `{"ok":true,"source","date_from","date_to","group_by","items","count","truncated","totals"}`。`items` 按金额从大到小（同额按分组键），超过 `limit` 的行不返回、`truncated` 为 true。每项先是分组键（`material`：`inv_code`、`inv_name`、`unit`；`vendor`：`vendor_code`、`vendor_name`；`month`：`month`），再是 `qty`（主计量单位；`group_by` 里没有 `material` 时单位混杂，为 null）、`amount`（无税，本币）、`amount_tax`（价税合计，`source=receipt` 时为 null）、`docs`（去重后的单据张数；`group_by` 含 `month` 时按月计，否则是区间内含该分组项的单据数）。`totals` 为 `amount`、`amount_tax`、`docs`，覆盖全部明细，不受 `limit` 影响（`docs` 去重，各行相加可能大于它）。
+
+- 发票：`PurBillVouch(s)`，不含期初发票（`bFirst=1`）；`amount` = Σ`iMoney`，`amount_tax` = Σ`iSum`（本币列）；红字发票为负，照实相加。**不按审核状态过滤**（与 `mgmt/cash_stock` 的采购取数一致）。
+- 入库单：`RdRecord01` / `rdrecords01`，只含已审核（`cHandler` 非空）、非期初（`bpufirst=0`）的行；`amount` = Σ`iPrice`；红字入库为负。同一期间发票额与入库额不同是正常的（开票滞后、暂估）；只做库存没有采购发票的账套用 `source=receipt`。
+- 单价由调用方用 `amount ÷ qty`、`amount_tax ÷ qty` 算；比价用 `group_by=["material","vendor"]`。
+- 功能权限 `PU050307_01`。数据权限：供应商 `cVenCode`（可空，没有供应商的单据放行）、存货 `cInvCode`，条件加在明细行上，列表变少照常 200。字段权限见 §22。
+
+### `arrival_otif` 采购到货及时率
+
+已审核采购订单行按**计划到货日**（`PO_Podetails.dArriveDate`）落在窗口内，统计准时、延迟、逾期未到，并列出逾期未到货的订单行。不分页，登录子系统 PU。
+
+| 字段 | 说明 |
+| --- | --- |
+| `date_from` | 必填，计划到货日起始（含） |
+| `date_to` | 计划到货日截止（含），缺省不设上限（计划日在未来的行计入 `not_due`）；不能早于 `date_from` |
+| `vendor`、`inv` | 供应商、存货编码，各 1 到 20 个 |
+| `group_by` | `vendor`（缺省）、`material`、`none`（`groups` 为空，只有 `totals`） |
+| `overdue_limit` | 逾期明细最多行数，1 到 200，缺省 50 |
+
+响应 `{"ok":true,"as_of","date_from","date_to","group_by","arrival_basis","groups","truncated","totals","overdue","overdue_total"}`。`as_of` 是登录日期（判断逾期的日期）；`date_to` 请求没给时为 null；`arrival_basis` 固定 `arrival_or_receipt`。`groups` 按订单行数从多到少，最多 1000 组（超出时 `truncated` 为 true），每组先是分组键（`vendor_code`、`vendor_name`；或 `inv_code`、`inv_name`、`unit`），再是六个计数；`totals` 是全部订单行的六个计数，不受分组上限影响：
+
+| 计数 | 内容 |
+| --- | --- |
+| `lines` | 订单行数 = `arrived_lines` + `open_overdue` + `not_due` |
+| `arrived_lines` | 有首次到货的行（部分到货也算） |
+| `on_time`、`late` | 首次到货日不晚于、晚于计划日；两者之和 = `arrived_lines` |
+| `open_overdue` | 没有首次到货，计划日早于 `as_of` |
+| `not_due` | 没有首次到货，计划日不早于 `as_of` |
+
+`overdue` 是逾期未到货的订单行，计划日从早到晚，最多 `overdue_limit` 行：`po_code`、`po_date`、`vendor_name`、`inv_code`、`inv_name`、`unit`、`qty`、`arrived_qty`、`planned_date`、`days_overdue`（`as_of` − 计划日）。`overdue_total` 是总行数（等于 `totals.open_overdue`）。
+
+- 订单范围：已审核（`PO_Pomain.cVerifier` 非空）订单的行。已关闭（订单 `cState=2`、表头或行有关闭人）且从未到货的行视为作废，不统计；关闭但到过货的行照常统计。
+- 首次到货 = 已审核到货单（`PU_ArrivalVouchs.iPOsID`，数量大于 0）与已审核采购入库单（`rdrecords01.iPOsID`，数量大于 0，经手人非空）里最早的日期。多数订单行直接入库、不开到货单，只看到货单会把几乎所有行算成未到货，所以取较早者。准时与延迟只比日期。
+- `overdue` 里的 `arrived_qty` 是订单行上记录的到货累计（`iArrQTY` 与 `iReceivedQTY + freceivedqty` 取大），含未审核单据，仅供参考：大于 0 说明有单据还没审核。
+- 建议比率（调用方算）：准时率 = `on_time ÷ arrived_lines`；到货及时率 = `on_time ÷ (lines − not_due)`。部分账套的计划日等于订单日期（未维护到货日期），此时几乎所有行都是 `late`，是数据没有维护计划日。
+- 功能权限 `PU050314_01`。数据权限：供应商 `cVenCode`、存货 `cInvCode`（都必须放行），加在明细行上。没有字段遮蔽。
+
+### 销售类报表
+
+`open_orders`（在手订单）、`sales_price_history`（销售价格历史）、`customer_churn`（客户变动）。单账套，登录子系统 SA。金额是本币两位小数，数量六位小数（存货主计量单位），单价六位小数。三张都不翻页：`open_orders`、`sales_price_history` 用 `limit` 截断（`count` 是返回行数，`truncated` 为 true 表示还有没返回的行），`customer_churn` 每张名单各取前 `limit` 个，`counts` 是全部个数。
+
+| 报表 | 功能权限（任一） | 数据权限 |
+| --- | --- | --- |
+| `open_orders` | `SA030105_01` | 订单表头：客户 `cCusCode`、部门 `cDepCode`、业务员 `cPersonCode`、销售类型 `cSTCode`；表体：存货 `cInvCode`（按行过滤，无存货权限的行不进汇总） |
+| `sales_price_history` | `SA031209`、`SA040401_01` | 客户 `cCusCode`、存货 `cInvCode`，都必需 |
+| `customer_churn` | `SA040401_01` | 客户 `cCusCode` 必需，业务员 `cPersonCode` 可空 |
+
+字段权限见 §22。
+
+### `open_orders` 在手订单
+
+未执行完的销售订单行，按客户、存货或逐订单行汇总余量和余额。
+
+| 字段 | 说明 |
+| --- | --- |
+| `basis` | 余量口径：`ship` 未发货（缺省，订单数量 − 累计发货数量 `iFHQuantity`）、`out` 未出库（`foutquantity`）、`invoice` 未开票（`iKPQuantity`） |
+| `group_by` | `customer`（缺省）、`inventory`、`order`（逐订单行） |
+| `customer`、`inv`、`person` | 客户、存货、业务员编码，各 1 到 20 个，每个 1 到 60 个字符 |
+| `date_from`、`date_to` | 订单日期（含两端），可只给一端 |
+| `due_before` | 只要预发货日期（订单行 `dPreDate`）早于这一天（不含）的行 |
+| `limit` | 1 到 1000，缺省 200 |
+
+响应 `{"ok":true,"basis","group_by","as_of","items","count","truncated","totals"}`。`as_of` 是登录日期，判断逾期用。每项先是分组键（`customer_code`、`customer_name`；`inv_code`、`inv_name`、`unit`；逐订单行为 `so_code`、`so_date`、`customer_name`、`inv_code`、`inv_name`、`unit`、`due_date`），再是 `lines`（订单行数）、`open_qty`（余量）、`open_amount`（余额 = 每行余量 × `iNatSum` ÷ `iQuantity`，本币）、`overdue_lines`（预发货日期早于 `as_of` 的行数）、`earliest_due`（可为 null）。`totals` 为 `{"lines","open_amount","customers"}`，覆盖全部符合条件的行，不受 `limit` 和 `group_by` 影响。
+
+- 在手订单行：订单表头 `cCloser` 和订单行 `cSCloser` 都为空，且所选口径的余量大于 0。订单是否审核不限（同 `order_execution`），同一张订单按不同 `basis` 看到的行不同（已发货未开票的行在 `ship` 里没有、在 `invoice` 里有）。
+- 按客户、存货汇总按 `open_amount` 从大到小；逐订单行按预发货日期从早到晚（无日期的最后），再按订单号、行号。按客户汇总时计量单位混杂，`open_qty` 只作参考。
+
+### `sales_price_history` 销售价格历史
+
+销售发票表体逐行列出日期、数量、金额和折算的单价，新的在前，用来看某客户或某存货的价格走势。
+
+| 字段 | 说明 |
+| --- | --- |
+| `customer`、`inv` | 客户、存货编码，各 1 到 20 个；至少给一个 |
+| `date_from`、`date_to` | `date_from` 必填；`date_to` 缺省为 `date`（发票日期，含两端） |
+| `include_unverified` | true 时连销售未复核（`cChecker` 为空）的发票一起列，缺省 false |
+| `limit` | 1 到 2000，缺省 500；超过时最旧的行被截掉，`truncated` 为 true |
+
+响应 `{"ok":true,"date_from","date_to","items","count","truncated"}`。每项 `date`、`code`（发票号）、`customer_code`、`customer_name`、`inv_code`、`inv_name`、`unit`、`qty`、`amount`（无税 `iNatMoney`）、`amount_tax`（价税合计 `iNatSum`）、`unit_price`（`amount ÷ qty`）、`unit_price_tax`（`amount_tax ÷ qty`，两个单价 `qty` 为 0 时为 null）、`currency`（发票币种名称；外币发票的金额已折成本币，单价是本币单价）。
+
+不含期初发票（`bFirst`）；红字发票的数量、金额是负数，照实列出，单价仍为正；按发票日期、发票号、表体行倒序。口径同 `mgmt/sales` 的收入。
+
+### `customer_churn` 客户变动
+
+按销售发票对比当前窗口和之前的基线窗口，找出新客户、流失客户和收入明显下降的客户。
+
+| 字段 | 说明 |
+| --- | --- |
+| `date_from`、`date_to` | 当前窗口，`date_from` 必填，`date_to` 缺省为 `date`；基线窗口止于 `date_from` 的前一天 |
+| `lookback_months` | 基线窗口月数，1 到 24，缺省 6 |
+| `decline_pct` | 下降阈值（百分数），1 到 99，缺省 30 |
+| `limit` | 每张名单最多行数，1 到 200，缺省 50 |
+
+响应 `{"ok":true,"new","lost","declining","counts","windows","lookback_months","decline_pct"}`。三张名单每项：`customer_code`、`customer_name`、`person_name`（该客户最后一张发票上的业务员）、`first_date`、`last_date`（到 `date_to` 为止第一张、最后一张发票日期）、`revenue_current`、`revenue_baseline`（两个窗口的无税本币收入）、`months_current`、`months_baseline`（窗口里有发票的自然月个数）。`counts` 为 `{"new","lost","declining","active"}`，前三项是各名单全部个数，`active` 是当前窗口有发票的客户数。`windows` 为实际使用的 `{"current_from","current_to","baseline_from","baseline_to"}`，基线起日 = `date_from` 减 `lookback_months` 个月。
+
+- 收入 = 已复核（`cChecker` 非空）、非期初发票表体的无税本币金额，红字为负，与 `mgmt/sales` 一致。一个客户只进一张名单，按 `new`、`lost`、`declining` 的顺序判断。
+- `new`：当前窗口有发票且 `revenue_current` 大于 0，`date_from` 之前从没有过发票。按 `revenue_current` 从大到小。
+- `lost`：基线窗口收入为正，当前窗口没有任何发票。按 `revenue_baseline` 从大到小。
+- `declining`：两个窗口都有发票，基线收入为正，且当前月均收入 < 基线月均收入 × (100 − `decline_pct`) ÷ 100。月均 = 窗口收入 ÷ 窗口月数；窗口恰好是整月时月数取整数，否则按天数 ÷ 30.4375。按月均收入下降额从大到小。
+- 窗口内有发票的客户超过 20000 个时 400，请缩短日期范围或回看月数。
+
+### 收付款与现金流报表
+
+`receipts_payments`（收付款汇总）、`notes_due`（到期票据）、`cash_flow`（现金流量统计）。单账套聚合结果，不翻页：前两张用 `limit` 截断（`count`、`truncated`），`totals` 覆盖全部符合条件的记录，不受 `limit` 影响。金额是本币两位小数，日期 `yyyy-MM-dd`，月份 `yyyy-MM`。登录子系统：前两张按 `side`（`ar` 用 AR，`ap` 用 AP），`cash_flow` 用 GL。
+
+| 报表 | 功能权限（任一） | 数据权限 |
+| --- | --- | --- |
+| `receipts_payments` 应收 / 应付 | 收款单查询 `AR0601031` / 付款单查询 `AP0601031` | 往来单位（必需，`cDwCode`）、部门（可空，`cDeptCode`）、业务员（可空，`cPerson`） |
+| `notes_due` 应收 / 应付 | `AR212013`、`AR2231` / `AP212013`、`AP2231` | 往来单位（可空，`cDwCode`） |
+| `cash_flow` | `GL1302`、`GL1301` | 无 |
+
+数据权限条件加在单据（票据）表头上：列表变少照常 200。字段权限只对 `receipts_payments` 生效，见 §22。
+
+### `receipts_payments` 收付款汇总
+
+按日、月、往来单位、业务员、部门、结算方式汇总收款单（应收）或付款单（应付）及其退款。
+
+| 字段 | 说明 |
+| --- | --- |
+| `side` | 必填。`ar` 收款单和客户退款，`ap` 付款单和供应商退款 |
+| `date_from`、`date_to` | `date_from` 必填；`date_to` 缺省为 `date`；按单据日期，含两端 |
+| `group_by` | 0 到 2 个维度，不重复，缺省 `["day"]`：`day`、`month`、`partner`、`person`、`department`、`settle`（结算方式）。空数组时 `items` 为空，只有 `totals` |
+| `partner`、`person`、`dept` | 往来单位、业务员、部门编码，各 1 到 20 个，每个 1 到 60 个字符 |
+| `include_unverified` | 含未审核单据，缺省 false |
+| `limit` | 1 到 1000，缺省 200。分组超过时保留 `amount` 最大的 `limit` 组，`truncated` 为 true |
+
+响应 `{"ok":true,"side","date_from","date_to","group_by","include_unverified","items","count","truncated","totals"}`。每项先是分组键，按 `group_by` 的顺序：`date`、`month`、`partner_code` 与 `partner_name`、`person_code` 与 `person_name`、`dept_code` 与 `dept_name`、`settle_code` 与 `settle_name`（单据上没填的为 null）；然后是 `docs`（单据数，收付款单和退款单都计）、`amount`（收款或付款合计，正数）、`refund_amount`（退款合计，正数）、`net_amount`（`amount − refund_amount`）。`totals` 为 `{docs, amount, refund_amount, net_amount}`，没有符合条件的单据时全为 0。
+
+- 来源是收付款单表 `Ap_CloseBill`：应收收款单 = `cFlag` AR 且单据类型 48，客户退款 = AR 且 49；应付付款单 = AP 且 49，供应商退款 = AP 且 48。金额取本币列 `iAmount`，日期取 `dVouchDate`。缺省只含已审核（`cCheckMan` 非空）、非期初（`bStartFlag` = 1 的不算）。
+- 只有退款的分组 `amount` 为 0。名称取各自档案：编码没填时编码和名称都是 null，档案已删时只有名称为 null。
+- 排序：先按 `amount` 从大到小（同额按分组键）截断到 `limit`，再排输出顺序：`group_by` 含 `day` 或 `month` 时按日期（按 `group_by` 里的先后），同日期按 `amount` 从大到小；否则按 `amount` 从大到小。
+
+### `notes_due` 到期票据
+
+列出到期日落在一段日期内的应收票据或应付票据，用于看哪天有多少票据到期。
+
+| 字段 | 说明 |
+| --- | --- |
+| `side` | 必填。`ar` 应收票据，`ap` 应付票据 |
+| `expire_from` | 到期日起（含），缺省为 `date` |
+| `expire_to` | 到期日止（含），缺省为 `expire_from` 后 30 天；早于 `expire_from` 时 400 |
+| `open_only` | 缺省 true：只列余额不为 0 的票据；false 时连已结算、贴现、背书、退回的也列出 |
+| `partner` | 往来单位编码，1 到 20 个。往来单位编码为空的票据不会匹配 |
+| `limit` | 1 到 1000，缺省 200 |
+
+响应 `{"ok":true,"side","expire_from","expire_to","open_only","as_of","items","count","truncated","totals"}`。`as_of` 是登录日期。按到期日、票据号排序，每项 `code`、`note_type`（结算方式名称，如银行承兑；期初票据为 null）、`partner_code`（没填为 null）、`partner_name`、`sign_date`、`expire_date`、`amount`、`remainder`（未处理余额）、`status`、`days_to_due`（到期日 − 登录日期，已过期为负）。`totals` 为 `{count, amount, remainder}`。
+
+- 来源是票据表 `AP_Note`（`cFlag` 分 AR / AP），金额取本币列（`iAmount_Local`、`iRAmount_Local`）。
+- `status`：余额不为 0 是 `open`（部分背书、贴现后还有余额的也是）；余额为 0 时看最近一次处理记录（`AP_Note_Sub`，按处理日期、主键取最后一条）：贴现 9D `discounted`、背书 9E `endorsed`、退回 9C `returned`，其余（结算 9A 或没有处理记录）`settled`。
+- 多数应收票据没有往来单位编码，只有票据上的单位名称：此时 `partner_code` 为 null，`partner_name` 取票据上的名称。票据没有审核状态，期初票据照列。
+
+### `cash_flow` 现金流量统计
+
+按现金流量项目汇总凭证上指定的现金流量（直接法），分会计期间。
+
+| 字段 | 说明 |
+| --- | --- |
+| `fiscal_year` | 缺省为 `date` 的年份 |
+| `period_from` | 起始期间，1 到 12，缺省 1 |
+| `period_to` | 截止期间，1 到 12，不小于 `period_from`。缺省：会计年度是登录年度时取登录日期的月份，否则 12 |
+| `include_unposted` | 含未记账凭证，缺省 false（作废凭证始终不算） |
+
+响应 `{"ok":true,"fiscal_year","period_from","period_to","include_unposted","items","unassigned"}`。`items` 按项目编码排序，只列范围内有数据的项目：`code`、`name`、`class_code`、`class_name`（一级分类：经营活动、投资活动、筹资活动、汇率变动、现金及现金等价物）、`direction`（`in` 流入类、`out` 流出类，项目不在档案里时为 null）、`amount`（各期之和）、`periods`（`{"1": 金额, …}`，范围内每个期间一项，无数据的期间为 0）。`unassigned` 为 `{vouchers, amount}`。
+
+- 来源是凭证的现金流量表 `GL_CashTable`，项目档案 `fitemss98`。项目挂在对方科目分录上：流入类金额 = 贷方 − 借方，流出类 = 借方 − 贷方，所以正常收入、支出都是正数，冲销、红字和汇兑调整为负；项目不在档案里时按贷方 − 借方。
+- 只汇总凭证上已指定的项目，不推算「现金及现金等价物净增加额」，也不按流入、流出分类小计；需要时按 `class_code`、`direction` 自行相加。
+- `unassigned`：范围内库存现金、银行存款、其他货币资金（1001、1002、1012 及其下级）分录借贷净额不为 0、却没指定任何现金流量项目的凭证，`vouchers` 是张数，`amount` 是每张凭证净额的绝对值之和；现金账户之间互转（净额为 0）的不计。
+- 未与 U8 客户端「现金流量统计表」逐项核对；UFO 报表定义不在数据库里，本接口是按凭证项目的直接汇总。
+
+### 账务核对报表
+
+`close_check`（月末结账检查）、`ia_anomalies`（存货核算检查）、`cost_unit`（完工产品单位成本）。单账套，不翻页：`close_check` 每项最多给 5 个示例单号，`ia_anomalies` 的两张清单各用 `limit` 截断（`count` 是全部行数），`cost_unit` 按期间范围取。金额是本币两位小数，数量六位小数，单位成本六位小数（元 / 主计量单位），日期 `yyyy-MM-dd`，期间 `yyyy-MM`。响应里值为 null 的顶层字段不出现（明细里的 null 照常给出）。登录子系统：`close_check`、`cost_unit` 用 GL，`ia_anomalies` 用 IA（同 `ia/post`）。
+
+| 报表 | 功能权限（任一） | 数据权限 |
+| --- | --- | --- |
+| `close_check` | 同 `close_status` | 无 |
+| `ia_anomalies` | `IA3017_01`、`IA3011_01` | 供应商（可空，`cVenCode`）、存货（必需，`cInvCode`）、仓库（可空，`cWhCode`）；两张清单都按，`count`、`est_amount` 只含有权限的行 |
+| `cost_unit` | `CA0504_01`、`CA0512` | 存货（必需，`InvCode`） |
+
+数据权限条件加在清单行上：行变少照常 200。字段权限只对 `ia_anomalies` 的 `unbilled` 段生效，见 §22；`close_check`、`cost_unit` 不遮蔽（U8 没有对应的字段权限对象）。
+
+### `close_check` 月末结账检查
+
+查某个会计期间各模块是否已结账，以及还没结账的模块有多少单据挡着结账，每项最多给 5 个示例单号。检查条件与月末结账（`periods/close`）的结账前检查共用，这里数个数。
+
+| 字段 | 说明 |
+| --- | --- |
+| `fiscal_year` | 会计年度，2000 到 2099，缺省为 `date` 的年份 |
+| `period` | 会计期间，1 到 12。缺省：会计年度是登录年度时取登录日期的月份，否则 12 |
+
+响应 `{"ok":true,"fiscal_year","period","closed","checks"}`。`closed` 是 `{SA, PU, ST, IA, GL, AR, AP, CA, FA}`（布尔），该期间在 `GL_mend` 里没有记录时都是 false。`checks` 只列还没结账的模块相关的检查项，每项 `module`、`item`、`count`（单据张数，0 也列出）、`samples`（最多 5 个，按单号排序）；模块全部结账时为空数组。
+
+| `module` | `item` | 内容 |
+| --- | --- | --- |
+| SA | `unaudited_dispatch` | 本期未审核的发货单（退货单） |
+| SA | `unaudited_sale_invoice` | 本期未复核的销售发票 |
+| PU | `unaudited_purchase_invoice` | 日期在本期末及以前、未复核的采购发票 |
+| ST | `unverified_purchase_in`、`unverified_product_in`、`unverified_material_out`、`unverified_sale_out`、`unverified_other_in`、`unverified_other_out` | 本期未审核的采购入库、产成品入库、材料出库、销售出库、其他入库、其他出库单 |
+| GL | `unposted_vouchers` | 本期未记账的凭证（作废的不算，`samples` 如「记-0001」） |
+| IA | `unbooked_ia` | 本期已审核、存货核算还没记账的库存单据（口径同 `ia_anomalies` 的 `unbooked`，不含不参与成本核算的仓库，按单据算） |
+| AR、AP | `unvouchered_ar`、`unvouchered_ap` | 本期审核登记、还没制单的原始往来明细（按单据号算） |
+| GL | `pl_not_transferred` | 本期没有期间损益结转凭证时，借贷还不平的损益类末级科目个数（`samples` 是科目编码）；已有结转凭证时为 0 |
+
+- 库存单据按单据日期在本期数，采购发票按日期在本期末及以前数；发货单、销售发票、采购发票、总账、往来的条件在 `PeriodCloseSql`，库存单据取自库存结账逐条查的那份（`PeriodStockSql.Unaudited`）。
+- 应收、应付的未制单只有往来选项要求月末结账前全部制单（`bZDMonth`）时才挡结账，本报表一律列出个数。
+- 盘点单、调拨单、组装拆卸单、货位调整单、报废单和库存期初单据也会挡库存结账，本报表不列。
+
+### `ia_anomalies` 存货核算检查
+
+列出暂估未回冲的采购入库行和存货核算还没记账的库存单据行。
+
+| 字段 | 说明 |
+| --- | --- |
+| `fiscal_year`、`period` | 同 `close_check` |
+| `limit` | 两张清单各自最多返回的行数，1 到 200，缺省 50 |
+
+响应 `{"ok":true,"fiscal_year","period","period_end","billing_as_of","unbilled","unbooked"}`。`period_end` 是期间最后一天；`billing_as_of` 是开票状态（`billed_qty`）的时点，即登录日期（`date`）。
+
+`unbilled`（暂估未回冲）：`count`（全部行数）、`est_amount`（全部行的估价合计）、`items`（最多 `limit` 行，按估价从大到小，再按日期、单号）。每项 `code`（入库单号）、`date`、`vendor_name`、`inv_code`、`inv_name`、`unit`、`qty`、`billed_qty`（已开票数量）、`residual_qty`（`qty − billed_qty`）、`est_amount`（`residual_qty` × 入库单行无税单价 `iUnitCost`）、`days`（期末日 − 入库日期）。
+
+`unbooked`（未记账单据）：`count`（全部行数）、`items`（最多 `limit` 行，按日期从早到晚）。每项 `type`（`purchase_in`、`other_in`、`other_out`、`product_in`、`material_out`、`sale_out`）、`code`、`date`、`wh_name`、`inv_code`、`inv_name`、`unit`、`qty`。
+
+- 暂估未回冲：已审核（`cHandler` 非空）的采购入库单行，不含库存期初（`bIsSTQc` = 1），入库日期在期末及以前，入库数量不等于已开票数量（`iSumBillQuantity`，空按 0）。采购发票还没到的正常入库也在其中。红字入库未开红字发票时 `residual_qty`、`est_amount` 为负数，照实计入合计，排在最后。
+- 开票状态是**查询时**的当前状态，不是期末当天的：查过去的期间时，期末之后才开的发票已经算进 `billed_qty`。
+- 未记账：已审核、非库存期初、日期在本期、数量不为 0 的单据行，在存货核算明细 `IA_Subsidiary` 里找不到（`IA_Subsidiary.ID` 是单据行 `AutoID`，单据类型前缀对得上；销售出库在存货核算里的类型是 3201）。数量为 0 的行、仓库不参与成本核算（`Warehouse.bInCost` = 0）的单据存货核算不记，不算。本期存货核算还没做单据记账时，本期单据都会列出。出库单红字行数量为负，照实给出。
+
+### `cost_unit` 完工产品单位成本
+
+查成本核算模块（CA）每个产品每个会计期间的单位成本，按成本要素列出。
+
+| 字段 | 说明 |
+| --- | --- |
+| `fiscal_year` | 缺省为 `date` 的年份 |
+| `period_from` | 起始期间，1 到 12，缺省取截止期间 |
+| `period_to` | 截止期间，1 到 12，不小于 `period_from`。缺省：最近一个成本核算已结账的期间（`GL_mend.bflag_CA` = 1），不晚于登录月份（会计年度不是登录年度时不晚于 12 月） |
+| `inv` | 存货编码，1 到 20 个，每个 1 到 60 个字符 |
+| `inv_class` | 存货分类编码前缀（含下级），1 到 40 位数字、字母、点或短横 |
+
+只给 `period_from` 时，截止期间取最近已结账的期间，比 `period_from` 早就取 `period_from`。没有已结账期间又没给期间时，响应没有 `period_from`、`period_to`，`items` 为空。
+
+响应 `{"ok":true,"fiscal_year","period_from","period_to","items","element_names","closed_periods"}`。`items` 按存货编码、期间排序，每个（产品，期间）一项：`inv_code`、`inv_name`、`unit`、`period`（`yyyy-MM`）、`qty`（该期间完工数量，没有时为 null）、`elements`（成本要素编码 → 单位成本，如 `{"0": 3.1, "1": 0.125}`）、`unit_total`（各要素之和）。`element_names` 是出现过的要素编码 → 名称（`Ca_AmoTypeName`：0 材料费用、1 人工费用、2 辅助费用、3 制造费用、4 其他费用、6 委外加工费、9 共耗费用）。`closed_periods` 是该会计年度成本核算已结账的期间（升序）。
+
+- 来源是成本核算的单位成本表 `Caq_UnitAmo` 和成本核算对象 `Caq_CoBase`；同一产品在几个成本中心各有一行时按产品号合并。
+- `qty` 取成本核算生产订单成本行（`CA_AmoCt`）上每张订单每期的完工数量（`iFinqua`，同一订单各行相同，取最大），按产品合计，与产成品入库单的入库数量一致。
+- 未结账的期间只要有成本数据也照列，是否已结账看 `closed_periods`。单位成本是该期间完工产品的成本核算结果，与存货核算的期末单价口径不同，不能直接比较。
+
 ## 20. 幂等键
 
 写路由可以带幂等键：网络中断、超时之后用同一个键重发，U8 里只执行一次。**全部写路由**都支持（§3 表里标「写」的，含专用审核路由 `sale-orders/verify`、`dispatches/verify`）；读路由带幂等键 400「该接口不支持 Idempotency-Key」。写路由名单每层只有一份：桥是写闸门的写路由表，API 是权限表里的写动作，MCP 是 `routes.json` 里 `access` 为 `write` 的路由，客户端是 `WRITE_ROUTES`。
@@ -2692,9 +3157,23 @@ API：`GET /v1/co/meta`（读权限）。桥：`POST /u8co/v1/meta`，照常 HMA
 | `stock_opening`、`stock_check`、`ia_adjust`、`inventory_price_adjust`；`reports/opening_balance` 的 `module=stock` | 出入库单列表的并集（`24`、`0301`、`0302`、`0303`、`0411`、`0412`） |
 | `reports/mgmt/sales` | `0303`：遮 `cogs`、`gross`、`gross_pct`，收入、数量照给 |
 | `reports/mgmt/cash_stock` | 只遮 `purchases` 段（`24`）和 `inventory` 段（出入库单并集） |
-| 应收应付、票据、总账、档案、`perm/*`、写路由 | 不遮（U8 没有对应的字段权限对象） |
-| 上表没有的单据类型（如 `sale_order`、`sale_invoice`、`purchase_invoice`、生产、质量单据） | 从严：操作员在任一对象上拒绝的字段名，出现在响应里就置空（不展开金额组） |
+| `reports/open_orders` | 销售订单 `17`、`VCH_17`、`solist`，加销售订单执行统计表（遮 `open_amount` 等金额） |
+| `reports/sales_price_history` | 销售发票 `07`、`VCH_07`、`VCH_13`、`invoicepriceref`（遮 `amount`、`amount_tax`、`unit_price`、`unit_price_tax`） |
+| `reports/customer_churn` | 销售发票对象加销售统计表（遮 `revenue_current`、`revenue_baseline`） |
+| `reports/receipts_payments` | `side=ar` 为收款单 `VCH_AR48`、`VCH_AR49`，`side=ap` 为付款单 `VCH_AP48`、`VCH_AP49`（遮 `amount`、`refund_amount`、`net_amount`） |
+| `reports/purchase_analysis` | `source=invoice` 为采购发票 `25`，`source=receipt` 为 `24`，另加采购综合统计表 |
+| `reports/ia_anomalies` | 只遮 `unbilled` 段（`est_amount`），对象 `24` |
+| `reports/stock_summary`（`include_amount`）、`reports/stock_age` | 各自的报表对象加出入库单列表的并集（遮 `*_amt`、`unit_cost`、`amount`）；另外没有 `IA3011_01` 时按功能权限遮（`masked_fields: ["amount"]`），两者并集 |
+| `reports/qm_*`、`production_daily`、`mo_*`、`arrival_otif`、`notes_due`、`cash_flow`、`close_check`、`cost_unit` | 不遮（只有数量，或 U8 没有对应的字段权限对象） |
+| 其余应收应付、票据、总账、档案、`perm/*`、写路由 | 不遮（U8 没有对应的字段权限对象） |
+| `sale_order` | `17`、`VCH_17`、`solist` |
+| `sale_invoice` | `07`、`VCH_07`、`VCH_13`、`invoicepriceref` |
+| `purchase_invoice` | `25` |
+| `ar_receipt`、`ar_refund`；`ap_payment`、`ap_refund` | `VCH_AR48`、`VCH_AR49`；`VCH_AP48`、`VCH_AP49` |
+| 上表没有的单据类型（如生产、质量单据） | 从严：操作员在任一对象上拒绝的字段名，出现在响应里就置空（不展开金额组） |
 
+- **报表自己的对象**（销售订单执行统计表 `SA[__]订单执行统计表`、销售统计表 `SA[__]销售统计表`、采购综合统计表 `PU[__]综合统计表`、收发存汇总表、库龄分析 `STInventoryAge` 等）上被拒绝的是栏目标题（未发货金额、本币金额、价税合计、`Price1`……），对不上响应里的键：这些对象上的任何拒绝都按金额组处理，该范围内的全部金额一起置空。
+- **排序不泄露金额**：字段权限会把金额遮掉时（查询前由 `PermMask.WillMaskAmounts` 判断），报表不再按金额排序、截断，改按键或数量，并在响应里回显实际用的排序：`stock_age` 的 `sort`（`age`；没有 `IA3011_01` 时同样），`purchase_analysis` 的 `order`（`amount` 或 `key`），`receipts_payments` 的 `order`（`amount` 或 `docs`），`open_orders` 的 `order`（`open_amount`、`code` 或逐单的 `due_date`），`customer_churn` 的 `order`（`revenue` 或 `code`），`ia_anomalies` 的 `unbilled.order`（`est_amount` 或 `date`）。
 - **金额组（从严）**：某对象上拒绝了任一金额列（单价、成本、金额、税额、价税合计等，如 `iPrice`、`iUnitCost`、`iSum`、`iOrderAmt`），该范围内响应里的全部金额列一起置空，连同桥起的金额别名（`amount`、`amt`、`nat_amount`、`*_amount`、`cogs`、`gross` 等），以免由同行其他金额反推；数量只在本身被拒绝时置空。因此可能比 U8 界面多遮。
 - `vouchers/load` 的 `head`、`lines`、`positions` 的值可以是 `null`，顶层带 `masked_fields`；`load_many` 每个条目带自己的 `masked_fields`，信封上是并集；`list`、`search` 和报表的条目同样带 `null`。`fields` 投影时 `items[].masked_fields` 总是保留；`compact=true` 去掉值为 `null` 的键，被遮的字段名仍在 `masked_fields` 里。
 - 经营管理合并时被遮的金额不当 0：`mgmt/sales` 任一账套 `cogs` 为 `null` 时合并的 `cogs`、`gross`、`gross_pct` 都是 `null`；`mgmt/cash_stock` 任一账套的存货金额或采购金额为 `null` 时合并的 `inventory.amount`、`purchases.external_amount` 为 `null`；`consolidated.masked_fields` 是各账套 `masked_fields` 与合并时置空字段的并集，`by_account` 各账套照带。`mgmt/overview` 取自被遮部分的指标（如 `inventory_value`）为 `null`，指标名列在 `masked_fields`。
@@ -2980,7 +3459,8 @@ API：`GET /v1/co/meta`（读权限）。桥：`POST /u8co/v1/meta`，照常 HMA
 | `inventory` | 存货编码：明细里有这个存货的单据（表头有存货列的类型按表头） |
 | `date_from`、`date_to` | 单据日期，`yyyy-MM-dd`，含两端 |
 | `verified`、`closed` | 布尔：只要已审核 / 未审核、已关闭 / 未关闭 |
-| `after` | 上一页的 `next` |
+| `order` | `asc`（缺省）或 `desc`，见下「最新在前」 |
+| `after` | 上一页的 `next`：`asc` 时是整数主键，`desc` 时是游标文本 |
 | `limit` | 1 到 200，缺省 50 |
 | `defines` | 表头自定义项条件，1 到 4 个键，见下 |
 
@@ -3000,7 +3480,23 @@ API：`GET /v1/co/meta`（读权限）。桥：`POST /u8co/v1/meta`，照常 HMA
 - 值不合法（空、太长、对象不是恰好一个 `eq` / `like` / `prefix`）：400，`field` 为 `defines.<键>`；`defines` 不是对象、是空对象或多于 4 个键：400，`field` 为 `defines`。
 - 表头没有 `cDefine1`–`16` 的类型：400「该单据类型没有表头自定义项 <键>」，`field` 为 `defines`。支持的类型：销售（`sale_order`、`dispatch`、`sale_return`、`sale_invoice`）、采购（`purchase_order`、`arrival`、`purchase_return`、`purchase_invoice`、`purchase_requisition`）、库存（`purchase_in`、`other_in`、`other_out`、`product_in`、`material_out`、`sale_out`、`transfer`、`transfer_request`、`shape_change`、`stock_check`、`position_adjust`）、质检（`qm_*` 八种）、收付款单和应收应付单（`ar_receipt`、`ap_payment`、`ar_bill`、`ap_bill`）、出入库调整单（`ia_adjust`）。不支持：生产订单（列名为 `Define1`–`16`）、物料清单、采购结算单（`purchase_settle`）、存货调价单（`inventory_price_adjust`）。
 
-响应 `{"ok": true, "type", "items", "next"}`：`items` 按主键排序，每项同 `vouchers/list` 的完整条目，有往来单位列的类型另有 `partner_name`；请求带了 `defines` 时每项另有 `defines`（只含请求里的键，值是表头上规整后的值，空为 `null`）。还有下一页时 `next` 是本页最后的主键。`fields`、`compact`（§25）作用在 `items` 上。
+响应 `{"ok": true, "type", "items", "next"}`：`items` 缺省按主键排序（`order` 为 `desc` 时见下），每项同 `vouchers/list` 的完整条目，有往来单位列的类型另有 `partner_name`；请求带了 `defines` 时每项另有 `defines`（只含请求里的键，值是表头上规整后的值，空为 `null`）。还有下一页时 `next` 是本页最后的主键。`fields`、`compact`（§25）作用在 `items` 上。
+
+**最新在前（`order`）**：缺省 `asc`（或不给）与以前完全一样：主键升序，`after` 是整数主键。`desc` 按单据日期降序，同日按主键降序，一次调用 `limit: 20` 就是最新的 20 张。`next` 是不透明的游标文本（单据日期加主键），原样放进下一次请求的 `after`，下一页严格接在本页最后一行之后。响应另有 `order: "desc"`。
+
+- 分页是 keyset，不用 OFFSET：续读条件 `(单据日期 <= D AND (单据日期 < D OR 主键 < ID)) OR 单据日期 IS NULL`（等价于 `单据日期 < D OR 单据日期 IS NULL OR (单据日期 = D AND 主键 < ID)`），排序 `ORDER BY 单据日期 DESC, 主键 DESC`。日期按 datetime 全精度比较（游标里的日期文本是 `CONVERT(varchar(23), CONVERT(datetime, 日期), 121)`，来回不丢精度，须在 datetime 范围 1753-01-01 到 9999-12-31 23:59:59.997 内，否则 400）；日期是 NULL 的单据排在最后（游标日期为空表示停在这一段，只剩日期为 NULL 的行）。其他筛选条件和数据权限条件与升序时相同。`单据日期 <= D` 是可用日期索引的区间条件，是否 seek 由优化器决定；没有日期索引时每页要扫一遍筛选后的集合再取前 N 行（`date_from` 等条件会缩小集合）。
+- 游标只对产生它的 `order` 有效：`desc` 的 `after` 给整数（桥会拒绝；API 放行整数只为兼容旧桥的兜底）、或 `asc` 的 `after` 给游标文本，400（`field` 为 `after`）；游标文本格式不对同样 400。`asc` 的 `after` 写成数字字符串（`"123"`）照旧收成整数。换了 `order` 要从头读。
+- `order` 不是 `asc` / `desc`：400，`field` 为 `order`。该类型没有单据日期列时 `desc` 400（现有类型都有）。
+- **升级顺序：先桥，后 API。** 新 API 对旧桥仍可用：`order` 为 `desc` 而旧桥回 400（`field` 为 `order`，消息「含未知字段」/「不能设置字段」）时，API 去掉 `order` 重试一次，响应带 `order_applied: false`，列表是最旧在前、`next` 还是整数主键，继续读时不要带 `order`（`after` 继续给整数即可）。`order_applied: true` 表示按请求的顺序排；`asc` 不转给桥，总是 `true`；没给 `order` 时响应没有 `order_applied`。`field` 不是 `order` 的 400（例如 `after` 无效）不重试，原样返回。
+
+```json
+{"acc": "801", "operator": "op001", "password": "...", "type": "sale_order", "order": "desc", "limit": 20}
+```
+
+```json
+{"ok": true, "type": "sale_order", "order": "desc", "order_applied": true,
+ "items": ["...最新的 20 张..."], "next": "<不透明游标>"}
+```
 
 按合同号找销售订单：
 
@@ -3404,13 +3900,13 @@ U8 存储过程自己的拒绝是 409 `u8_rejected`「U8 拒绝：<U8 原文>」
 
 - `report`：`stock_current`（现存量）、`arap_balance`（往来余额）、`arap_aging`（账龄）、`gl_balance`（科目余额表）；`params`：传给该报表的参数（同单账套报表，§16、§19），不能含 `acc`、`operator`、`password`、`year`、`date`、`after`、`limit`。每个账套最多取 2 万行。
 - 合计只按对照：现存量按 `inventory` 的 id，往来按往来单位代表的公司（`as_customer` / `as_vendor`，由 `params.side` 决定），科目余额按 `gl` 的逻辑科目（精确匹配）。未进对照的列在 `unmapped`（每类最多 50 个编码）。
-- 响应：`by_account`（每个账套的原样结果，或 `{ok: false, status, error}`；某个账套在等待时间内没有返回时 `status` 为 504、错误码 `timeout`）、`totals`、`unmapped`、`warnings`。部分账套失败时 200，失败的不计入合计、`warnings` 说明；全部失败 503 `unavailable`。
+- 响应：`by_account`（每个账套的原样结果，或 `{ok: false, status, error}`；某个账套在等待时间内没有返回时 `status` 为 504、错误码 `timeout`）、`totals`、`unmapped`、`warnings`。部分账套失败时 200，失败的不计入合计、`warnings` 说明；全部失败 503 `unavailable`（全部账套都是功能权限不足 `no_permission` 时 403 `no_permission`）。
 
 ### `reports/consolidation` 合并试算
 
 `logins`（2 到 3 个）、`fiscal_year`、`period_from`、`period_to`。各账套取科目余额表，按对照的逻辑科目归并，再按对照中 `rule: ar_ap` 的抵销对冲掉内部往来：应收方按客户、应付方按供应商取辅助核算余额，同号时抵销绝对值较小的一方（借应付、贷应收），`difference` 为应收减应付；方向相反的不抵销（`skipped: "opposite_sign"`，并提醒）。
 
-响应：`group`、`complete`、`by_account`、`trial`（每个账套是否平衡、末级借贷合计）、`eliminations`、`consolidated`（按逻辑科目的合并数）、`unmapped`、`warnings`、`notes`（口径说明，如未抵销内部交易中未实现的利润）。有账套失败时 `complete: false`、`consolidated: null`，全部失败 503。只做往来抵销，不抵销内部收入成本和未实现利润（经营管理利润表的合并见 §34）。
+响应：`group`、`complete`、`by_account`、`trial`（每个账套是否平衡、末级借贷合计）、`eliminations`、`consolidated`（按逻辑科目的合并数）、`unmapped`、`warnings`、`notes`（口径说明，如未抵销内部交易中未实现的利润）。有账套失败时 `complete: false`、`consolidated: null`，全部失败 503（全部账套都是功能权限不足 `no_permission` 时 403 `no_permission`）。只做往来抵销，不抵销内部收入成本和未实现利润（经营管理利润表的合并见 §34）。
 
 ### `intercompany/generate_buyer` 买方生单（写）
 
@@ -3442,15 +3938,34 @@ U8 存储过程自己的拒绝是 409 `u8_rejected`「U8 拒绝：<U8 原文>」
 
 ### 桥的报表 `reports/mgmt/*`
 
-公共：`fiscal_year` 2000 到 2099，缺省登录年度。`pnl`、`meta`、`cash_stock` 登录 `GL`，`sales` 登录 `SA`，`arap_terms` 按 `side` 登录 `AR` / `AP`。科目前缀参数每项只含字母、数字、`.`、`-`，最多 10 项。
+公共：`fiscal_year` 2000 到 2099，缺省登录年度。`pnl`、`meta`、`cash_stock` 登录 `GL`（`cash_stock` 的 `sections` 只有 `production` 时登录 `ST`），`sales` 登录 `SA`，`arap_terms` 按 `side` 登录 `AR` / `AP`。科目前缀参数每项只含字母、数字、`.`、`-`，最多 10 项。
 
 | 报表 | 参数 | 内容 |
 | --- | --- | --- |
 | `mgmt/pnl` | `period_from`、`period_to`（必填）、`include_unposted`（缺省 `false`）、`detail`（`prefix4` 按科目前 4 位，缺省；`leaf` 按末级科目）、`dims`（`dept`、`item` 的子集）、`pl_accounts`（损益科目前缀，缺省 `["6"]`）、`profit_account`（本年利润，缺省 `4103`） | 损益科目按期间（× 科目 × 部门 / 项目）的借、贷发生额，`net_income` = 贷 − 借，`normal` 是科目的余额方向，`posted` 表示该组全部已记账。另给每期的总账结账状态、未记账凭证张数、是否已做期间损益结转。超过 2 万行 400。按部门且部门数据权限打开时，聚合前去掉无权部门的分录（§22） |
 | `mgmt/meta` | 只有 `fiscal_year` | 各模块（GL、SA、PU、ST、IA、AR、AP、FA）是否启用和启用日期；1 到 12 期各模块的结账状态、未记账凭证张数、是否已结转损益；数据水位 `watermarks`（凭证行数、已记账和作废行数、校验和与分录内容校验和 `gl_content_checksum`（不给借贷合计，金额变动同样使水位变化）、最大主键和日期，发票、入库单、票据、科目和结账表的时间戳，存货核算和往来明细的行数和最大主键）；登录操作员的权限指纹 `perm_fingerprint`（同 `perm/snapshot` 的 `fingerprint`） |
-| `mgmt/sales` | `period_from`、`period_to`（必填）、`group_by`（`period`、`customer`、`inventory`、`person`、`department` 的子集，缺省 `["customer"]`，`[]` 只出合计）、`top`（1 到 500，缺省 200）、`include_unverified` | 收入、成本、毛利、毛利率按分组；按收入降序取前 `top` 组，其余并成 `others`，另有 `totals`。未启用销售管理时明细为空、`sa_enabled: false`。超过 2 万组 400 |
+| `mgmt/sales` | `period_from`、`period_to`（必填）、`group_by`（`period`、`customer`、`inventory`、`inventory_class`、`person`、`department` 的子集，缺省 `["customer"]`，`[]` 只出合计）、`top`（1 到 500，缺省 200）、`include_unverified`、`class_grade`（1 到 9）、`inv_class`（存货分类编码前缀，1 到 60 个字符）、`ic_customers`（客户编码，最多 20 个） | 收入、成本、毛利、毛利率按分组；按收入降序取前 `top` 组，其余并成 `others`，另有 `totals`。未启用销售管理时明细为空、`sa_enabled: false`。超过 2 万组 400。存货分类和关联方合计见下方「销售的存货分类与关联方合计」 |
 | `mgmt/arap_terms` | `side`（`ar` / `ap`）、`as_of`（缺省登录日期）、`accounts`（缺省应收 `1122`、应付 `2202`）、`buckets`（缺省 `[30,60,90,180]`）、`default_credit_days`、`top`（缺省 200） | 每个往来单位：余额、预收（付）、逾期、按到期日的账龄各段、未结票据，近 12 个月的单据张数和金额、已付和未付、信用期分布，回款（付款）天数的金额加权平均和中位数。按余额绝对值降序取前 `top`，其余并成 `others`。余额、预收付、逾期都为 0 且近 12 个月没有单据的单位不列 |
-| `mgmt/cash_stock` | `period`（必填）、`cash_accounts`（缺省 `1001`、`1002`、`1012`）、`notes_accounts`（缺省 `1121`）、`top`（缺省 200）、`purchase_source`（`auto` 缺省：有采购发票用发票，否则用采购入库；`invoice`；`receipt`）、`include_unverified` | 货币资金和应收票据科目的期末余额（末级科目，已记账）；未结应收票据（查询时点）；存货结存（存货核算汇总）；产成品入库按存货排行；采购按供应商排行 |
+| `mgmt/cash_stock` | `period`（必填）、`cash_accounts`（缺省 `1001`、`1002`、`1012`）、`notes_accounts`（缺省 `1121`）、`top`（缺省 200）、`purchase_source`（`auto` 缺省：有采购发票用发票，否则用采购入库；`invoice`；`receipt`）、`include_unverified`、`class_grade`（1 到 9）、`inv_class`（存货分类编码前缀）、`sections`（`cash`、`notes`、`inventory`、`production`、`purchases` 的不重复子集，1 到 5 项，缺省五段全要） | 货币资金和应收票据科目的期末余额（末级科目，已记账）；未结应收票据（查询时点）；存货结存（存货核算汇总）；产成品入库按存货排行（`production.items` 每项有 `unit`、`class_code`、`class_name`）；采购按供应商排行。只算 `sections` 里的段，没要的段在响应里没有对应的键，请求带了 `sections` 时响应回显它；只要 `production` 时不出 `closed`（结账状态），见下方「权限」 |
+
+### 销售的存货分类与关联方合计
+
+`mgmt/sales` 与 `mgmt/cash_stock` 可按存货分类汇总，不依赖分类编码方案：
+
+- `class_grade`（1 到 9）：分类维度往上取到该级次的祖先分类（`InventoryClass.iInvCGrade` 等于它、编码是存货分类编码前缀的那一行，同一存货最多一行，不会让明细翻倍）。存货的分类比该级次浅时保持自己的分类。缺省取存货自己的分类。
+- `group_by` 含 `inventory_class`：行带 `inventory_class_code`、`inventory_class_name`（存货没有分类时 `inventory_class_code` 为 `null`，不是空串）。收入和成本两侧用同一个分类键，所以只有成本、没有收入的分类也列出。可与其他维度任意组合，输出顺序固定为 `period`、`customer`、`inventory`、`inventory_class`、`person`、`department`。
+- `inv_class`：存货分类编码前缀（含下级）。只统计存货**自己的**分类编码以它开头的行（不是往上取到 `class_grade` 之后的分类），收入行和成本行一起过滤；`class_grade` 只影响分类维度，不影响这个过滤。前缀比 `class_grade` 级次更深时照样有效。`mgmt/cash_stock` 的 `inv_class` 只过滤产量（`production` 的排行和合计），不影响资金、存货、采购。
+- `group_by` 含 `inventory` 时每行另有 `inventory_unit`（主计量单位名）和 `inventory_class_code`（同 `class_grade` 的取法）。多个存货的计量单位不同时，按分类汇总的 `qty` 是不同单位的数量直接相加，调用方要自己按存货核对单位。
+- `mgmt/cash_stock` 的 `production.items` 每项有 `unit`、`class_code`、`class_name`（`class_grade` 同上；仍是一个存货一行）。合并时 `consolidated.production.items[].by_account[acc]` 带各账套自己的 `class_code`、`class_name`。
+- 合并时分类编码和客户、业务员、部门编码一样不跨账套合并：不按存货分组的合并行并列（带 `acc`）。按存货分组的合并行，`by_account[acc]` 带各账套的 `inventory_code`、`inventory_unit`、`inventory_class_code`。
+- 存货到分类的对应在桥里只算一次（对 `Inventory` 做一张存货 → 分类的派生表，明细按存货编码连它），不按发票行、核算明细行逐行匹配祖先分类。
+
+关联方（API `mgmt/sales`，单账套和多账套都有）：
+
+- 关联方 = 公司间对照（`U8CO_IC_MAP_FILE`）里本账套的客户编码（`as_customer`）所代表的、同一公司组内的其他账套，与本次请求选了哪些账套无关（只查一个账套时同样标出）。每个账套各自找自己所在的组，`consolidate: false` 时跨组的多个账套也各自标注。没有配置对照、账套不在任何组里时下面两项都是 `null`。
+- 按客户分组（`group_by` 含 `customer`）的每一行带 `ic_account`：该客户在本账套里代表的账套号，不是关联方则 `null`。
+- `by_account[acc].ic_totals`：只在 `group_by` 含 `customer` 时给（桥要多扫一遍发票和核算明细），其他分组为 `null`；`{qty, revenue, revenue_tax_incl, cost_qty, cogs}`，是所有关联方客户的合计，与 `top`、`group_by` 无关，分类过滤（`inv_class`）和期间、复核口径同主查询。取法：API 把这些客户编码（最多 20 个）放进桥请求的 `ic_customers`，桥多跑一遍只含这些客户、不分组的汇总（数据权限照挂），所以关联方客户落在 `top` 之外或并进 `others` 时仍然准确。被字段权限遮蔽的度量保持 `null`，不当 0。对照里没有登记其他公司的客户、关联方客户超过 20 个（只送前 20 个，`warnings` 提醒）时按上述处理；桥太旧不认识 `ic_customers`（400「含未知字段」）时对该账套去掉它重试一次，`ic_totals` 为 `null`，`warnings` 提醒先升级桥。**部署顺序：先升级桥，再升级 API。**
+- `ic_customers` 是桥参数（最多 20 个客户编码，1 到 60 个字符，不含控制字符），响应的 `ic_totals` 只在传了它时才有。
 
 口径：
 
@@ -3460,6 +3975,10 @@ U8 存储过程自己的拒绝是 409 `u8_rejected`「U8 拒绝：<U8 原文>」
 - 往来：账龄按到期日（单据日期 + 信用天数，没有时用 `default_credit_days`）；首次回款日期按核销（`9P`）登记日期，只看原始单据行、金额为正的单据。未结票据：`AP_Note` 余额 `iRAmount` 不为 0（结算、贴现、背书、退回会减到 0）、签发日期不晚于 `as_of`，按当前状态；往来单位取 `cDwCode`，为空时取 `cEndorser`。
 - 资金存货：未结票据同上，但按本币余额 `iRAmount_Local` 不为 0、查询时点的数，不是期末数。产成品、采购缺省只计已审核（发票口径不论是否复核）。
 - 权限：`pnl` 要总账余额表或明细账的查询权限（`GL030301`、`GL0305`、`GL030101` 之一），明细账按科目控制数据权限时按科目过滤，没有部门权限时部门名称为空、金额照常；`meta` 要结账或余额表的查询权限（`GL1512`、`GL1520`、`GL030301`、`GL0305` 之一）；`sales` 要销售统计类报表的权限，按客户、存货（业务员、部门可空）过滤；`arap_terms` 同账龄分析（`AR060201_01`、`AR060301` 或账龄视图，应付同理），按往来单位过滤；`cash_stock` 各段分别按科目、客户、存货和仓库、供应商过滤，没有授权的段为 0，不报错。
+  - `cash_stock` 的功能权限随 `sections` 而定（规则 key：`report:mgmt/cash_stock` 与 `report:mgmt/cash_stock#production`，由 `PermRegistry` 按请求体选）：只要 `production` 时要产成品入库单的查询权限（`ASM0301`，同 `vouchers/search` 查 `product_in` 用的那个），不要总账权限，数据权限只挂存货（必有）和仓库（可空），不读结账状态；请求里有任何别的段（`cash`、`notes`、`inventory`、`purchases`）一律走上面的总账权限，`sections` 不合法回 400。
+  - 产量段（任何请求里）的数据权限对象与 `voucher:product_in` 完全相同：部门、仓库必有，客户、供应商、业务员、收发类别可空，存货按表体行逐行过滤（汇总行数据，比单据级「有一行放行即保留」更严）。部门受限的操作员只能看到自己部门的入库产量。
+  - **部署顺序：先升级桥，再升级 API。** 桥不认识 `sections` 时（400 含未知字段），API 对该账套去掉 `sections` 重试一次、再筛出要的段，`warnings` 提醒先升级桥；旧桥按总账规则放行，没有总账权限的操作员（如车间）在旧桥上仍是 403。
+  - `sales`、`arap_terms` 本来就不要总账权限（销售发票查询类、往来账查询类 id）；总账 id 只用在 `pnl`、`meta`、`cash_stock`（含 `cash`、`notes`、`inventory`、`purchases` 段）。
 
 ### API 的 `/v1/co/mgmt/*`
 
@@ -3467,14 +3986,23 @@ U8 存储过程自己的拒绝是 409 `u8_rejected`「U8 拒绝：<U8 原文>」
 | --- | --- |
 | `mgmt/meta` | 无。不缓存、不合并 |
 | `mgmt/pnl` | `period_from`、`period_to`、`consolidate`、`include_unposted`、`dims`（最多 1 项：`dept` 或 `item`）。取数粒度由利润表行定义决定（`configuration.md`「利润表行定义」），不收 `detail` |
-| `mgmt/sales` | `period_from`、`period_to`、`consolidate`、`group_by`、`top`、`include_unverified` |
+| `mgmt/sales` | `period_from`、`period_to`、`consolidate`、`group_by`（同桥，含 `inventory_class`，最多 6 项）、`top`、`include_unverified`、`class_grade`、`inv_class`。每个账套的结果另有 `ic_totals`，按客户分组的行另有 `ic_account`（见下方「销售的存货分类与关联方合计」） |
 | `mgmt/arap` | `period_from`、`period_to`、`consolidate`、`side`（`ar`、`ap`、`both`，缺省 `both`）、`as_of`（缺省 `period_to` 的月末，晚于今天时取今天，按 `U8CO_TIMEZONE`）、`buckets`（1 到 8 项、严格递增）、`default_credit_days`、`top`。另给净额：未核销的收款（付款）按先进先出冲抵该单位最早的账龄段，得到 `aging_net`、`overdue_net`（`aging`、`overdue` 不变）；未核销金额超过账龄合计 10% 时附警告。余额小于等于 0 时 DSO / DPO 为 null |
-| `mgmt/cash_stock` | `period_from`、`period_to`、`consolidate`、`top`、`purchase_source`、`include_unverified`。只按 `period_to` 一个期间出具（`period_from` 小于它时 `notes` 说明） |
+| `mgmt/cash_stock` | `period_from`、`period_to`、`consolidate`、`top`、`purchase_source`、`include_unverified`、`class_grade`、`inv_class`（只过滤产量）、`sections`（只出哪几段，缺省五段全出；不重复，空数组、未知段名、重复 400）。只按 `period_to` 一个期间出具（`period_from` 小于它时 `notes` 说明）。`sections` 只有 `production` 时不读 `mgmt/meta`、不要总账权限（见下方「meta 与权限」），合并也只合要的段 |
 | `mgmt/overview` | `period_from`、`period_to`、`consolidate`、`as_of`。一次给出关键指标：营业收入、营业成本、毛利和毛利率、净利润和净利率、货币资金、存货、应收票据、应收余额和逾期、应付余额和逾期、DSO、DPO（由利润表、资金存货、往来三部分组成；逾期用冲抵未核销收付款后的净额） |
 
 - `logins` 1 到 3 个、不重复；`fiscal_year` 2000 到 2099；`period_from` ≤ `period_to`，同一年度内（最多 12 个期间）。`consolidate`：只有 1 个账套时不合并；2 个及以上时缺省合并，写 `false` 不合并。合并要求配置了公司间对照且账套同组（否则 404 `ic_not_configured` / 400 `ic_group_mismatch`）；不合并时有对照则借用其中的公司名，没有也不报错。
 - 响应：`report`、`fiscal_year`、`period_from`、`period_to`、`complete`、`accounts`（`[{acc, name, close}]`，`close` 是所选期间各模块的结账状态）、`by_account`（每个账套的结果或 `{ok: false, status, error}`，账套超时时 `status` 为 504、错误码 `timeout`）、`consolidated`、`eliminations`、`warnings`、`notes`、`cache`（`{hit, age_s}`）。
-- 每次请求先读各账套的 `mgmt/meta`，只对读到的账套取报表。部分账套失败时 200、`complete: false`、`consolidated: null`，`warnings` 说明；全部失败 503 `unavailable`。`overview` 三部分都失败才 503，部分失败的账套带 `missing`。
+- **meta 与权限。** 每次请求先读各账套的 `mgmt/meta`（总账数据水位、结账状态，要 `GL1512`、`GL1520`、`GL030301`、`GL0305` 之一），只对读到的账套取报表，但不是所有报表都依赖它：
+
+  | 路由 | meta |
+  | --- | --- |
+  | `meta`、`pnl`、`cash_stock`（含 `cash`、`notes`、`inventory`、`purchases` 任一段，或缺省） | 必须：读不到的账套不往下算，结果 `by_account[acc].ok: false` |
+  | `sales`、`arap`、`overview` | 可选：meta 因功能权限不足（`no_permission`）读不到的账套照样出报表，该账套没有水位，`accounts[].close` 为 `null`，结果不缓存；meta 因其他原因（不可达、超时等）失败的账套照旧不往下算 |
+  | `cash_stock` 且 `sections` 只有 `production` | 不读 |
+
+  部分账套失败时 200、`complete: false`、`consolidated: null`，`warnings` 说明；失败账套的 `by_account[acc]` 是 `{ok: false, status, error}`，功能权限不足时 `error.code` 为 `no_permission`。**全部账套都失败时：每个账套都是 `no_permission`（功能权限不足）回 403 `no_permission`；其余（含 `no_permission` 与其他错误混合）回 503 `unavailable`。**`overview` 三部分都失败才抛错（有部分因故障失败时报故障，三部分都是权限不足才是 403）；某一部分读不到时该账套的指标缺这一部分，账套结果带 `missing`（读不到的部分名：利润表、资金与存货、应收应付；应收应付只有一边因权限读不到时是「应收」或「应付」）和 `missing_reasons`（部分名 → 原因码：`no_permission` 是操作员没有权限，其余是读取故障），客户端据此区分「无权限查看」和「暂时读不到」。
+  - `arap`：`side: "both"` 时只有一边因权限读不到，该账套仍给出另一边，并带 `missing_sides`（`{ar|ap: "no_permission"}`），`complete` 为 `false`、不合并；一边因权限以外的原因失败则整个账套失败。每个方向 × 账套都读不到才整体报错。
 - 利润表：按行定义把损益科目归行（前缀匹配），派生行和比率（毛利率、净利率，两位小数，收入为 0 时 null）按合计重算；一行都没命中的损益科目列在 `unmapped`。每行 `{id, name, kind, sign, total, periods}`，拆维度时另有 `by_dim`。
 - 合并：
   - 利润表：各账套相加，再按对照中 `rule: rev_cogs` 的规则从营业收入、营业成本中减去卖方卖给买方的部分（按客户逐期间读卖方的销售统计）。卖方销售统计读不到，或某期客户超过 500 个、内部客户可能并在 `others` 里时，不出合并数（`consolidated: null`、`complete: false`）。没有适用规则时 `notes` 说明合并数含内部交易。未实现的内部利润（买方存货中的内部毛利）不抵销，`notes` 固定说明。

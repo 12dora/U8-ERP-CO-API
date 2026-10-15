@@ -25,10 +25,12 @@ from u8co_api.co_mgmt_core import (
     masked_union,
     mdec,
     ratio,
+    rejected_field,
     report_failures,
     run_mgmt,
     serve,
 )
+from u8co_api.co_mgmt_sales_ic import ic_params, ic_totals_of, mark_rows, plan_partners
 from u8co_api.co_models_mgmt_reports import MgmtSalesIn
 
 SALES_PATH = MGMT_BRIDGE + "sales"
@@ -36,7 +38,7 @@ MEASURES = ("qty", "revenue", "revenue_tax_incl", "cost_qty", "cogs")
 # 只为找出内部客户而补读时每个账套取的组数（桥的上限）。
 _IC_TOP = 500
 NOTE_ITEM_IC = "按存货合并的行没有按客户拆分，含公司间内部销售；内部销售只从合计里去掉"
-NOTE_CODES = "客户、业务员、部门编码各账套自成体系，合并时不跨账套相加"
+NOTE_CODES = "客户、业务员、部门、存货分类编码各账套自成体系，合并时不跨账套相加"
 
 Sums = dict[str, Decimal | None]
 
@@ -46,7 +48,7 @@ def run_sales(request, caller, action: str, _bridge_path: str, body: MgmtSalesIn
 
 
 def sales_params(body: MgmtSalesIn, group_by: list[str] | None = None, top: int | None = None) -> dict[str, Any]:
-    return {
+    params: dict[str, Any] = {
         "fiscal_year": body.fiscal_year,
         "period_from": body.period_from,
         "period_to": body.period_to,
@@ -54,12 +56,35 @@ def sales_params(body: MgmtSalesIn, group_by: list[str] | None = None, top: int 
         "top": body.top if top is None else top,
         "include_unverified": body.include_unverified,
     }
+    if body.class_grade is not None:
+        params["class_grade"] = body.class_grade
+    if body.inv_class is not None:
+        params["inv_class"] = body.inv_class
+    return params
+
+
+def fetch_sales(run: MgmtRun, body: MgmtSalesIn, partners: dict[str, dict[str, str]]) -> tuple[dict, list[str]]:
+    """各账套的桥结果。带 ic_customers 的请求被旧桥拒绝（400 含未知字段）时，对这些账套去掉它重试一次，
+    该账套 ic_totals 为 null 并提醒先升级桥。"""
+    params = sales_params(body)
+    results = run_mgmt(
+        run.request, body, SALES_PATH, lambda login: ic_params(params, partners.get(login.acc, {})), run.ok_accs
+    )
+    old = [
+        acc
+        for acc, result in results.items()
+        if rejected_field(result) and "ic_customers" in ic_params(params, partners.get(acc, {}))
+    ]
+    if not old:
+        return results, []
+    results.update(run_mgmt(run.request, body, SALES_PATH, lambda _login: dict(params), old))
+    return results, [f"账套 {acc} 的桥不认识 ic_customers（请先升级桥），ic_totals 不可用" for acc in old]
 
 
 def compute_sales(run: MgmtRun, body: MgmtSalesIn) -> dict[str, Any]:
-    params = sales_params(body)
-    results = run_mgmt(run.request, body, SALES_PATH, lambda _login: dict(params), run.ok_accs)
-    warnings = report_failures(results)
+    partners, warnings = plan_partners(run, run.ok_accs)
+    results, old_bridge = fetch_sales(run, body, partners)
+    warnings += old_bridge + report_failures(results)
     by_account: dict[str, dict] = {}
     bodies: dict[str, dict] = {}
     for acc, result in results.items():
@@ -68,7 +93,9 @@ def compute_sales(run: MgmtRun, body: MgmtSalesIn) -> dict[str, Any]:
             continue
         found = result.body or {}
         bodies[acc] = found
+        mark_rows(rows_of(found), partners[acc])
         by_account[acc] = {"ok": True, **{key: value for key, value in found.items() if key != "ok"}}
+        by_account[acc]["ic_totals"] = ic_totals_of(found)
         if found.get("sa_enabled") is False:
             warnings.append(f"账套 {acc} 没有启用销售管理，销售统计为空")
     out: dict[str, Any] = {"by_account": by_account, "warnings": warnings, "complete": len(bodies) == len(results)}
@@ -251,7 +278,15 @@ def _item_rows(group: IcGroup, body: MgmtSalesIn, bodies: dict[str, dict]) -> tu
             if key[0] is not None:
                 slot["period"] = key[0]
             add_sums(slot["_sums"], sums_of(row))
-            part = slot["by_account"].setdefault(acc, {"inventory_code": code, "_sums": {}})
+            part = slot["by_account"].setdefault(
+                acc,
+                {
+                    "inventory_code": code,
+                    "inventory_unit": row.get("inventory_unit"),
+                    "inventory_class_code": row.get("inventory_class_code"),
+                    "_sums": {},
+                },
+            )
             add_sums(part["_sums"], sums_of(row))
         if missing:
             unmapped.append(unmapped_entry(acc, "inventory", missing, revenue=float(outside)))
@@ -264,7 +299,10 @@ def _finish(slot: dict) -> dict:
     out = {key: value for key, value in slot.items() if not key.startswith("_") and key != "by_account"}
     out.update(measures(slot["_sums"]))
     out["by_account"] = {
-        acc: {"inventory_code": part["inventory_code"], **measures(part["_sums"])}
+        acc: {
+            **{key: value for key, value in part.items() if not key.startswith("_")},
+            **measures(part["_sums"]),
+        }
         for acc, part in slot["by_account"].items()
     }
     return out

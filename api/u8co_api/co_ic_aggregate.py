@@ -1,7 +1,7 @@
 """多账套汇总 /v1/co/reports/aggregate：每个账套读完同一张报表，再只按公司间对照合计。
 
 现存量按对照的存货 id，往来按往来单位所代表的公司，科目余额按对照的逻辑科目；对照之外的不相加，计数列在 unmapped。
-部分账套失败照常返回（失败的不计入合计），全部失败 503。
+部分账套失败照常返回（失败的不计入合计），全部失败 503（全部是功能权限不足时 403 no_permission）。
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from typing import Any
 from u8co_api.co_ic_core import FanResult, IcGroup, allow_accs, ic_map_of, paged, remember_ic, run_jobs
 from u8co_api.co_models_ic import IcLogin
 from u8co_api.co_models_ic_reports import INNER, IcAggregateIn, inner_body
-from u8co_api.errors import unavailable
+from u8co_api.errors import forbidden, unavailable
 
 ZERO = Decimal(0)
 _CENT = Decimal("0.01")
@@ -77,16 +77,24 @@ def by_account(results: dict[str, FanResult], ok_body: Callable[[dict], dict]) -
     return out
 
 
-def failures(results: dict[str, FanResult]) -> list[str]:
-    """失败账套的提醒；全部失败时 503。"""
-    lines = [
+def failure_lines(results: dict[str, FanResult]) -> list[str]:
+    """失败账套的提醒（不抛错）。"""
+    return [
         f"账套 {acc} 读取失败（{(result.error or {}).get('code')}）：{(result.error or {}).get('message')}，未计入合计"
         for acc, result in results.items()
         if not result.ok
     ]
+
+
+def failures(results: dict[str, FanResult]) -> list[str]:
+    """失败账套的提醒；全部失败时抛错：每个账套都是功能权限不足（no_permission）时 403 no_permission，其余 503。"""
+    lines = failure_lines(results)
     if len(lines) == len(results):
-        codes = "、".join(f"{acc}={(r.error or {}).get('code')}" for acc, r in results.items())
-        raise unavailable(f"全部账套都读取失败：{codes}")
+        codes = {acc: (r.error or {}).get("code") for acc, r in results.items()}
+        if codes and all(code == "no_permission" for code in codes.values()):
+            first = next(iter(results.values())).error or {}
+            raise forbidden(f"全部账套都没有权限（{'、'.join(codes)}）：{first.get('message')}", "no_permission")
+        raise unavailable("全部账套都读取失败：" + "、".join(f"{acc}={code}" for acc, code in codes.items()))
     return lines
 
 

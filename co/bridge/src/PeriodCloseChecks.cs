@@ -10,8 +10,8 @@ namespace U8Co
     {
         const string Range = " >=CONVERT(date, ?, 23) AND {0}<CONVERT(date, ?, 23)";
         // 采购：U8 采购结账窗体查「日期在本月及以前、未复核的采购发票」（cVerifier 是采购复核人）。
-        const string PuInvoiceSql = "SELECT TOP 1 'x' FROM PurBillVouch WHERE ISNULL(cVerifier,N'')=N''"
-            + " AND dPBVDate<CONVERT(date, ?, 23)";
+        // 采购、销售、总账的条件在 PeriodCloseSql，月末结账检查报表（ReportsAcctCheckSql）共用。
+        const string PuInvoiceSql = "SELECT TOP 1 'x' FROM " + PeriodCloseSql.PuInvoiceFrom;
         // 库存单据：采购入库、其他入库、其他出库、产成品入库、材料出库、销售出库（表头 dDate）。
         static readonly string[] StockTables = new string[]
         {
@@ -19,17 +19,13 @@ namespace U8Co
         };
         const string IaRowsSql = "SELECT TOP 1 'x' FROM {0} WHERE iYear=? AND iMonth=?";
         // 在结账事务里加范围锁：检查之后、提交之前别的连接插不进本期未记账的凭证。
-        const string UnpostedSql = "SELECT TOP 1 'x' FROM GL_accvouch WITH (UPDLOCK, HOLDLOCK)"
-            + " WHERE iyear=? AND iperiod=? AND ISNULL(ibook,0)=0 AND (iflag IS NULL OR iflag<>1)";
+        const string UnpostedSql = "SELECT TOP 1 'x' FROM GL_accvouch WITH (UPDLOCK, HOLDLOCK) WHERE "
+            + PeriodCloseSql.UnpostedWhere;
         // 损益类末级科目本期借贷不平（未作废的凭证）。
-        const string ProfitSql = "SELECT TOP 1 c.ccode FROM GL_accvouch v JOIN code c ON c.iyear=v.iyear AND c.ccode=v.ccode"
-            + " WHERE v.iyear=? AND v.iperiod=? AND c.bend=1 AND c.cclass=N'损益' AND (v.iflag IS NULL OR v.iflag<>1)"
-            + " GROUP BY c.ccode HAVING ROUND(SUM(ISNULL(v.md,0)) - SUM(ISNULL(v.mc,0)), 2)<>0";
-        const string CarrySql = "SELECT TOP 1 'x' FROM GL_accvouch WHERE iyear=? AND iperiod=? AND coutsign=N'期间损益'"
-            + " AND (iflag IS NULL OR iflag<>1)";
+        const string ProfitSql = "SELECT TOP 1 c.ccode FROM " + PeriodCloseSql.ProfitFrom;
+        const string CarrySql = "SELECT TOP 1 'x' FROM " + PeriodCloseSql.CarryFrom;
         // 应收、应付：本月审核登记的原始往来明细（cProcStyle=cVouchType）还没制单。
-        const string UnvouchedSql = "SELECT TOP 1 'x' FROM {0} WHERE iPeriod=? AND YEAR(dRegDate)=?"
-            + " AND cProcStyle=cVouchType AND ISNULL(cPZid,N'')=N''";
+        const string UnvouchedSql = "SELECT TOP 1 'x' FROM {0} WHERE " + PeriodCloseSql.UnvouchedWhere;
         const string OptionSql = "SELECT TOP 1 cValue FROM AccInformation WHERE cSysID=? AND cName=?";
 
         public static string Close(object conn, int mod, int year, int period)
@@ -56,11 +52,11 @@ namespace U8Co
 
         static string Sale(object conn, string from, string to)
         {
-            if (Has(conn, Dated("SELECT TOP 1 'x' FROM DispatchList WHERE ISNULL(cVerifier,N'')=N'' AND dDate", "dDate"), from, to))
+            if (Has(conn, "SELECT TOP 1 'x' FROM " + PeriodCloseSql.DispatchFrom, from, to))
             {
                 return "本月有未审核的发货单（退货单），请先审核";
             }
-            if (Has(conn, Dated("SELECT TOP 1 'x' FROM SaleBillVouch WHERE ISNULL(cChecker,N'')=N'' AND dDate", "dDate"), from, to))
+            if (Has(conn, "SELECT TOP 1 'x' FROM " + PeriodCloseSql.SaleInvoiceFrom, from, to))
             {
                 return "本月有未复核的销售发票，请先复核";
             }

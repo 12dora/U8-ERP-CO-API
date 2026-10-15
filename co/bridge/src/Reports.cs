@@ -8,7 +8,7 @@ namespace U8Co
     // 只读报表 reports/<name>。全部是 SQL，跑在读线程池上，只用 ctx.Conn，不碰 ctx.Session。
     internal static class Reports
     {
-        internal static readonly string[] Names = new string[]
+        internal static readonly string[] Names = Join(new string[]
         {
             "close_status", "gl_balance", "gl_aux_balance", "arap_balance", "arap_aging", "bom",
             "arap_detail", "gl_detail",
@@ -26,8 +26,17 @@ namespace U8Co
             ReportsMgmtGlReq.PnlName, ReportsMgmtGlReq.MetaName, ReportsMgmtGlReq.CashName,
             // 经营管理（销售分析、往来账期，ReportsMgmtSales*.cs、ReportsMgmtArap*.cs）。
             ReportsMgmtSalesReq.Name, ReportsMgmtArapReq.Name
-        };
+        }, ReportsFamilies.Names);
         static readonly Dictionary<string, Func<WorkContext, ReportArgs, ApiResult>> Runners = BuildRunners();
+
+        // 固定名单后面接上按角色分族的报表（质量、生产、库龄、采购、销售、收付款与现金流、账务核对，ReportsFamilies）。
+        static string[] Join(string[] fixedNames, string[] more)
+        {
+            string[] all = new string[fixedNames.Length + more.Length];
+            Array.Copy(fixedNames, all, fixedNames.Length);
+            Array.Copy(more, 0, all, fixedNames.Length, more.Length);
+            return all;
+        }
 
         // 登录前校验，只抛 400。
         public static void Check(string name, Dictionary<string, object> body)
@@ -60,10 +69,10 @@ namespace U8Co
             }
             // 库存类报表 ST，客户信用和销售价格 SA，供应商价格 PU；期初余额：库存 ST，应收应付按 side，总账 GL。
             // 两者对不是自己的报表都返回 null。
-            // 核销记录按 flag 用 AR / AP；账套体检 SA（同 close_status）。
+            // 核销记录按 flag 用 AR / AP；账套体检 SA（同 close_status）；分族报表各自定（ReportsFamilies）。
             return ReportsStockReq.SubOf(name, body) ?? ReportsOpeningReq.SubOf(name, body)
                 ?? ReportsArapWriteoffReq.SubOf(name, body) ?? ReportsReadinessReq.SubOf(name)
-                ?? ReportsMgmtGlReq.SubOf(name) ?? MgmtSalesArapSub(name, body);
+                ?? ReportsMgmtGlReq.SubOf(name, body) ?? MgmtSalesArapSub(name, body) ?? ReportsFamilies.SubOf(name, body);
         }
 
         // 经营管理销售分析 SA，往来账期按 side 用 AR / AP（同 arap_aging）；都不是时返回 null。
@@ -121,6 +130,7 @@ namespace U8Co
             map.Add(ReportsMgmtGlReq.CashName, ReportsMgmtCash.Run);
             map.Add(ReportsMgmtSalesReq.Name, ReportsMgmtSales.Run);
             map.Add(ReportsMgmtArapReq.Name, ReportsMgmtArap.Run);
+            ReportsFamilies.AddRunners(map);
             return map;
         }
 

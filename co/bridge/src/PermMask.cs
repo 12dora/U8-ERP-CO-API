@@ -38,6 +38,35 @@ namespace U8Co
             }
         }
 
+        // 本次请求的字段权限范围会不会把金额遮掉（有拒绝字段且展开成金额组）。报表在查询之前问一次：会遮的话不能按金额排序、截断，
+        // 否则行的先后和取舍泄露金额高低。读路由以外、主管、没有字段权限的操作员为 false。
+        public static bool WillMaskAmounts(WorkContext ctx)
+        {
+            if (ctx == null || ctx.Item == null || !PermRegistry.IsRead(ctx.Item.Path))
+            {
+                return false;
+            }
+            List<ColScope> plan = PermColumnMap.Plan(ctx.Item);
+            return plan.Count > 0 && WillMaskAmounts(PermCheck.Of(ctx), plan);
+        }
+
+        internal static bool WillMaskAmounts(PermContext p, List<ColScope> plan)
+        {
+            if (p == null || p.Supervisor || p.Columns.Count == 0 || plan == null)
+            {
+                return false;
+            }
+            for (int i = 0; i < plan.Count; i++)
+            {
+                Rule rule = RuleOf(p, plan[i]);
+                if (rule.Denied.Count > 0 && rule.Group)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         // 返回置空的字段名个数（去重）。load_many 的每个条目另带自己的 masked_fields，信封上是并集。
         internal static int Mask(PermContext p, string path, List<ColScope> plan, Dictionary<string, object> body)
         {
@@ -53,14 +82,32 @@ namespace U8Co
             }
             if (hit.Count > 0)
             {
-                body[Key] = Sorted(hit);
+                // 响应里已有的 masked_fields（如库存金额按功能权限遮掉时标的 amount）并入，不覆盖。
+                HashSet<string> all = new HashSet<string>(hit);
+                all.UnionWith(Existing(body));
+                body[Key] = Sorted(all);
             }
             return hit.Count;
         }
 
+        static List<string> Existing(Dictionary<string, object> body)
+        {
+            List<string> names = new List<string>();
+            object old;
+            IEnumerable list = body.TryGetValue(Key, out old) ? old as IEnumerable : null;
+            if (list != null && !(list is string))
+            {
+                foreach (object one in list)
+                {
+                    names.Add(Convert.ToString(one, CultureInfo.InvariantCulture));
+                }
+            }
+            return names;
+        }
+
         static void Scope(PermContext p, ColScope scope, bool many, Dictionary<string, object> body, HashSet<string> hit)
         {
-            Rule rule = RuleOf(p, scope.Keys);
+            Rule rule = RuleOf(p, scope);
             if (rule.Denied.Count == 0)
             {
                 return;
@@ -84,8 +131,11 @@ namespace U8Co
         }
 
         // keys 为 null（类型没有登记对象）：全部对象的拒绝字段逐个比对，不展开金额组；否则这些对象的并集，有金额字段被拒绝时展开金额组。
-        static Rule RuleOf(PermContext p, string[] keys)
+        // 范围的 Strict 里的对象（报表自己的字段权限对象）：拒绝的是栏目标题（未发货金额、价税合计、Price1……），对不上响应里的键，
+        // 所以只要有任何拒绝就按金额组处理。
+        static Rule RuleOf(PermContext p, ColScope scope)
         {
+            string[] keys = scope.Keys;
             Rule rule = new Rule();
             if (keys == null)
             {
@@ -103,6 +153,7 @@ namespace U8Co
             {
                 rule.Group = rule.Group || PermColumnMap.IsMoney(name);
             }
+            rule.Group = rule.Group || (rule.Denied.Count > 0 && scope.StrictDenied(p));
             return rule;
         }
 

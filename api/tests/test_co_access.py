@@ -70,6 +70,24 @@ _READS = (
     ("/v1/co/reports/account_readiness", _auth()),  # 账套体检
     ("/v1/co/reports/fa_changes", _auth()),  # 固定资产变动单
     ("/v1/co/reports/fa_depreciation", _auth(period=8)),  # 固定资产折旧
+    # 按角色分族的报表（质量、生产、库龄、采购、销售、收付款与现金流、账务核对）。
+    ("/v1/co/reports/qm_indicators", _auth(kind="incoming", date_from="2026-08-01")),
+    ("/v1/co/reports/qm_pass_rate", _auth(kind="product", date_from="2026-08-01")),
+    ("/v1/co/reports/production_daily", _auth(date_from="2026-08-01")),
+    ("/v1/co/reports/mo_progress", _auth(date_from="2026-08-01")),
+    ("/v1/co/reports/mo_consumption", _auth(date_from="2026-08-01")),
+    ("/v1/co/reports/stock_age", _auth()),
+    ("/v1/co/reports/purchase_analysis", _auth(date_from="2026-08-01")),
+    ("/v1/co/reports/arrival_otif", _auth(date_from="2026-08-01")),
+    ("/v1/co/reports/open_orders", _auth()),
+    ("/v1/co/reports/sales_price_history", _auth(customer=["C900001"], date_from="2026-08-01")),
+    ("/v1/co/reports/customer_churn", _auth(date_from="2026-08-01")),
+    ("/v1/co/reports/receipts_payments", _auth(side="ar", date_from="2026-08-01")),
+    ("/v1/co/reports/notes_due", _auth(side="ap")),
+    ("/v1/co/reports/cash_flow", _auth()),
+    ("/v1/co/reports/close_check", _auth()),
+    ("/v1/co/reports/ia_anomalies", _auth()),
+    ("/v1/co/reports/cost_unit", _auth()),
     ("/v1/co/gl/vouchers/attachments/list", _auth(**_KEY)),
     ("/v1/co/vouchers/attachments/list", _auth(type="sale_order", id=1)),
     # 档案名称解析、幂等结果查询。

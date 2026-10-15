@@ -26,6 +26,7 @@ from u8co_api.co_models_reports_detail import (
     ReportGlDetailIn,
     ReportGlDetailOut,
 )
+from u8co_api.co_order_fallback import ORDER_USAGE, run_ordered
 from u8co_api.co_models_reports_trace import (
     ReportDocTraceIn,
     ReportDocTraceOut,
@@ -68,27 +69,12 @@ from u8co_api.co_models_ic_reports import (
     IcConsolidationOut,
 )
 from u8co_api.co_doctext import PAGE, op_doc
+from u8co_api.co_report_route import TAG_REPORT, report as _report
+from u8co_api.co_routes_reports_roles import ROLE_REPORT_ROUTES  # 按角色分族的报表
 from u8co_api.co_table import CoRoute
-
-TAG_REPORT = "报表"
 
 _DB = "只查数据库，不调用 U8 组件"
 _FY = "会计年度缺省取登录日期（date）的年份，可用 fiscal_year 指定；year 是账套库年度"
-
-
-def _report(name: str, pair: tuple[type, type], summary: str, text: str) -> CoRoute:
-    words = "".join(part.title() for part in name.split("_"))
-    return CoRoute(
-        f"/v1/co/reports/{name}",
-        f"/v1/reports/{name}",
-        pair[0],
-        pair[1],
-        summary,
-        text,
-        f"coReport{words}",
-        f"co:reports/{name}",
-        TAG_REPORT,
-    )
 
 
 REPORT_ROUTES = (
@@ -188,7 +174,7 @@ REPORT_ROUTES = (
         "订单执行",
         op_doc(
             "逐行列出销售订单或采购订单的数量、金额和累计执行数。",
-            ("用法", (PAGE, "可按 id、单号、日期、往来单位过滤", "only_open 只要未执行完且未关闭的行")),
+            ("用法", (PAGE, "可按 id、单号、日期、往来单位过滤", "only_open 只要未执行完且未关闭的行", *ORDER_USAGE)),
             (
                 "规则",
                 (
@@ -200,6 +186,7 @@ REPORT_ROUTES = (
             ),
             ("权限", ("数据权限同该订单类型的列表",)),
         ),
+        run_ordered,
     ),
     _report(
         "doc_trace",
@@ -244,7 +231,7 @@ REPORT_ROUTES = (
         op_doc(
             "按存货（缺省再按仓库）汇总日期区间的期初、入库、出库、结存数量。",
             ("用法", (PAGE,)),
-            ("规则", ("只有数量，没有金额", "缺省只含已审核单据", _DB)),
+            ("规则", ("include_amount 为真且起止为整月时附存货核算金额，否则只有数量", "缺省只含已审核单据", _DB)),
         ),
     ),
     _report(
@@ -397,4 +384,4 @@ REPORT_ROUTES = (
         runner=run_consolidation,
         keep_null=True,
     ),
-)
+) + ROLE_REPORT_ROUTES

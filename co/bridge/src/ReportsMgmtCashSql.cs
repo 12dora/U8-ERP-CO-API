@@ -66,7 +66,9 @@ namespace U8Co
             return sql.ToString();
         }
 
-        // 产成品入库按存货的数量排行（缺省只计已审核）。totals 为真时只出合计行。? 的顺序：[TOP]、起、止、数据权限。
+        // 产成品入库按存货的数量排行（缺省只计已审核）。totals 为真时只出合计行。items 另带存货分类 class_code、class_name
+        // （class_grade 给出时往上取该级次的祖先分类，分类比它浅的存货保持自己的分类）；inv_class 只统计存货自己的分类编码
+        // 以它开头的存货（排行和合计都过滤）。? 的顺序：[TOP]、[分类级次]、起、止、[分类前缀]、数据权限。
         internal static string Production(bool totals, MgmtGlArgs m, string[] range, List<object> ps, WorkContext ctx)
         {
             StringBuilder sql = new StringBuilder("SELECT ");
@@ -76,25 +78,49 @@ namespace U8Co
             }
             else
             {
-                sql.Append("TOP (?) b.cInvCode AS code, i.cInvName AS name, u.cComUnitName AS unit,");
-                sql.Append(" CONVERT(decimal(20,6), SUM(ISNULL(b.iQuantity, 0))) AS qty,");
+                sql.Append("TOP (?) b.cInvCode AS code, i.cInvName AS name, u.cComUnitName AS unit, ").Append(ClassExpr(m));
+                sql.Append(" AS class_code, cc.cInvCName AS class_name, CONVERT(decimal(20,6), SUM(ISNULL(b.iQuantity, 0))) AS qty,");
                 ps.Add(m.Top);
             }
             sql.Append(" COUNT(DISTINCT h.ID) AS docs FROM rdrecord10 h JOIN rdrecords10 b ON b.ID = h.ID");
-            if (!totals)
-            {
-                sql.Append(" LEFT JOIN Inventory i ON i.cInvCode = b.cInvCode LEFT JOIN ComputationUnit u ON u.cComunitCode = i.cComUnitCode");
-            }
+            ProductionJoins(sql, ps, totals, m);
             Dates(sql, ps, "h.dDate", range);
             sql.Append(m.Unverified ? "" : Verified);
-            // 数据权限：存货（表体行）、仓库（表头）。
-            Perm(sql, ps, ctx, PermObj.Inventory, "b");
-            Perm(sql, ps, ctx, PermObj.Warehouse, "h");
+            if (m.InvClass != null)
+            {
+                sql.Append(ReportsMgmtSalesClassSql.Filter("i.cInvCCode"));
+                ps.Add(ReportsMgmtSalesClassSql.FilterArg(m.InvClass));
+            }
+            // 数据权限：对象同 voucher:product_in（ProductionPerm）。
+            ProductionPerm(sql, ps, ctx);
             if (!totals)
             {
-                sql.Append(" GROUP BY b.cInvCode, i.cInvName, u.cComUnitName ORDER BY SUM(ISNULL(b.iQuantity, 0)) DESC, b.cInvCode");
+                sql.Append(" GROUP BY b.cInvCode, i.cInvName, u.cComUnitName, ").Append(ClassExpr(m));
+                sql.Append(", cc.cInvCName ORDER BY SUM(ISNULL(b.iQuantity, 0)) DESC, b.cInvCode");
             }
             return sql.ToString();
+        }
+
+        // 排行连存货档案、计量单位、（往上取的）分类；只有合计又要按分类过滤时只连存货档案。
+        static void ProductionJoins(StringBuilder sql, List<object> ps, bool totals, MgmtGlArgs m)
+        {
+            if (totals)
+            {
+                sql.Append(m.InvClass == null ? "" : " JOIN Inventory i ON i.cInvCode = b.cInvCode");
+                return;
+            }
+            sql.Append(" LEFT JOIN Inventory i ON i.cInvCode = b.cInvCode LEFT JOIN ComputationUnit u ON u.cComunitCode = i.cComUnitCode");
+            if (m.ClassGrade > 0)
+            {
+                sql.Append(ReportsMgmtSalesClassSql.Apply("i.cInvCCode", "cg"));
+                ps.Add(m.ClassGrade);
+            }
+            sql.Append(" LEFT JOIN InventoryClass cc ON cc.cInvCCode = ").Append(ClassExpr(m));
+        }
+
+        static string ClassExpr(MgmtGlArgs m)
+        {
+            return m.ClassGrade > 0 ? "COALESCE(cg.cInvCCode, i.cInvCCode)" : "i.cInvCCode";
         }
 
         // 采购按供应商的金额排行：invoice 取采购发票（本币无税 iMoney、含税 iSum，不论是否复核），receipt 取采购入库
@@ -151,6 +177,30 @@ namespace U8Co
                 {
                     PermSql.AppendObj(sql, ps, p, rule.Objs[i], alias);
                 }
+            }
+        }
+
+        // 产量段的数据权限：对象取自 ProductionRule（同 voucher:product_in：部门、仓库、存货必有，客户、供应商、业务员、收发类别可空），
+        // 与请求走的是总账规则还是产量规则无关。表头对象过滤 h 上的同名列；存货在规则里按表体（单据级「有一行放行即保留」），
+        // 这里汇总的是行，所以改成对表体行 b 逐行过滤，只统计有权限的存货（比单据级更严）。
+        internal static void ProductionPerm(StringBuilder sql, List<object> ps, WorkContext ctx)
+        {
+            PermContext p = ReadPerm(ctx);
+            if (p == null)
+            {
+                return;
+            }
+            PermRule rule = PermRegistry.ForKey(ReportsMgmtGlReq.ProductionRule);
+            for (int i = 0; i < rule.Objs.Length; i++)
+            {
+                PermObj o = rule.Objs[i];
+                if (o.Mode != PermObj.Body)
+                {
+                    PermSql.AppendObj(sql, ps, p, o, "h");
+                    continue;
+                }
+                PermObj row = o.Optional ? PermObj.Opt(o.Obj, o.Column) : PermObj.H(o.Obj, o.Column);
+                PermSql.AppendObj(sql, ps, p, row, "b");
             }
         }
 

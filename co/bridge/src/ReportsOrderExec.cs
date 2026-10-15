@@ -11,6 +11,8 @@ namespace U8Co
     // 累计收款 iexchsum（原币）/ imoneysum（本币）。
     // 采购：累计到货 iArrQTY / iArrMoney、累计入库 iReceivedQTY + freceivedqty（直接入库记前者，经到货入库记后者）、
     // 累计开票 iInvQTY / iInvMoney、累计退货 fPoRetQuantity、累计付款 iOriTotal（原币）/ iTotal（本币）。
+    // order 缺省 asc（表头 id、行 id 升序，after 是 {表头 id, 行 id} 游标，字节不变）；desc 按订单日期、表头 id、行 id 降序，
+    // 游标换成 {日期, 表头 id, 行 id}（DescPaging），响应另带 order: "desc"。两种游标不能互换，换了 order 要从头读。
     // 数据权限与该订单类型的列表相同：功能权限按 voucher:<type>，记录级条件加在表头 h 上。
     internal static class ReportsOrderExec
     {
@@ -22,7 +24,7 @@ namespace U8Co
             + " AND NULLIF(LTRIM(RTRIM(d.cbCloser)), N'') IS NULL"
             + " AND (ABS(ISNULL(d.iReceivedQTY,0) + ISNULL(d.freceivedqty,0)) < ABS(ISNULL(d.iQuantity,0))"
             + " OR ABS(ISNULL(d.iInvQTY,0)) < ABS(ISNULL(d.iQuantity,0)))";
-        const string Common = "SELECT TOP (?) h.{HID} AS head_id, h.{CODE} AS code, CONVERT(varchar(10), h.{DATE}, 23) AS doc_date,"
+        const string Common = "SELECT TOP (?) {CUR}h.{HID} AS head_id, h.{CODE} AS code, CONVERT(varchar(10), h.{DATE}, 23) AS doc_date,"
             + " h.{PARTNER} AS partner, pt.{PNAME} AS partner_name, h.cexch_name AS currency,"
             + " CASE WHEN NULLIF(LTRIM(RTRIM(h.cVerifier)), N'') IS NULL THEN 0 ELSE 1 END AS verified,"
             + " d.{LID} AS line_id, d.{ROWNO} AS row_no, d.cInvCode AS inv_code, i.cInvName AS inv_name, i.cInvStd AS inv_std,"
@@ -53,7 +55,7 @@ namespace U8Co
         static readonly string[] PoMoney = new string[] { "arrived_amount", "invoiced_amount", "paid_amount", "paid_nat_amount" };
 
         // 每种订单：{ 表头 id, 单号, 日期, 往来单位, 往来单位名称列, 行 id, 行号, 计划日期 }。
-        static string[] Cols(bool sale)
+        internal static string[] Cols(bool sale)
         {
             if (sale)
             {
@@ -73,7 +75,8 @@ namespace U8Co
             string open = sale ? SaleOpen : PoOpen;
             StringBuilder text = new StringBuilder((sale ? SaleSql : PoSql).Replace("{HID}", c[0]).Replace("{CODE}", c[1])
                 .Replace("{DATE}", c[2]).Replace("{PARTNER}", c[3]).Replace("{PNAME}", c[4]).Replace("{LID}", c[5])
-                .Replace("{ROWNO}", c[6]).Replace("{DUE}", c[7]).Replace("{OPEN}", open));
+                .Replace("{ROWNO}", c[6]).Replace("{DUE}", c[7]).Replace("{OPEN}", open)
+                .Replace("{CUR}", a.Desc ? DescPaging.DateSql("h." + c[2]) + " AS cursor_date, " : ""));
             List<object> args = new List<object>();
             args.Add(a.Limit + 1);
             Filter(text, args, a, c);
@@ -82,8 +85,15 @@ namespace U8Co
                 text.Append(" AND ").Append(open);
             }
             PermSql.AppendRule(text, args, p, rule, "h");
-            After(text, args, a.After, c);
-            text.Append(" ORDER BY h.").Append(c[0]).Append(", d.").Append(c[5]);
+            if (a.Desc)
+            {
+                DescOrder(text, args, a, c);
+            }
+            else
+            {
+                After(text, args, a.After, c);
+                text.Append(" ORDER BY h.").Append(c[0]).Append(", d.").Append(c[5]);
+            }
             List<Dictionary<string, object>> rows = Rows.Query(ctx.Conn, text.ToString(), args.ToArray(), a.Limit + 1);
             List<object> items = new List<object>();
             for (int i = 0; i < rows.Count && i < a.Limit; i++)
@@ -94,8 +104,25 @@ namespace U8Co
             body["type"] = a.Type;
             body["only_open"] = a.OnlyOpen;
             body["items"] = items;
-            body["next"] = rows.Count > a.Limit ? Next(rows[a.Limit - 1]) : null;
+            body["next"] = rows.Count > a.Limit ? Next(rows[a.Limit - 1], a.Desc) : null;
+            if (a.Desc)
+            {
+                body["order"] = "desc";
+            }
             return ApiResult.Ok(body);
+        }
+
+        // order 为 desc：订单日期、表头 id、行 id 都降序，游标是（日期，表头 id，行 id），见 DescPaging。
+        internal static void DescOrder(StringBuilder text, List<object> args, ExecArgs a, string[] c)
+        {
+            string date = "h." + c[2];
+            string[] keys = new string[] { "h." + c[0], "d." + c[5] };
+            if (a.Cursor != null)
+            {
+                text.Append(" AND ");
+                DescPaging.AppendAfter(text, args, date, keys, a.Cursor);
+            }
+            DescPaging.AppendOrderBy(text, date, keys);
         }
 
         // 过滤条件只拼占位符，取值只进参数。日期按表头单据日期，含两端。
@@ -156,8 +183,12 @@ namespace U8Co
             args.Add(line);
         }
 
-        static string Next(Dictionary<string, object> row)
+        static string Next(Dictionary<string, object> row, bool desc)
         {
+            if (desc)
+            {
+                return DescPaging.Encode(GlSql.Col(row, "cursor_date"), GlSql.Int(row, "head_id"), GlSql.Int(row, "line_id"));
+            }
             return Reports.Cursor(GlSql.Col(row, "head_id"), GlSql.Col(row, "line_id"));
         }
 

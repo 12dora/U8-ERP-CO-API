@@ -35,8 +35,9 @@ _FORWARD = (
     _fwd(
         "stock_summary",
         _auth(date_to="2026-09-28", wh="01", inv="I1", inv_class="0102", by_wh=False, include_unverified=False,
-              nonzero=False, after="x", limit=1, **_SUMMARY),
-        "date_from", "date_to", "wh", "inv", "inv_class", "by_wh", "include_unverified", "nonzero", "after", "limit",
+              nonzero=False, include_amount=True, after="x", limit=1, **_SUMMARY),
+        "date_from", "date_to", "wh", "inv", "inv_class", "by_wh", "include_unverified", "nonzero", "include_amount",
+        "after", "limit",
     ),
     _fwd("position_stock", _auth()),
     _fwd(
@@ -72,6 +73,9 @@ _REJECTS = (
     (_R + "stock_summary", _auth()),
     (_R + "stock_summary", _auth(inv_class="01%", **_SUMMARY)),
     (_R + "stock_summary", _auth(by_wh=1, **_SUMMARY)),
+    (_R + "stock_summary", _auth(include_amount="yes", **_SUMMARY)),
+    (_R + "stock_summary", _auth(include_amount=1, **_SUMMARY)),
+    (_R + "stock_ledger", _auth(include_amount=True, **_LEDGER)),
     (_R + "stock_summary", _auth(position="5F", **_SUMMARY)),
     (_R + "position_stock", _auth(position="5F 01")),
     (_R + "position_stock", _auth(expiring_before="2026-12-31")),
@@ -140,6 +144,9 @@ class _StockBridge(FakeBridge):
         if path == "/v1/reports/stock_ledger":
             row = {"date": "2026-09-02", "type": "material_out", "in_qty": 0.0, "out_qty": 580.0, "balance": 1.5, "x": 1}
             return {"ok": True, "inv": "I1", "opening": 581.5, "carry": 581.5, "closing": None, "items": [row], "next": "n"}
+        if path == "/v1/reports/stock_summary":
+            row = {"inv_code": "I1", "unit": "千克", "closing": 5.0, "closing_amt": None, "x": 1}
+            return {"ok": True, "amount_basis": "partial", "amount_reason": "unbooked", "masked_fields": ["amount"], "items": [row], "next": None}
         if path == "/v1/reports/customer_credit":
             row = {"code": "C001", "used": 10.0, "available": None, "order": 10.0}
             return {"ok": True, "check_point": "save", "formula": {"order": True}, "unsupported": [], "items": [row], "next": None}
@@ -155,6 +162,12 @@ def test_stock_report_responses_keep_bridge_fields() -> None:
     credit = client.post(_R + "customer_credit", json=_auth()).json()
     assert credit["formula"] == {"order": True}
     assert credit["items"][0]["available"] is None
+    summary = client.post(_R + "stock_summary", json=_auth(include_amount=True, **_SUMMARY)).json()
+    assert summary["amount_basis"] == "partial"
+    assert summary["amount_reason"] == "unbooked"
+    assert summary["masked_fields"] == ["amount"]
+    assert summary["items"][0]["unit"] == "千克"
+    assert summary["items"][0]["x"] == 1
     prices = client.post(_R + "price_list", json=_auth(kind="inventory")).json()
     assert prices["items"][0]["levels"][0]["price"] == 2.5
 

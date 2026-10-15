@@ -15,7 +15,7 @@ import datetime as dt
 from decimal import Decimal
 from typing import Any
 
-from u8co_api.co_ic_aggregate import plain
+from u8co_api.co_ic_aggregate import failure_lines, plain
 from u8co_api.co_ic_core import FanResult, IcGroup
 from u8co_api.co_mgmt_core import (
     MGMT_BRIDGE,
@@ -68,27 +68,36 @@ def fetch_sides(run: MgmtRun, body: MgmtArapIn) -> dict[str, dict[str, FanResult
     return found
 
 
+def _side_warnings(sides: dict[str, dict[str, FanResult]]) -> list[str]:
+    """每个方向、每个账套的失败提醒。只有「方向 × 账套」全部读不到才抛错（都是 no_permission 时 403，否则 503），
+    某一边或某个账套读不到时留在正文（by_account 里该账套 ok: false）。"""
+    report_failures({f"{acc}/{side}": result for side, results in sides.items() for acc, result in results.items()})
+    return [f"（{SIDE_NAME[side]}）{line}" for side, results in sides.items() for line in failure_lines(results)]
+
+
 def compute_arap(run: MgmtRun, body: MgmtArapIn) -> dict[str, Any]:
     sides = fetch_sides(run, body)
-    warnings: list[str] = []
-    for side, results in sides.items():
-        warnings += [f"（{SIDE_NAME[side]}）{line}" for line in report_failures(results)]
+    warnings = _side_warnings(sides)
     by_account: dict[str, dict] = {}
     bodies: dict[str, dict[str, dict]] = {}
     notes: list[str] = []
+    partial = False
     for acc in run.accs:
-        view, failed = _account(acc, sides)
+        view, lost = _account(acc, sides)
         if view is None:
-            if failed is not None:
-                by_account[acc] = account_error(failed)
+            if lost:
+                by_account[acc] = account_error(next(iter(lost.values())))
             continue
         view = {side: net_side(found) for side, found in view.items()}
         by_account[acc] = {"ok": True, **{side: plain(_side_view(found)) for side, found in view.items()}}
+        if lost:
+            partial = True
+            by_account[acc]["missing_sides"] = {side: (found.error or {}).get("code") for side, found in lost.items()}
         bodies[acc] = view
         warnings += _account_warnings(acc, view)
         notes += [NOTE_NEGATIVE for found in view.values() if _balance(found) < ZERO]
     called = {acc for results in sides.values() for acc in results}
-    out: dict[str, Any] = {"by_account": by_account, "warnings": warnings, "complete": len(bodies) == len(called)}
+    out: dict[str, Any] = {"by_account": by_account, "warnings": warnings, "complete": len(bodies) == len(called) and not partial}
     if run.consolidating and out["complete"] and run.group is not None:
         merged = consolidate_arap(run.group, body, bodies)
         out.update(merged)
@@ -169,16 +178,24 @@ def _balance(found: dict) -> Decimal:
     return dec(_totals(found).get("balance"))
 
 
-def _account(acc: str, sides: dict[str, dict[str, FanResult]]) -> tuple[dict[str, dict] | None, FanResult | None]:
+def _account(
+    acc: str, sides: dict[str, dict[str, FanResult]]
+) -> tuple[dict[str, dict] | None, dict[str, FanResult]]:
+    """账套各方向的结果：（能读到的方向 → 响应体，读不到的方向 → 失败）。能读到的方向为 None 表示这个账套整个不可用：
+    没有调用，或者一个方向都读不到，或者有方向因权限以外的原因失败（不拿一半数当整体）。只有功能权限不足（no_permission）
+    而读不到的方向留在 lost 里，账套带着另一边的结果照样给出（missing_sides），但整体 complete 为 false、不合并。"""
     view: dict[str, dict] = {}
+    lost: dict[str, FanResult] = {}
     for side, results in sides.items():
         result = results.get(acc)
         if result is None:
-            return None, None
-        if not result.ok:
-            return None, result
-        view[side] = result.body or {}
-    return view, None
+            return None, {}
+        if result.ok:
+            view[side] = result.body or {}
+        else:
+            lost[side] = result
+    denied_only = all((found.error or {}).get("code") == "no_permission" for found in lost.values())
+    return (view if view and denied_only else None), lost
 
 
 def history_days(found: dict) -> int:

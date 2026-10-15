@@ -5,8 +5,8 @@ namespace U8Co
     // 任务在工作线程上的执行体。登录对象和 COM 只在创建它的线程上用，用完在同一线程释放。
     internal static class StaExec
     {
-        // 写线程：每个任务一次登录（开了 loginReuse 时按 LoginCache 复用本线程的登录）。
-        // 登录成功后把连接串记进缓存，读线程靠它免登录。
+        // 写线程（按操作员固定，见 OperatorPin）：每个任务一次登录（开了 loginReuse 时按 LoginCache 复用本线程的登录）。
+        // 登录成功后把连接串记进 AuthCache，读线程靠它免登录。
         public static ApiResult Write(WorkItem item)
         {
             WorkRun.RequireAccount(item);
@@ -61,8 +61,19 @@ namespace U8Co
             }
         }
 
-        // 读线程：不登录，连接串来自登录缓存。审计与写线程是同一套（WorkRun）。
-        // 排队期间条目过期或被删掉时，本任务改走写线程的流程，在本线程上登录一次。
+        // AuthCache 条目仍可用：没过期、没被删掉、有连接串。读线程执行前由 StaWorker.ReadRoute 判断，不可用就转交写线程。
+        internal static bool Usable(AuthEntry auth)
+        {
+            return AuthCache.Live(auth) && HasConn(auth);
+        }
+
+        static bool HasConn(AuthEntry auth)
+        {
+            return auth != null && auth.ConnString != null && auth.ConnString.Length > 0;
+        }
+
+        // 读线程：不登录，连接串来自 AuthCache。审计与写线程是同一套（WorkRun）。
+        // 条目是否仍有效已在执行前判断过（StaWorker.ReadRoute，失效的转交写线程）；这里没有连接串就报错，读线程上从不登录。
         public static ApiResult Read(WorkItem item)
         {
             // 写预演只在写线程上跑（DryRunRun.Run 包住处理函数）；读线程池收到一律拒绝，审计照写。
@@ -70,13 +81,12 @@ namespace U8Co
             {
                 throw new BridgeException(500, "internal", "预演任务进了读线程池");
             }
-            WorkRun.RequireAccount(item);
             AuthEntry auth = item.Auth;
-            if (!AuthCache.Live(auth) || auth.ConnString == null || auth.ConnString.Length == 0)
+            if (!HasConn(auth))
             {
-                item.Auth = null;
-                return Write(item);
+                throw new BridgeException(500, "internal", "读线程池不登录，登录缓存已失效");
             }
+            WorkRun.RequireAccount(item);
             WorkContext ctx = NewContext(item);
             ApiResult result = null;
             try

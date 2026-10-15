@@ -78,6 +78,8 @@ namespace U8Co
                 ArcResolveSelfTest.Run();
                 // 单据搜索、批量读取（VoucherSearchSelfTest、LoadManySelfTest）。
                 VoucherSearchSelfTest.Run();
+                // order 为 desc 的降序分页（vouchers/search、order_execution）、stock/current 的 inv_unit（DescPagingSelfTest）。
+                DescPagingSelfTest.Run();
                 // 账龄分析 {INNER} 的 ? 顺序、default_credit_days（ReportsAgingSelfTest）。
                 ReportsAgingSelfTest.Run();
                 LoadManySelfTest.Run();
@@ -114,8 +116,8 @@ namespace U8Co
                 IaSelfTest.Run();
                 // 账套体检 reports/account_readiness（ReportsReadinessSelfTest）。
                 ReportsReadinessSelfTest.Run();
-                // 登录复用（LoginCacheSelfTest，不建 COM）。
-                LoginCacheSelfTest.Run();
+                // 登录复用与操作员固定写线程（RunLogins）。
+                RunLogins();
                 SqlScriptSelfTest.Run();
                 // 写预演（DryRunModes、DryRunReq、DryRunValue、meta）。
                 DryRunSelfTest.Run();
@@ -126,6 +128,15 @@ namespace U8Co
             {
                 return Fail(ex);
             }
+        }
+
+        // 登录复用与操作员固定写线程的自检（从 Run 拆出，控制函数长度）。
+        static void RunLogins()
+        {
+            // 登录复用（LoginCacheSelfTest，不建 COM）。
+            LoginCacheSelfTest.Run();
+            // 操作员固定到写线程（OperatorPinSelfTest，不起线程、不建 COM）。
+            OperatorPinSelfTest.Run();
         }
 
         // 写闸门与写入策略的自检（从 Run 拆出，控制函数长度）。
@@ -164,6 +175,21 @@ namespace U8Co
             PuArrCloseSelfTest.Run();
             // 固定资产卡片新增 / 撤销、变动单新增、设备台账（FaWriteSelfTest）。
             FaWriteSelfTest.Run();
+            // 按角色分族的报表：接线与各族自己的校验、SQL。
+            RunReportFamilies();
+        }
+
+        // 分族报表（质量、生产、库龄、采购、销售、收付款与现金流、账务核对）的自检（从 RunVouchersAndReports 拆出，控制函数长度）。
+        static void RunReportFamilies()
+        {
+            ReportsFamiliesSelfTest.Run();
+            ReportsQmSelfTest.Run();
+            MfgSelfTest.Run();
+            StockAgeSelfTest.Run();
+            PuSelfTest.Run();
+            SaSelfTest.Run();
+            FinSelfTest.Run();
+            AcctSelfTest.Run();
         }
 
         // 应收应付其他处理、票据处理的自检（从 Run 拆出，控制函数长度）。

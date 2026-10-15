@@ -17,6 +17,9 @@ namespace U8Co
         public bool OnlyOpen;
         public string After;
         public int Limit;
+        // order 为 desc（DescPaging）：Cursor 是解析后的 after；升序时 After 保持原样的游标文本。
+        public bool Desc;
+        public DescCursor Cursor;
     }
 
     // 单据追溯 doc_trace 的请求参数：起点单据、每个方向的跳数、方向、节点上限。
@@ -75,6 +78,11 @@ namespace U8Co
             ParseFilters(a, body);
             a.OnlyOpen = OptBool(body, "only_open");
             a.After = GlReq.Field(body, "after") as string ?? "";
+            a.Desc = DescPaging.ParseOrder(body);
+            if (a.Desc)
+            {
+                a.Cursor = DescPaging.Parse(a.After, 2);
+            }
             a.Limit = OptInt(body, "limit", 200, 1, 1000);
             return a;
         }

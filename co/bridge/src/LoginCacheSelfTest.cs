@@ -9,11 +9,11 @@ namespace U8Co
 {
     // --selftest 的登录复用部分（LoginCache、StaExec.KeepAfter）：关闭时不缓存、同键复用、不放回即关闭、
     // 每线程上限与淘汰顺序、闲置有效期与刷新、空闲清理（Sweep）、距真实登录的最长时间、不健康不复用、
-    // 读线程不留、线程隔离与 Drain、放回条件（含 QM、AR、AP 一律不放回）、计数（含 logins_closed：每一次真正关掉）、
+    // 读线程不留、线程隔离与 Drain、同一操作员的其他缓存登录在真实登录前关掉（不分大小写、去首尾空白，在用的不动）、放回条件（含 QM、AR、AP 一律不放回）、计数（含 logins_closed：每一次真正关掉）、
     // 停用时段（loginReuseOffHours：解析与报错、边界、时段内用完即关、进入时段时清空缓存）和健康检查片段。
     // 经 LoginCache.Opener / Healthy / Now 和 StaExec.TranCountProbe 替换登录、健康检查、时钟和 @@TRANCOUNT；
     // 登录对象一律为空（Dispose 什么都不做），不建 COM、不连库。是否真的关掉靠 logins_closed 的增量判断。
-    internal static class LoginCacheSelfTest
+    internal static partial class LoginCacheSelfTest
     {
         const int Cap = 16;
         const int TtlSeconds = 60;
@@ -40,6 +40,7 @@ namespace U8Co
                 CheckSweep();
                 CheckMaxAge();
                 CheckUnhealthy();
+                CheckSiblings();
                 CheckNoKeepThread();
                 CheckDrain();
                 CheckKeepAfter();
@@ -102,7 +103,8 @@ namespace U8Co
             other = Item("op001");
             other.Password = "other";
             Expect("login password key", !object.ReferenceEquals(a, LoginCache.Acquire(other, "SA")));
-            Delta("login reuse counters", before, 4, 1, 0);
+            // 取 PU 前关掉同一操作员缓存的 SA 登录；之后三个都是在用的，不再关。
+            Delta("login reuse counters", before, 4, 1, 1);
             Expect("login on flag", LoginCache.Enabled
                 && LoginCache.HealthFragment().StartsWith(",\"login_reuse\":true,", StringComparison.Ordinal));
             Delta("login reuse drain", before, 4, 1, 1, LoginCache.Drain);
@@ -220,6 +222,45 @@ namespace U8Co
             LoginCache.Drain();
         }
 
+        // 同一操作员：缓存着 801 的登录，取 802 时先关掉 801（关一次）再新登录一次；别的操作员不受影响；
+        // 操作员不分大小写、去首尾空白；在用（取出未放回）的登录不关。
+        static void CheckSiblings()
+        {
+            LoginCache.Configure(true, Cap, TtlSeconds);
+            LoginCache.Drain();
+            U8Session a801 = Cycle("opA", "801");
+            U8Session b801 = Cycle("opB", "801");
+            long[] before = Counters();
+            WorkItem a802 = Item("opA", "802");
+            U8Session s = LoginCache.Acquire(a802, "SA");
+            Expect("login sibling fresh", !object.ReferenceEquals(a801, s) && !LoginCache.LastAcquireReused);
+            Delta("login sibling closed once", before, 1, 0, 1);
+            Expect("login sibling other operator kept", LoginCache.CachedCountForThisThread() == 1);
+            LoginCache.Release(s, a802, "SA", true);
+            Expect("login sibling other operator hit", object.ReferenceEquals(b801, Cycle("opB", "801")));
+            Expect("login sibling new kept", object.ReferenceEquals(s, Cycle("opA", "802")));
+            LoginCache.Drain();
+
+            U8Session zh = Cycle("OP-020", "801");
+            before = Counters();
+            WorkItem lower = Item(" op-020 ", "802");
+            U8Session t = LoginCache.Acquire(lower, "SA");
+            Expect("login sibling case space", !object.ReferenceEquals(zh, t) && LoginCache.CachedCountForThisThread() == 0);
+            Delta("login sibling case space counters", before, 1, 0, 1);
+            LoginCache.Release(t, lower, "SA", false);
+            LoginCache.Drain();
+
+            WorkItem a801Item = Item("opA", "801");
+            U8Session held = LoginCache.Acquire(a801Item, "SA");
+            before = Counters();
+            U8Session nested = LoginCache.Acquire(a802, "SA");
+            Expect("login sibling in flight", !object.ReferenceEquals(held, nested));
+            Delta("login sibling in flight untouched", before, 1, 0, 0);
+            LoginCache.Release(nested, a802, "SA", false);
+            LoginCache.Release(held, a801Item, "SA", false);
+            LoginCache.Drain();
+        }
+
         // 读线程（MarkNoKeepThread）keep=true 也不留；标记只影响那个线程。
         static void CheckNoKeepThread()
         {
@@ -302,117 +343,6 @@ namespace U8Co
             }
         }
 
-        // 停用时段的写法与报错：缺少或 null 不设；其余写错一律在加载时报错。
-        static void CheckWindowParse()
-        {
-            Expect("window absent", Window("{}") == null);
-            Expect("window null", Window("{\"loginReuseOffHours\":null}") == null);
-            Expect("window label", Window(Spec("1-5", "09:00", "18:00")).Label() == "周一至周五 09:00–18:00");
-            Expect("window label list", Window(Spec(" 1-5,7 ", "00:00", "23:59")).Label() == "周一至周五、周日 00:00–23:59");
-            Expect("window label pair", Window(Spec("1,2,4", "09:00", "10:00")).Label() == "周一、周二、周四 09:00–10:00");
-            BadWindow("window not object", "{\"loginReuseOffHours\":\"1-5\"}", "必须是对象");
-            BadWindow("window unknown key", "{\"loginReuseOffHours\":{\"days\":\"1-5\",\"start\":\"09:00\",\"end\":\"18:00\",\"tz\":\"UTC\"}}",
-                "不认识的键 'tz'");
-            BadWindow("window days missing", "{\"loginReuseOffHours\":{\"start\":\"09:00\",\"end\":\"18:00\"}}",
-                "缺少配置项 loginReuseOffHours.days");
-            BadWindow("window days blank", Spec(" ", "09:00", "18:00"), "缺少配置项 loginReuseOffHours.days");
-            BadWindow("window days number", "{\"loginReuseOffHours\":{\"days\":6,\"start\":\"09:00\",\"end\":\"18:00\"}}",
-                "loginReuseOffHours.days 必须是字符串");
-            BadWindow("window days range", Spec("1-8", "09:00", "18:00"), "days 不合法");
-            BadWindow("window days form", Spec("1-", "09:00", "18:00"), "days 不合法");
-            BadWindow("window days reversed", Spec("1,6-2", "09:00", "18:00"), "范围 '6-2' 反了");
-            BadWindow("window days unicode digit", Spec("١-5", "09:00", "18:00"), "days 不合法");
-            BadWindow("window start short", Spec("1-5", "9:00", "18:00"), "start 必须是 HH:MM");
-            BadWindow("window end 24", Spec("1-5", "09:00", "24:00"), "end 必须是 HH:MM");
-            BadWindow("window end before start", Spec("1-5", "18:00", "09:00"), "必须晚于 start");
-            BadWindow("window end equals start", Spec("1-5", "09:00", "09:00"), "必须晚于 start");
-        }
-
-        // 含 start、不含 end，精确到秒；只在 days 里的星期生效。2026-09-25 是星期五，09-26 星期六，09-27 星期日，09-28 星期一。
-        static void CheckWindowBounds()
-        {
-            ReuseWindow w = Window(Spec("1-5", "09:00", "18:00"));
-            Expect("window before start", !w.Contains(Local(9, 25, 8, 59, 59)));
-            Expect("window at start", w.Contains(Local(9, 25, 9, 0, 0)));
-            Expect("window before end", w.Contains(Local(9, 25, 17, 59, 59)));
-            Expect("window at end", !w.Contains(Local(9, 25, 18, 0, 0)));
-            Expect("window saturday", !w.Contains(Local(9, 26, 10, 0, 0)));
-            Expect("window sunday", !w.Contains(Local(9, 27, 10, 0, 0)));
-            Expect("window monday", w.Contains(Local(9, 28, 9, 0, 0)));
-        }
-
-        // 时段内：放回即关，不复用；健康检查 login_reuse 仍为 true、login_reuse_active 为 false。
-        // 时段外照常复用；再进入时段时，下一次取用先关掉本线程缓存的登录。
-        static void CheckWindowRelease()
-        {
-            LoginCache.Configure(true, Cap, TtlSeconds, Window(Spec("1-5", "09:00", "18:00")));
-            LoginCache.Drain();
-            _clock = Local(9, 25, 9, 0, 0);
-            long[] before = Counters();
-            U8Session a = Cycle("op001");
-            Expect("window release closed", LoginCache.CachedCountForThisThread() == 0);
-            Expect("window release fresh", !object.ReferenceEquals(a, Cycle("op001")));
-            Delta("window release counters", before, 2, 0, 2);
-            Expect("window health", LoginCache.Enabled && !LoginCache.Active && LoginCache.HealthFragment()
-                .StartsWith(",\"login_reuse\":true,\"login_reuse_active\":false,", StringComparison.Ordinal));
-            _clock = Local(9, 25, 18, 0, 0);
-            U8Session b = Cycle("op001");
-            Expect("window after end reuse", object.ReferenceEquals(b, Cycle("op001")) && LoginCache.Active
-                && LoginCache.HealthFragment().StartsWith(",\"login_reuse\":true,\"login_reuse_active\":true,", StringComparison.Ordinal));
-            _clock = Local(9, 28, 9, 0, 0);
-            before = Counters();
-            WorkItem item = Item(Op(9));
-            U8Session c = LoginCache.Acquire(item, "SA");
-            Expect("window acquire drains", LoginCache.CachedCountForThisThread() == 0 && !LoginCache.LastAcquireReused);
-            LoginCache.Release(c, item, "SA", true);
-            Delta("window acquire drain counters", before, 1, 0, 2);
-            LoginCache.Drain();
-        }
-
-        // 时段开始前空闲清理不动没过期的；一进入时段，空闲清理在本线程上关掉全部缓存的登录。
-        static void CheckWindowSweep()
-        {
-            LoginCache.Configure(true, Cap, TtlSeconds, Window(Spec("1-5", "09:00", "18:00")));
-            LoginCache.Drain();
-            _clock = Local(9, 25, 8, 59, 30);
-            Cycle(Op(0));
-            Cycle(Op(1));
-            long[] before = Counters();
-            Advance(29);
-            LoginCache.Sweep();
-            Expect("window sweep before start", LoginCache.CachedCountForThisThread() == 2);
-            Advance(1);
-            LoginCache.Sweep();
-            Expect("window sweep drained", LoginCache.CachedCountForThisThread() == 0);
-            Delta("window sweep closed", before, 0, 0, 2);
-            LoginCache.Configure(true, Cap, TtlSeconds);
-            LoginCache.Drain();
-        }
-
-        static ReuseWindow Window(string json)
-        {
-            return ReuseWindow.FromConfig((Dictionary<string, object>)new JavaScriptSerializer().DeserializeObject(json));
-        }
-
-        static string Spec(string days, string start, string end)
-        {
-            return "{\"loginReuseOffHours\":{\"days\":\"" + days + "\",\"start\":\"" + start + "\",\"end\":\"" + end + "\"}}";
-        }
-
-        static void BadWindow(string name, string json, string part)
-        {
-            try
-            {
-                Window(json);
-            }
-            catch (InvalidOperationException ex)
-            {
-                Expect(name + " message", ex.Message.IndexOf(part, StringComparison.Ordinal) >= 0);
-                return;
-            }
-            Expect(name, false);
-        }
-
         // 本地时间（Kind 不是 Utc，LoginCache 不换算），年份固定 2026。
         static DateTime Local(int month, int day, int hour, int minute, int second)
         {
@@ -444,7 +374,12 @@ namespace U8Co
         // 取一个登录再原样放回（keep=true），返回取到的那个。
         static U8Session Cycle(string op)
         {
-            WorkItem item = Item(op);
+            return Cycle(op, "998");
+        }
+
+        static U8Session Cycle(string op, string acc)
+        {
+            WorkItem item = Item(op, acc);
             U8Session s = LoginCache.Acquire(item, "SA");
             LoginCache.Release(s, item, "SA", true);
             return s;
@@ -479,8 +414,13 @@ namespace U8Co
 
         static WorkItem Item(string op)
         {
+            return Item(op, "998");
+        }
+
+        static WorkItem Item(string op, string acc)
+        {
             WorkItem item = new WorkItem();
-            item.Acc = "998";
+            item.Acc = acc;
             item.Year = "2024";
             item.Operator = op;
             item.Password = "测试Pass#01";

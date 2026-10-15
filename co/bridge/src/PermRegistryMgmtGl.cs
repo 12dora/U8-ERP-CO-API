@@ -9,8 +9,19 @@ namespace U8Co
     // 客户（未处理应收票据，cDwCode 为空取 cEndorser）、存货与仓库（存货结存、产成品入库；按存货核算时结存行仓库为空，放行）、
     // 供应商（采购）。不另查采购、库存的功能权限。mgmt/pnl 按部门时，部门不在授权内的分录在聚合前去掉、部门名称按部门数据权限
     // 显示（ReportsMgmtPnlSql.DeptRows）；按项目时同样在聚合前按项目数据权限过滤（ReportsMgmtPnlSql.ItemRows），都不登记在规则里。
+    // cash_stock 的 sections 只有 production 时（仓库、车间等没有总账权限的角色）改用 ProductionRule：功能 id 同产成品入库单查询
+    // voucher:product_in（PermRegistry.ProductInAuth），数据权限对象同 voucher:product_in（部门、仓库、存货必有，客户、供应商、业务员、收发类别可空），不读结账状态；请求里只要有其他段，
+    // 一律走总账规则（ReportsMgmtGlReq.CashRuleKey 选规则，PermRegistry.MgmtReportKey 在查规则时调用）。
     internal static partial class PermRegistry
     {
+        // 产量规则：功能 id 和数据权限对象与 voucher:product_in 完全相同（同一个 Rd() 生成，部门、仓库必有，客户、供应商、业务员、
+        // 收发类别可空，存货按表体）；产量段不管请求带不带别的段都按这些对象过滤（ReportsMgmtCashSql.ProductionPerm）。
+        static PermRule ProductionRule()
+        {
+            PermRule voucher = Rd("product_in", "产成品入库单", ProductInAuth, "rdrecords10", false, false);
+            return new PermRule(ReportsMgmtGlReq.ProductionRule, "经营管理产量查询", voucher.Auths, voucher.Objs);
+        }
+
         static PermRule[] MgmtGlRules()
         {
             return new PermRule[]
@@ -20,7 +31,8 @@ namespace U8Co
                 R(ReportsMgmtGlReq.CashRule, "经营管理资金存货查询", A("GL030301", "GL0305", "GL030101"),
                     PermObj.H(PermObj.Account, "ccode"), PermObj.H(PermObj.Customer, "cCusCode"),
                     PermObj.H(PermObj.Inventory, "cInvCode"), PermObj.Opt(PermObj.Warehouse, "cWhCode"),
-                    PermObj.H(PermObj.Vendor, "cVenCode"))
+                    PermObj.H(PermObj.Vendor, "cVenCode")),
+                ProductionRule()
             };
         }
     }

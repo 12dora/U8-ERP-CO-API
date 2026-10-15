@@ -14,6 +14,10 @@ namespace U8Co
             CheckRefused();
             CheckPnlSql();
             CheckCashSql();
+            CheckCashClass();
+            CheckSections();
+            CheckProductionRule();
+            CheckProductionPermSql();
             CheckMetaSql();
             CheckWiring();
         }
@@ -128,6 +132,156 @@ namespace U8Co
             Expect("cash fixed sql", Count(ReportsMgmtCashSql.CloseSql, '?') == 2);
         }
 
+        // 产量的存货分类：class_grade 往上取祖先分类（? 排在 TOP 之后、日期之前），inv_class 过滤排行和合计两条 SQL。
+        static void CheckCashClass()
+        {
+            string[] range = new string[] { "2026-08-01", "2026-08-31" };
+            MgmtGlArgs c = ReportsMgmtGlReq.Parse(ReportsMgmtGlReq.CashName, Body("{\"period\":8,\"top\":7}"));
+            Expect("cash class defaults", c.ClassGrade == 0 && c.InvClass == null);
+            c = ReportsMgmtGlReq.Parse(ReportsMgmtGlReq.CashName, Body("{\"period\":8,\"top\":7,\"class_grade\":2,\"inv_class\":\"10_01\"}"));
+            Expect("cash class parse", c.ClassGrade == 2 && c.InvClass == "10_01");
+            List<object> ps = new List<object>();
+            string sql = ReportsMgmtCashSql.Production(false, c, range, ps, null);
+            Expect("production class", All(Count(sql, '?') == ps.Count, ps.Count == 5, (int)ps[0] == 7, (int)ps[1] == 2,
+                (string)ps[2] == range[0], (string)ps[3] == range[1], (string)ps[4] == "10\\_01%",
+                sql.Contains("COALESCE(cg.cInvCCode, i.cInvCCode) AS class_code"), sql.Contains("cc.cInvCName AS class_name"),
+                sql.Contains("LEFT JOIN InventoryClass cc ON cc.cInvCCode = COALESCE(cg.cInvCCode, i.cInvCCode)"),
+                sql.Contains("i.cInvCCode LIKE ? ESCAPE"), sql.Contains("OUTER APPLY (SELECT TOP 1 g.cInvCCode FROM InventoryClass g"),
+                sql.Contains("GROUP BY b.cInvCode, i.cInvName, u.cComUnitName, COALESCE(cg.cInvCCode, i.cInvCCode), cc.cInvCName ORDER BY")));
+            ps = new List<object>();
+            sql = ReportsMgmtCashSql.Production(true, c, range, ps, null);
+            Expect("production class total", All(Count(sql, '?') == ps.Count, ps.Count == 3, (string)ps[2] == "10\\_01%",
+                sql.Contains("JOIN Inventory i ON i.cInvCode = b.cInvCode"), !sql.Contains("OUTER APPLY"), !sql.Contains("TOP")));
+            c.ClassGrade = 0;
+            c.InvClass = null;
+            ps = new List<object>();
+            sql = ReportsMgmtCashSql.Production(false, c, range, ps, null);
+            Expect("production own class", All(Count(sql, '?') == ps.Count, ps.Count == 3, !sql.Contains("OUTER APPLY"),
+                sql.Contains("i.cInvCCode AS class_code"), !sql.Contains("LIKE")));
+            Refused("cash class grade", ReportsMgmtGlReq.CashName, "{\"period\":1,\"class_grade\":0}");
+            Refused("cash class text", ReportsMgmtGlReq.CashName, "{\"period\":1,\"inv_class\":\" \"}");
+        }
+
+        // cash_stock 的 sections：缺省五段、取值与去重校验；只要 production 时功能权限和登录子系统都不同。
+        static void CheckSections()
+        {
+            string cash = ReportsMgmtGlReq.CashName;
+            MgmtGlArgs c = ReportsMgmtGlReq.Parse(cash, Body("{\"period\":8}"));
+            Expect("sections default", All(c.Sections.Length == 5, c.Wants("cash"), c.Wants("notes"), c.Wants("inventory"),
+                c.Wants("production"), c.Wants("purchases"), !c.ProductionOnly));
+            c = ReportsMgmtGlReq.Parse(cash, Body("{\"period\":8,\"sections\":[\"production\"]}"));
+            Expect("sections production", All(c.ProductionOnly, c.Wants("production"), !c.Wants("cash"), !c.Wants("notes"),
+                !c.Wants("inventory"), !c.Wants("purchases")));
+            c = ReportsMgmtGlReq.Parse(cash, Body("{\"period\":8,\"sections\":[\"purchases\",\"cash\"]}"));
+            Expect("sections some", All(!c.ProductionOnly, c.Wants("purchases"), c.Wants("cash"), !c.Wants("production"), c.Sections[0] == "purchases"));
+            c = ReportsMgmtGlReq.Parse(cash, Body("{\"period\":8,\"sections\":[\"production\",\"cash\"]}"));
+            Expect("sections production plus", !c.ProductionOnly);
+            Refused("sections empty", cash, "{\"period\":1,\"sections\":[]}");
+            Refused("sections unknown", cash, "{\"period\":1,\"sections\":[\"gl\"]}");
+            Refused("sections dup", cash, "{\"period\":1,\"sections\":[\"cash\",\"cash\"]}");
+            Refused("sections text", cash, "{\"period\":1,\"sections\":\"production\"}");
+            Refused("sections number", cash, "{\"period\":1,\"sections\":[1]}");
+        }
+
+        // 只要产量：规则是产成品入库单查询的功能 id（ASM0301），不收总账 id，数据权限对象与 voucher:product_in 完全相同；
+        // 有任何别的段、没有 sections 或 sections 不合法都走总账规则。
+        static void CheckProductionRule()
+        {
+            string path = ReportsMgmtGlReq.CashPath;
+            WorkItem only = Item(path, "{\"period\":8,\"sections\":[\"production\"]}");
+            PermRule rule = PermRegistry.Find(only);
+            PermRule voucher = PermRegistry.ForKey("voucher:product_in");
+            Expect("production rule found", rule != null && voucher != null);
+            Expect("production rule key", All(rule.Key == ReportsMgmtGlReq.ProductionRule,
+                ReportsMgmtGlReq.ProductionRule == "report:mgmt/cash_stock#production", rule.Auths.Length == 1,
+                rule.Auths[0] == PermRegistry.ProductInAuth, voucher.Auths.Length == 1, voucher.Auths[0] == rule.Auths[0]));
+            CheckSameObjs(rule, voucher);
+            Expect("production pins", All(Holds(rule, "ASM0301"), !Holds(rule, "GL030301"), !Holds(rule, "GL0305"), !Holds(rule, "GL1512"),
+                !Holds(rule, "ASM0401")));
+            PermRule gl = PermRegistry.ForKey(ReportsMgmtGlReq.CashRule);
+            Expect("cash gl pins", All(Holds(gl, "GL030301"), !Holds(gl, "ASM0301")));
+            string[] others = new string[] { "{\"period\":8}", "{\"period\":8,\"sections\":[\"production\",\"purchases\"]}",
+                "{\"period\":8,\"sections\":[\"cash\"]}", "{\"period\":8,\"sections\":[\"nope\"]}",
+                "{\"period\":8,\"sections\":[\"production\",\"production\"]}", "{\"period\":8,\"sections\":\"production\"}" };
+            for (int i = 0; i < others.Length; i++)
+            {
+                Expect("cash gl rule " + i, PermRegistry.Find(Item(path, others[i])) == gl);
+            }
+            Expect("sections sub", All(Reports.SubOf(ReportsMgmtGlReq.CashName, only.Body) == "ST",
+                Reports.SubOf(ReportsMgmtGlReq.CashName, Item(path, others[0]).Body) == "GL",
+                Reports.SubOf(ReportsMgmtGlReq.CashName, Item(path, others[2]).Body) == "GL",
+                Reports.SubOf(ReportsMgmtGlReq.CashName, Item(path, others[3]).Body) == "GL",
+                Reports.SubOf(ReportsMgmtGlReq.CashName, null) == "GL"));
+            Expect("sections still sql read", All(PermRegistry.IsRead(path), RouteClass.IsSqlRead(only), !WriteGate.IsWrite(only)));
+        }
+
+        // 产量规则的数据权限对象与 voucher:product_in 逐项相同（对象、模式、列、可空），且部门、仓库必有。
+        static void CheckSameObjs(PermRule rule, PermRule voucher)
+        {
+            Expect("production objs count", rule.Objs.Length == voucher.Objs.Length && rule.Objs.Length > 0);
+            for (int i = 0; i < rule.Objs.Length; i++)
+            {
+                PermObj a = rule.Objs[i];
+                PermObj b = voucher.Objs[i];
+                Expect("production obj " + i, All(a.Obj == b.Obj, a.Mode == b.Mode, a.Column == b.Column, a.Optional == b.Optional));
+            }
+            Expect("production dept required", ObjOf(rule, PermObj.Department) != null && !ObjOf(rule, PermObj.Department).Optional);
+            Expect("production warehouse required", ObjOf(rule, PermObj.Warehouse) != null && !ObjOf(rule, PermObj.Warehouse).Optional);
+            Expect("production person rd optional", All(ObjOf(rule, PermObj.Person) != null && ObjOf(rule, PermObj.Person).Optional,
+                ObjOf(rule, PermObj.RdStyle) != null && ObjOf(rule, PermObj.RdStyle).Optional));
+        }
+
+        static PermObj ObjOf(PermRule rule, string obj)
+        {
+            for (int i = 0; i < rule.Objs.Length; i++)
+            {
+                if (rule.Objs[i].Obj == obj)
+                {
+                    return rule.Objs[i];
+                }
+            }
+            return null;
+        }
+
+        // 产量 SQL 在数据权限受控时带部门、仓库、业务员、收发类别（表头 h）和存货（表体行 b）的条件，? 与参数一一对应。
+        static void CheckProductionPermSql()
+        {
+            PermContext p = new PermContext();
+            p.Acc = "999";
+            p.Operator = "U1";
+            p.Year = 2026;
+            string[] objs = new string[] { PermObj.Department, PermObj.Warehouse, PermObj.Person, PermObj.RdStyle, PermObj.Inventory };
+            string[] codes = new string[] { "D901", "01", "P1", "R1", "A901" };
+            for (int i = 0; i < objs.Length; i++)
+            {
+                p.On.Add(objs[i]);
+                p.Codes[objs[i]] = new HashSet<string>(new string[] { codes[i] }, StringComparer.OrdinalIgnoreCase);
+            }
+            WorkContext ctx = new WorkContext();
+            ctx.Item = Item(ReportsMgmtGlReq.CashPath, "{\"period\":8,\"sections\":[\"production\"]}");
+            ctx.Perm = p;
+            MgmtGlArgs m = ReportsMgmtGlReq.Parse(ReportsMgmtGlReq.CashName, ctx.Item.Body);
+            string[] range = new string[] { "2026-08-01", "2026-08-31" };
+            foreach (bool totals in new bool[] { false, true })
+            {
+                List<object> ps = new List<object>();
+                string sql = ReportsMgmtCashSql.Production(totals, m, range, ps, ctx);
+                Expect("production perm sql " + totals, All(Count(sql, '?') == ps.Count, ps.Count == (totals ? 7 : 8),
+                    sql.Contains("h.cDepCode IN (?)"), sql.Contains("h.cWhCode IN (?)"), sql.Contains("b.cInvCode IN (?)"),
+                    sql.Contains("(NULLIF(LTRIM(RTRIM(h.cPersonCode)), N'') IS NULL OR h.cPersonCode IN (?))"),
+                    sql.Contains("(NULLIF(LTRIM(RTRIM(h.cRdCode)), N'') IS NULL OR h.cRdCode IN (?))"),
+                    !sql.Contains("h.cCusCode"), !sql.Contains("h.cVenCode"), (string)ps[ps.Count - 5] == "01",
+                    (string)ps[ps.Count - 4] == "D901", (string)ps[ps.Count - 1] == "A901"));
+            }
+        }
+
+        static bool Holds(PermRule rule, string auth)
+        {
+            PermContext p = new PermContext();
+            p.Funcs.Add(auth);
+            return p.HasAny(rule.Auths);
+        }
+
         static void CheckMetaSql()
         {
             string start = ReportsMgmtMeta.StartSql();
@@ -177,9 +331,14 @@ namespace U8Co
 
         static WorkItem Item(string path)
         {
+            return Item(path, "{}");
+        }
+
+        static WorkItem Item(string path, string json)
+        {
             WorkItem item = new WorkItem();
             item.Path = path;
-            item.Body = Body("{}");
+            item.Body = Body(json);
             return item;
         }
 

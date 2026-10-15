@@ -101,8 +101,12 @@ namespace U8Co
                 string name = Reports.Names[i];
                 if (PermRegistry.ForKey("report:" + name) == null)
                 {
-                    Need(missing, "report:" + name + ":ar");
-                    Need(missing, "report:" + name + ":ap");
+                    // 分两条规则的报表：应收 / 应付，或来料 / 产品（PermRegistry.KeySuffixes）。
+                    string[] suffixes = PermRegistry.KeySuffixes(name);
+                    for (int j = 0; j < suffixes.Length; j++)
+                    {
+                        Need(missing, "report:" + name + ":" + suffixes[j]);
+                    }
                 }
             }
             return missing;
@@ -142,6 +146,7 @@ namespace U8Co
             Pins("position", "archive:position", "AS030Q", "AS014Q");
             Pins("customer inventory", "archive:customer_inventory", "AS1204Q", "AS1204");
             CheckAuthCatalogIds();
+            CheckFamilyIds();
             // admin 只认 Supervisor：Funcs 里有 admin 行（如某年收回的主管）不算。
             PermRule bank = PermRegistry.ForKey("archive:aa_bank");
             PermContext stale = Ctx();
@@ -179,6 +184,33 @@ namespace U8Co
             Pins("process list pick", ArapProcListReq.KeyOf("AR"), "AR0503", "AR0601");
             Pins("qm other list", "voucher:qm_other_inspect", "QM030601", "QM02010101");
             Pins("qm other check list", "voucher:qm_other_check", "QM030603", "QM02010201");
+        }
+
+        // 按角色分族的报表：每条键固定一个真实功能 id（持有放行），另取一个别的报表的 id 当错的（持有拒绝）；存货金额遮蔽 id。
+        static void CheckFamilyIds()
+        {
+            Pins("qm ind incoming", "report:qm_indicators:incoming", "QM040125_01", "QM040329_01");
+            Pins("qm ind product", "report:qm_indicators:product", "QM040329_01", "QM040125_01");
+            Pins("qm rate incoming", "report:qm_pass_rate:incoming", "QM040101_01", "QM040301_01");
+            Pins("qm rate product", "report:qm_pass_rate:product", "QM040301_01", "QM040101_01");
+            Pins("production daily", "report:production_daily", "ASM0301", "MO04005_01");
+            Pins("mo progress", "report:mo_progress", "MO04005_01", "MO03005Q");
+            Pins("mo consumption", "report:mo_consumption", "MO03005Q", "ASM0301");
+            Pins("stock age", "report:stock_age", "ST020205_01", "ST020301_01");
+            Pins("purchase analysis", "report:purchase_analysis", "PU050307_01", "PU050314_01");
+            Pins("arrival otif", "report:arrival_otif", "PU050314_01", "PU050307_01");
+            Pins("receipts", "report:receipts_payments:ar", "AR0601031", "AP0601031");
+            Pins("payments", "report:receipts_payments:ap", "AP0601031", "AR0601031");
+            Pins("notes due ar", "report:notes_due:ar", "AR2231", "AP2231");
+            Pins("notes due ap", "report:notes_due:ap", "AP2231", "AR2231");
+            Pins("open orders", "report:open_orders", "SA030105_01", "SA03010104");
+            Pins("price history", "report:sales_price_history", "SA031209", "SA030105_01");
+            Pins("customer churn", "report:customer_churn", "SA040401_01", "SA031209");
+            Pins("cash flow", "report:cash_flow", "GL1302", "GL1512");
+            Pins("close check", "report:close_check", "GL1520", "GL1302");
+            Pins("ia anomalies", "report:ia_anomalies", "IA3017_01", "IA2004");
+            Pins("cost unit", "report:cost_unit", "CA0504_01", "IA3017_01");
+            Pins("amount mask", PermRegistry.AmountRule, PermRegistry.AmountAuth, "IA3017_01");
         }
 
         static void Pins(string name, string key, string good, string bad)

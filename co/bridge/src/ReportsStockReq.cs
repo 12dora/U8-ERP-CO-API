@@ -21,6 +21,8 @@ namespace U8Co
         public bool Unverified;
         public bool ByWh = true;
         public bool NonZero = true;
+        // stock_summary：为 true 时整月区间另给存货核算金额（IA_Summary）。
+        public bool IncludeAmount;
         public bool ControlledOnly;
         public string[] Customers = new string[0];
         // price_list：customer 客户价格表、inventory 存货价格表、vendor 供应商存货价格表。
@@ -118,6 +120,7 @@ namespace U8Co
             s.ByWh = OptBool(body, "by_wh", true);
             s.Unverified = OptBool(body, "include_unverified", false);
             s.NonZero = OptBool(body, "nonzero", true);
+            s.IncludeAmount = OptBool(body, "include_amount", false);
         }
 
         static void ParseStock(string name, StockReportArgs s, Dictionary<string, object> body)
@@ -191,13 +194,13 @@ namespace U8Co
             return codes;
         }
 
-        static int OptInt(Dictionary<string, object> body, string key, int fallback, int min, int max)
+        internal static int OptInt(Dictionary<string, object> body, string key, int fallback, int min, int max)
         {
             object raw = GlReq.Field(body, key);
             return raw == null ? fallback : GlReq.IntIn(raw, key, min, max);
         }
 
-        static bool OptBool(Dictionary<string, object> body, string key, bool fallback)
+        internal static bool OptBool(Dictionary<string, object> body, string key, bool fallback)
         {
             object raw = GlReq.Field(body, key);
             if (raw == null)
@@ -212,7 +215,7 @@ namespace U8Co
         }
 
         // 编码前缀（存货分类、货位）：只收字母、数字、点和减号，可以直接当 LIKE 前缀用。
-        static string OptPrefix(Dictionary<string, object> body, string key)
+        internal static string OptPrefix(Dictionary<string, object> body, string key)
         {
             object raw = GlReq.Field(body, key);
             if (raw == null)
@@ -251,7 +254,7 @@ namespace U8Co
             return text;
         }
 
-        static bool Clean(string text, int max)
+        internal static bool Clean(string text, int max)
         {
             if (text.Length == 0 || text.Length > max)
             {

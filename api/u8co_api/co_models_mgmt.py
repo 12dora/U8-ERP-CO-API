@@ -21,7 +21,7 @@ PnlDetail = Literal["prefix4", "leaf"]
 MGMT_USAGE = ("logins 给 1 到 3 个账套的登录", "多个账套缺省合并；不要合并时写 consolidate=false")
 MGMT_RULES = (
     "合并要求各账套在公司间对照（U8CO_IC_MAP_FILE）的同一组里",
-    "先读各账套的月结状态和数据水位（mgmt/meta），结果按水位缓存",
+    "先读各账套的月结状态和数据水位（mgmt/meta），结果按水位缓存；销售、往来不依赖总账，meta 因权限不足读不到的账套照样出报表（不缓存）",
     "所选期间各账套都已总账结账时缓存 6 小时，否则 60 秒；响应的 cache 给出 hit、age_s",
     "部分账套失败仍返回 200：失败的账套写进 warnings，complete 为 false，consolidated 为 null",
 )
@@ -29,7 +29,8 @@ MGMT_ERRORS = (
     "403 account_not_allowed：令牌不能用其中某个账套",
     "404 ic_not_configured：合并时没配置对照",
     "400 ic_group_mismatch：合并时账套不在同一组",
-    "503：全部账套失败",
+    "403 no_permission：全部账套都功能权限不足",
+    "503：全部账套失败（原因不都是权限不足）",
 )
 
 
@@ -57,7 +58,7 @@ META_HELP = op_doc(
             "部分账套失败仍返回 200：失败的账套写进 warnings，complete 为 false",
         ),
     ),
-    ("错误", ("403 account_not_allowed：令牌不能用其中某个账套", "503：全部账套失败")),
+    ("错误", ("403 account_not_allowed：令牌不能用其中某个账套", "403 no_permission：全部账套都功能权限不足", "503：全部账套失败")),
 )
 PNL_SUMMARY = "经营管理：利润表"
 PNL_HELP = mgmt_doc(
@@ -75,6 +76,11 @@ PNL_HELP = mgmt_doc(
         "合并时毛利率、净利率按合并数重算；期末存货中未实现的内部利润不抵销（见 notes）",
     ),
 )
+
+
+META_REQUIRED = "required"
+META_OPTIONAL = "optional"
+META_SKIP = "skip"
 
 
 def _distinct(logins: list[IcLogin]) -> None:
@@ -104,6 +110,11 @@ class MgmtYearIn(BaseModel):
 
     def audit_ref(self) -> str:
         return str(self.fiscal_year)
+
+    def meta_mode(self) -> str:
+        """这张报表要不要读各账套的 mgmt/meta（总账数据水位、结账状态）：required 读不到的账套不往下算（缺省，总账口径）；
+        optional 因功能权限不足（no_permission）读不到的账套照样出报表；skip 不读。见 co_mgmt_core.begin_mgmt。"""
+        return META_REQUIRED
 
     def cache_params(self) -> dict[str, Any]:
         """进缓存键的参数：除登录以外的全部字段（登录另按账套和操作员进键）。"""

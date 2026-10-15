@@ -3,7 +3,8 @@ using System.Text;
 
 namespace U8Co
 {
-    // stock/current：CurrentStock 按 AutoID 分页，带仓库名和存货名。
+    // stock/current：CurrentStock 按 AutoID 分页，带仓库名、存货名和存货的主计量单位名 inv_unit（Inventory.cComUnitCode → ComputationUnit.cComUnitName，
+    // 与经营管理报表的 LEFT JOIN 相同；存货没有主计量单位时为 null）。
     // U8 通常不填 fAvaQuantity，原值放 qty_available_raw。qty_available 照 U8 的 ST_GetStockFormula：
     // 整行冻结（bStopFlag / bGSPStop）为 0，否则现存量 - 冻结量；待入、调拨待入、待出、调拨待出只在库存选项
     // bNormalOn* / bBatchOn*（按是否批次管理）打开时计入。已在测试账套上与 prc_SCM_GetCurrentStockForVouch 的 iavaqty 对过。
@@ -26,7 +27,7 @@ namespace U8Co
 
         const string Select = "SELECT TOP (?) cs.AutoID AS id, cs.cWhCode AS wh_code, w.cWhName AS wh_name, "
             + "cs.cInvCode AS inv_code, i.cInvName AS inv_name, i.cInvStd AS inv_std, "
-            + "i.cInvCCode AS inv_class_code, cs.cBatch AS batch, cs.cFree1 AS free1, cs.cFree2 AS free2, "
+            + "un.cComUnitName AS inv_unit, i.cInvCCode AS inv_class_code, cs.cBatch AS batch, cs.cFree1 AS free1, cs.cFree2 AS free2, "
             + "cs.cFree3 AS free3, cs.cFree4 AS free4, cs.cFree5 AS free5, cs.cFree6 AS free6, "
             + "cs.cFree7 AS free7, cs.cFree8 AS free8, cs.cFree9 AS free9, cs.cFree10 AS free10, "
             + "cs.ItemId AS item_id, cs.iQuantity AS qty, cs.iNum AS qty_aux, cs.fStopQuantity AS qty_frozen, "
@@ -45,11 +46,12 @@ namespace U8Co
             + "cs.cVMIVenCode AS vmi_ven_code, cs.iSoType AS so_type, cs.iSodid AS so_line, "
             + "CONVERT(varchar(20), CONVERT(bigint, cs.ufts)) AS ufts "
             + "FROM CurrentStock cs LEFT JOIN Warehouse w ON w.cWhCode = cs.cWhCode "
-            + "LEFT JOIN Inventory i ON i.cInvCode = cs.cInvCode CROSS JOIN " + Flags + " WHERE cs.AutoID > ?";
+            + "LEFT JOIN Inventory i ON i.cInvCode = cs.cInvCode "
+            + "LEFT JOIN ComputationUnit un ON un.cComunitCode = i.cComUnitCode CROSS JOIN " + Flags + " WHERE cs.AutoID > ?";
 
-        static readonly string[] Keys = new string[]
+        internal static readonly string[] Keys = new string[]
         {
-            "id", "wh_code", "wh_name", "inv_code", "inv_name", "inv_std", "inv_class_code", "batch",
+            "id", "wh_code", "wh_name", "inv_code", "inv_name", "inv_std", "inv_unit", "inv_class_code", "batch",
             "free1", "free2", "free3", "free4", "free5", "free6", "free7", "free8", "free9", "free10",
             "item_id", "qty", "qty_aux", "qty_frozen", "qty_pending_in", "qty_trans_in", "qty_pending_out",
             "qty_trans_out", "qty_disabled", "qty_available_raw", "qty_available", "qty_forecast_available", "stopped", "made_date",
@@ -68,7 +70,7 @@ namespace U8Co
             return ListRoutes.Page(result, rows, Keys, args.Limit, watermark);
         }
 
-        static string Build(ListArgs args, List<object> ps, WorkContext ctx)
+        internal static string Build(ListArgs args, List<object> ps, WorkContext ctx)
         {
             ps.Add(args.Limit + 1);
             ps.Add(args.After);

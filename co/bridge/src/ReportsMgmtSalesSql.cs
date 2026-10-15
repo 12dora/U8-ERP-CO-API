@@ -14,27 +14,30 @@ namespace U8Co
     // 单据类型也不同（如 32、3201），都带 bSale=1，所以不按单据类型列举。业务员、部门在核算明细上为空时取对应的
     // 销售出库单表头（IA_Subsidiary.ID 是出库单表体 AutoID，单号核对 cVouCode）。
     // 两边按分组键 FULL OUTER JOIN：只有成本、没有收入的组（本期出库、发票在别期）也列出。
+    // 存货分类（inventory_class 维度、inv_class 过滤）：两侧都按存货编码连存货档案，用同一个取法（ReportsMgmtSalesClassSql），
+    // 所以分类键两侧一致、仍能配对；分类过滤同时作用在收入行和成本行上。
+    // 关联方合计（OnlyCustomers）：同一套口径再跑一遍，只含这些客户、不分组，数据权限照挂。
     internal static class ReportsMgmtSalesSql
     {
         // 分组维度 → { 内层列, 名称表连接, 名称列 }；内层列在收入、成本两侧同名（q 别名下），数据权限也挂在这些列上。
         static readonly Dictionary<string, string[]> DimCols = BuildDims();
 
         const string SaInner = "SELECT {PER} AS per, ISNULL(h.cCusCode, N'') AS cCusCode, ISNULL(b.cInvCode, N'') AS cInvCode,"
-            + " ISNULL(h.cPersonCode, N'') AS cPersonCode, ISNULL(h.cDepCode, N'') AS cDepCode, ISNULL(b.iQuantity, 0) AS qty,"
+            + " ISNULL(h.cPersonCode, N'') AS cPersonCode, ISNULL(h.cDepCode, N'') AS cDepCode,{CLS} ISNULL(b.iQuantity, 0) AS qty,"
             + " ISNULL(b.iNatMoney, 0) AS rev, ISNULL(b.iNatSum, 0) AS rev_tax"
-            + " FROM SaleBillVouch h JOIN SaleBillVouchs b ON b.SBVID = h.SBVID"
-            + " WHERE h.dDate >= CONVERT(date, ?, 23) AND h.dDate < CONVERT(date, ?, 23) AND ISNULL(h.bFirst, 0) = 0";
+            + " FROM SaleBillVouch h JOIN SaleBillVouchs b ON b.SBVID = h.SBVID{JOIN}"
+            + " WHERE h.dDate >= CONVERT(date, ?, 23) AND h.dDate < CONVERT(date, ?, 23) AND ISNULL(h.bFirst, 0) = 0{FILTER}";
 
         const string Verified = " AND NULLIF(LTRIM(RTRIM(h.cChecker)), N'') IS NOT NULL";
 
         const string IaInner = "SELECT CONVERT(int, s.iMonth) AS per, ISNULL(s.cCusCode, N'') AS cCusCode,"
             + " ISNULL(s.cInvCode, N'') AS cInvCode,"
             + " ISNULL(COALESCE(NULLIF(LTRIM(RTRIM(s.cPersonCode)), N''), r.cPersonCode), N'') AS cPersonCode,"
-            + " ISNULL(COALESCE(NULLIF(LTRIM(RTRIM(s.cDepCode)), N''), r.cDepCode), N'') AS cDepCode,"
+            + " ISNULL(COALESCE(NULLIF(LTRIM(RTRIM(s.cDepCode)), N''), r.cDepCode), N'') AS cDepCode,{CLS}"
             + " ISNULL(s.iAOutQuantity, 0) AS cqty, ISNULL(s.iAOutPrice, 0) AS cogs"
             + " FROM IA_Subsidiary s LEFT JOIN rdrecords32 rs ON rs.AutoID = s.ID"
-            + " LEFT JOIN rdrecord32 r ON r.ID = rs.ID AND r.cCode = s.cVouCode"
-            + " WHERE s.iYear = ? AND s.iMonth BETWEEN ? AND ? AND s.bSale = 1 AND s.bRdFlag = 0";
+            + " LEFT JOIN rdrecord32 r ON r.ID = rs.ID AND r.cCode = s.cVouCode{JOIN}"
+            + " WHERE s.iYear = ? AND s.iMonth BETWEEN ? AND ? AND s.bSale = 1 AND s.bRdFlag = 0{FILTER}";
 
         const string Measures = " CONVERT(decimal(28,6), ISNULL(a.qty, 0)) AS qty, CONVERT(decimal(18,2), ISNULL(a.rev, 0)) AS rev,"
             + " CONVERT(decimal(18,2), ISNULL(a.rev_tax, 0)) AS rev_tax, CONVERT(decimal(28,6), ISNULL(c.cqty, 0)) AS cost_qty,"
@@ -56,8 +59,11 @@ namespace U8Co
             map.Add("period", new string[] { "per", "", "" });
             map.Add("customer", new string[] { "cCusCode", " LEFT JOIN Customer cu ON cu.cCusCode = t.k_customer",
                 "cu.cCusName AS n_customer" });
-            map.Add("inventory", new string[] { "cInvCode", " LEFT JOIN Inventory iv ON iv.cInvCode = t.k_inventory",
-                "iv.cInvName AS n_inventory, iv.cInvStd AS s_inventory" });
+            map.Add("inventory", new string[] { "cInvCode", " LEFT JOIN Inventory iv ON iv.cInvCode = t.k_inventory"
+                + " LEFT JOIN ComputationUnit un ON un.cComunitCode = iv.cComUnitCode",
+                "iv.cInvName AS n_inventory, iv.cInvStd AS s_inventory, {ICLS} AS c_inventory, un.cComUnitName AS u_inventory" });
+            map.Add("inventory_class", new string[] { "cInvClass", " LEFT JOIN InventoryClass cl ON cl.cInvCCode = t.k_inventory_class",
+                "cl.cInvCName AS n_inventory_class" });
             map.Add("person", new string[] { "cPersonCode", " LEFT JOIN Person pe ON pe.cPersonCode = t.k_person",
                 "pe.cPersonName AS n_person" });
             map.Add("department", new string[] { "cDepCode", " LEFT JOIN Department de ON de.cDepCode = t.k_department",
@@ -66,24 +72,35 @@ namespace U8Co
         }
 
         // 整句。bounds 是各期间起始日加 period_to 次日（ReportsMgmtSales.Bounds）。
-        // ? 的顺序：收入侧（按期间分组时每个非末期间的次期起始日、窗口起、窗口止、数据权限），成本侧（年度、起止期间、数据权限）。
+        // ? 的顺序：收入侧（按期间分组时每个非末期间的次期起始日、分类级次、窗口起、窗口止、分类前缀、客户、数据权限），
+        // 成本侧（分类级次、年度、起止期间、分类前缀、客户、数据权限），最后是存货维度往上取分类的级次。
         internal static string Query(WorkContext ctx, MgmtSalesArgs m, int year, string[] bounds, List<object> ps)
         {
-            string sa = Side(ctx, m, SaInner.Replace("{PER}", PeriodCase(m, bounds, ps)) + (m.Unverified ? "" : Verified),
-                "SUM(q.qty) AS qty, SUM(q.rev) AS rev, SUM(q.rev_tax) AS rev_tax", ps, Window(bounds));
-            string ia = Side(ctx, m, IaInner, "SUM(q.cqty) AS cqty, SUM(q.cogs) AS cogs", ps,
-                new object[] { year, m.From, m.To });
+            string saInner = SaInner.Replace("{PER}", PeriodCase(m, bounds, ps));
+            string sa = Side(ctx, m, ReportsMgmtSalesClassSql.Inner(saInner, m, "b.cInvCode") + (m.Unverified ? "" : Verified),
+                "SUM(q.qty) AS qty, SUM(q.rev) AS rev, SUM(q.rev_tax) AS rev_tax", ps,
+                ReportsMgmtSalesClassSql.Args(m, Window(bounds)));
+            string ia = Side(ctx, m, ReportsMgmtSalesClassSql.Inner(IaInner, m, "s.cInvCode"),
+                "SUM(q.cqty) AS cqty, SUM(q.cogs) AS cogs", ps,
+                ReportsMgmtSalesClassSql.Args(m, new object[] { year, m.From, m.To }));
             StringBuilder sql = new StringBuilder("SELECT ");
             StringBuilder joins = new StringBuilder();
+            bool rollInventory = m.ClassGrade > 0 && m.Has("inventory");
             for (int i = 0; i < m.GroupBy.Length; i++)
             {
                 string[] dim = DimCols[m.GroupBy[i]];
                 sql.Append("t.k_").Append(m.GroupBy[i]).Append(", ");
                 if (dim[2].Length > 0)
                 {
-                    sql.Append(dim[2]).Append(", ");
+                    sql.Append(dim[2].Replace("{ICLS}", rollInventory ? "COALESCE(ig.cInvCCode, iv.cInvCCode)" : "iv.cInvCCode")).Append(", ");
                     joins.Append(dim[1]);
                 }
+            }
+            if (rollInventory)
+            {
+                // 存货维度的分类编码也往上取到同一级次（必须排在 iv 的连接之后；参数排在最后）。
+                joins.Append(ReportsMgmtSalesClassSql.Apply("iv.cInvCCode", "ig"));
+                ps.Add(m.ClassGrade);
             }
             sql.Append("t.qty, t.rev, t.rev_tax, t.cost_qty, t.cogs FROM (SELECT ").Append(Coalesced(m))
                 .Append(Measures).Append(" FROM (").Append(sa).Append(") a FULL OUTER JOIN (").Append(ia)
@@ -98,6 +115,7 @@ namespace U8Co
             StringBuilder sql = new StringBuilder("SELECT ");
             string keys = Keys(m);
             sql.Append(keys.Length > 0 ? keys + ", " : "").Append(sums).Append(" FROM (").Append(inner).Append(") q WHERE 1 = 1");
+            Customers(sql, ps, m);
             // 数据权限：客户、存货、业务员、部门。
             PermHook.Where(sql, ps, ctx, "q");
             if (keys.Length > 0)
@@ -105,6 +123,22 @@ namespace U8Co
                 sql.Append(" GROUP BY ").Append(keys);
             }
             return sql.ToString();
+        }
+
+        // 关联方合计那一遍：只含这些客户（客户编码列在两侧同名）。
+        static void Customers(StringBuilder sql, List<object> ps, MgmtSalesArgs m)
+        {
+            if (m.OnlyCustomers == null)
+            {
+                return;
+            }
+            sql.Append(" AND q.cCusCode IN (");
+            for (int i = 0; i < m.OnlyCustomers.Length; i++)
+            {
+                sql.Append(i == 0 ? "?" : ", ?");
+                ps.Add(m.OnlyCustomers[i]);
+            }
+            sql.Append(")");
         }
 
         static string Keys(MgmtSalesArgs m)
@@ -143,12 +177,17 @@ namespace U8Co
             return sql.ToString();
         }
 
-        // 发票日期 → 期间号：按期间分组时 CASE WHEN h.dDate < 次期起始日 THEN 期间 …，否则常量 0（不进分组）。
+        // 发票日期 → 期间号：按期间分组时 CASE WHEN h.dDate < 次期起始日 THEN 期间 …（只有一个期间时直接用该期间号），否则常量 0（不进分组）。
         static string PeriodCase(MgmtSalesArgs m, string[] bounds, List<object> ps)
         {
             if (!m.Has("period"))
             {
                 return "0";
+            }
+            if (m.From == m.To)
+            {
+                // 只有一个期间：没有 WHEN 分支，CASE 只剩 ELSE 是语法错误，直接用常量。
+                return m.To.ToString(CultureInfo.InvariantCulture);
             }
             StringBuilder sql = new StringBuilder("CASE");
             for (int p = m.From; p < m.To; p++)

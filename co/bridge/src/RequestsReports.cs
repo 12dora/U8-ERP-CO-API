@@ -8,7 +8,7 @@ namespace U8Co
     {
         internal const string ReportRoot = "/u8co/v1/reports/";
 
-        static readonly string[][] ReportSpecs = new string[][]
+        static readonly string[][] FixedReportSpecs = new string[][]
         {
             new string[] { ReportRoot + "close_status", "fiscal_year" },
             new string[]
@@ -46,7 +46,7 @@ namespace U8Co
             new string[]
             {
                 ReportRoot + "order_execution", "type", "ids", "code", "date_from", "date_to", "partner", "only_open",
-                "after", "limit"
+                "after", "limit", "order"
             },
             new string[] { ReportRoot + "doc_trace", "type", "id", "depth", "direction", "max_nodes" },
             new string[]
@@ -57,7 +57,7 @@ namespace U8Co
             new string[]
             {
                 ReportRoot + "stock_summary", "date_from", "date_to", "wh", "inv", "inv_class", "by_wh",
-                "include_unverified", "nonzero", "after", "limit"
+                "include_unverified", "nonzero", "include_amount", "after", "limit"
             },
             new string[] { ReportRoot + "position_stock", "wh", "inv", "batch", "position", "nonzero", "after", "limit" },
             new string[] { ReportRoot + "batch_stock", "wh", "inv", "batch", "expiring_before", "nonzero", "after", "limit" },
@@ -96,19 +96,30 @@ namespace U8Co
             new string[]
             {
                 ReportRoot + ReportsMgmtGlReq.CashName, "fiscal_year", "period", "cash_accounts", "notes_accounts", "top",
-                "purchase_source", "include_unverified"
+                "purchase_source", "include_unverified", "class_grade", "inv_class", "sections"
             },
             // 经营管理销售分析、往来账期（ReportsMgmtSalesReq、ReportsMgmtArapReq）：聚合结果，不收 after、limit。
             new string[]
             {
                 ReportRoot + ReportsMgmtSalesReq.Name, "fiscal_year", "period_from", "period_to", "group_by", "top",
-                "include_unverified"
+                "include_unverified", "class_grade", "inv_class", "ic_customers"
             },
             new string[]
             {
                 ReportRoot + ReportsMgmtArapReq.Name, "side", "as_of", "accounts", "buckets", "default_credit_days", "top"
             }
         };
+
+        // FixedReportSpecs 后面接上按角色分族的报表（质量、生产、库龄、采购、销售、收付款与现金流、账务核对），字段表在各族的 Specs（ReportsFamilies）。
+        static readonly string[][] ReportSpecs = JoinSpecs(FixedReportSpecs, ReportsFamilies.Specs);
+
+        static string[][] JoinSpecs(string[][] fixedRows, string[][] more)
+        {
+            string[][] all = new string[fixedRows.Length + more.Length][];
+            Array.Copy(fixedRows, all, fixedRows.Length);
+            Array.Copy(more, 0, all, fixedRows.Length, more.Length);
+            return all;
+        }
 
         static bool IsReport(string path)
         {

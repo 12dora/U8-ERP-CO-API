@@ -9,10 +9,7 @@ namespace U8Co
         {
             return new PermRule[]
             {
-                V("production_order", "生产订单", A("MO02001Q"),
-                    PermObj.B(PermObj.Inventory, "mom_orderdetail", "MoId", "MoId", "InvCode"),
-                    PermObj.BOpt(PermObj.Department, "mom_orderdetail", "MoId", "MoId", "MDeptCode"),
-                    PermObj.BOpt(PermObj.Warehouse, "mom_orderdetail", "MoId", "MoId", "WhCode")),
+                V("production_order", "生产订单", A("MO02001Q"), ProductionOrderObjs()),
                 MoWrite(MoClose.CloseRule, "生产订单关闭", A("MO03001CLS")),
                 MoWrite(MoClose.OpenRule, "生产订单打开", A("MO03001UNC")),
                 // 新增 / 删除（MoCreate / MoDelete）：生产订单输入卡片 MO_Voucher_MO02001 的 tlbAdd（MO02001N），
@@ -35,15 +32,24 @@ namespace U8Co
             };
         }
 
+        // 生产订单的数据权限对象（存货、部门、仓库都在表体）：生产订单查询 voucher:production_order、生产订单的关闭 / 打开 / 新增 /
+        // 删除 / 修改（MoWrite）、生产订单完工状况表和用料分析（report:mo_progress、report:mo_consumption）共用。
+        static PermObj[] ProductionOrderObjs()
+        {
+            return new PermObj[]
+            {
+                PermObj.B(PermObj.Inventory, "mom_orderdetail", "MoId", "MoId", "InvCode"),
+                PermObj.BOpt(PermObj.Department, "mom_orderdetail", "MoId", "MoId", "MDeptCode"),
+                PermObj.BOpt(PermObj.Warehouse, "mom_orderdetail", "MoId", "MoId", "WhCode")
+            };
+        }
+
         // 生产订单关闭 / 打开（vouchers/close，写路由，MoClose 用 ForKey 取）：功能 id 取生产订单列表（MO_List_MO03001）
         // 「关闭」「还原」按钮的 MO03001CLS / MO03001UNC（UFMeta AA_FormButtonAuths；生产订单输入卡片没有关闭、还原按钮）。
         // 选中的每一行按读取的数据权限对象判断。
         static PermRule MoWrite(string key, string title, string[] auths)
         {
-            return R(key, title, auths,
-                PermObj.B(PermObj.Inventory, "mom_orderdetail", "MoId", "MoId", "InvCode"),
-                PermObj.BOpt(PermObj.Department, "mom_orderdetail", "MoId", "MoId", "MDeptCode"),
-                PermObj.BOpt(PermObj.Warehouse, "mom_orderdetail", "MoId", "MoId", "WhCode"));
+            return R(key, title, auths, ProductionOrderObjs());
         }
 
         static PermRule Qm(string type, string title, string[] auths, bool incoming, bool hasDep)
@@ -256,6 +262,12 @@ namespace U8Co
         const string ArAgingView = "AR[__]bdfd5d21-763b-4d7b-a6ae-eb3abb026f91_001_01";
         const string ApAgingView = "AP[__]5d20e375-da98-4d59-a5a5-345d9123f2d0_002_01";
 
+        // 月末结账状态的功能 id：report:close_status 和月末结账检查 report:close_check 共用。
+        static string[] CloseStatusAuths()
+        {
+            return A("GL1512", "GL1520", "GL030301", "GL0305");
+        }
+
         static PermRule[] OtherRules()
         {
             PermObj[] aux = new PermObj[]
@@ -276,7 +288,7 @@ namespace U8Co
                 // 没带 type 的待办只列操作员自己的任务，登录成功即可。
                 R("tasks", "审批任务", A()),
                 // 月末结账状态：总账「结账」GL1512、「反结账」GL1520，另收余额表、明细账的查询（已去掉「凭证整理」GL0202）。
-                R("report:close_status", "月末结账状态", A("GL1512", "GL1520", "GL030301", "GL0305")),
+                R("report:close_status", "月末结账状态", CloseStatusAuths()),
                 // 账套体检：账套主管（admin，PermContext.Supervisor 直接放行），或有总账「结账」GL1512、「凭证整理」GL0202 的操作员；
                 // 不按记录过滤（只查配置和目录）。
                 R(ReportsReadinessReq.RuleKey, "账套体检", A("admin", "Admin", "GL1512", "GL0202")),

@@ -8,9 +8,10 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BaseModel, Field, StrictBool, ValidationInfo, field_validator, model_validator
+from pydantic import AfterValidator, TypeAdapter, BaseModel, Field, StrictBool, ValidationInfo, field_validator, model_validator
 
 from u8co_api.co_doctext import op_doc
 from u8co_api.co_gen_source import SourceType
@@ -24,6 +25,30 @@ _BATCH_MAX = 20
 _CTRL = r"^[^\x00-\x1f\x7f]{1,60}$"
 Word = Annotated[str, Field(pattern=_CTRL, description="1 到 60 个字符，不含控制字符")]
 DocId = Annotated[int, Field(gt=0, le=_ID_MAX)]
+_ID_AFTER = TypeAdapter(Annotated[int, Field(ge=0, le=_ID_MAX)])
+_CURSOR = re.compile(r"^[\x21-\x7e]{1,512}$")
+
+
+def _search_after(value: int | str, info: ValidationInfo) -> int | str:
+    # 升序（缺省）的 after 是整数主键，写成数字字符串（"123"）照旧按整数收（同以前的 int 字段）。
+    # order 为 desc 时 after 是上一页 next 给的游标文本（最长 512 个可见 ASCII 字符）；整数也放行，
+    # 留给还没升级的桥（它不认识 order，去掉 order 重试后按主键续读）。桥会核对 after 配不配得上 order。
+    if info.data.get("order") != "desc":
+        return _ID_AFTER.validate_python(value)
+    if isinstance(value, str) and _CURSOR.fullmatch(value) is None:
+        raise ValueError("after 游标必须是 1 到 512 个可见 ASCII 字符")
+    return _ID_AFTER.validate_python(value) if isinstance(value, int) else value
+
+
+SearchAfter = Annotated[int | str, AfterValidator(_search_after)]
+ORDER_DESC = (
+    "排序。asc（缺省）按主键升序；desc 按单据日期降序、同日按主键降序，最新的单据在前。"
+    "桥还没升级时 desc 不生效，响应的 order_applied 为 false"
+)
+AFTER_DESC = (
+    "上一页响应的 next，原样传回。asc 时是最后一个主键（整数），desc 时是游标文本（单据日期加主键，不透明），"
+    "两种不能混用；换了 order 要从头读"
+)
 
 _DEFINE_OPS = ("eq", "like", "prefix")
 _DEFINE_MAX = 120
@@ -89,16 +114,20 @@ SEARCH_HELP = (
     "- warehouse：表头仓库。\n"
     "- inventory：明细含该存货（表头有存货列的类型按表头）。\n"
     "- defines：按表头自定义项找单据，如表头自定义项 1 里的纸质合同号。\n"
-    "- next 原样放进 after 读下一页。\n\n"
+    "- next 原样放进 after 读下一页。\n"
+    "- order 为 desc 时先给最新的单据：按单据日期降序、同日按主键降序，next 是游标文本，原样放进 after。\n\n"
     "**规则**\n"
     "- defines 的键是 define1–3、define8–14（表头的文本自定义项），最多 4 个键，条件之间是 AND。\n"
     "- defines 的值是字符串（规整后相等）或 `{eq | like | prefix: 字符串}`（相等、包含、开头是）。\n"
     "- 规整：全角空格、不换行空格当半角空格，去两端空格。\n"
-    "- 给了 defines 时每条另有 defines：请求里各键的表头值（规整后，空为 null）。\n\n"
+    "- 给了 defines 时每条另有 defines：请求里各键的表头值（规整后，空为 null）。\n"
+    "- 给了 order 时响应带 order_applied：true 表示按请求的顺序排；false 表示桥还没升级，列表仍是最旧在前，next 是主键，继续读时去掉 order。\n"
+    "- 游标不能跨 order 使用，换了 order 要从头读。\n\n"
     "**错误**\n"
     "- 该类型没有往来单位列、仓库列、存货列或关闭状态时，对应的 partner、warehouse、inventory、closed 返回 400。\n"
     "- defines 的其他键 400（field 为 `defines.<键>`）；日期、数字自定义项 define4–7、define15–16 也不收。\n"
-    "- 生产订单、物料清单没有表头自定义项：400（field 为 defines）。"
+    "- 生产订单、物料清单没有表头自定义项：400（field 为 defines）。\n"
+    "- order 为 desc 时 after 不是桥给的游标：400（field 为 after）。"
 )
 
 LOAD_MANY_SUMMARY = "批量读取单据"
@@ -223,7 +252,8 @@ class VoucherSearchIn(CoAuth):
     date_to: str | None = Field(None, pattern=DATE, description="单据日期上限，yyyy-MM-dd，含当天")
     verified: StrictBool | None = Field(None, description="true 只要已审核，false 只要未审核")
     closed: StrictBool | None = Field(None, description="true 只要已关闭，false 只要未关闭")
-    after: int | None = Field(None, ge=0, le=_ID_MAX, description="上一页响应的 next（最后一个主键），按主键续读")
+    order: Literal["asc", "desc"] | None = Field(None, description=ORDER_DESC)
+    after: SearchAfter | None = Field(None, description=AFTER_DESC)
     limit: int | None = Field(None, ge=1, le=200, description="每页条数，1 到 200，缺省 50")
     defines: dict[str, DefineSpec] | None = Field(
         None,
@@ -257,10 +287,16 @@ class VoucherSearchOut(BaseModel):
     type: Scalar = Field(None, description="单据类型")
     items: list[dict[str, Any]] | None = Field(
         None,
-        description="按主键排序的单据表头，与 vouchers/list 的条目相同；有往来单位列的类型另有 partner_name；"
+        description="默认按主键排序、order 为 desc 时按单据日期降序再主键降序的单据表头，与 vouchers/list 的条目相同；有往来单位列的类型另有 partner_name；"
         "请求给了 defines 时另有 defines（请求里各键的表头值，规整后，空为 null）",
     )
     next: Scalar = Field(None, description="下一页的 after。最后一页省略")
+    order: Scalar = Field(None, description="桥按 desc 排序时为 desc；升序时省略")
+    order_applied: bool | None = Field(
+        None,
+        description="请求给了 order 时才有。true 表示列表按请求的顺序排；false 表示桥还没升级、不认识 order，"
+        "列表仍是最旧在前，next 是主键，继续读时不要带 order",
+    )
 
 
 class LoadManyIn(CoAuth):

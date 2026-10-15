@@ -20,6 +20,9 @@ namespace U8Co
 
         public ListKind Kind;
         public int After;
+        // order: "desc"（DescPaging）：单据日期降序、主键降序，after 换成上一页 next 的游标（Cursor）；缺省升序，after 仍是主键。
+        public bool Desc;
+        public DescCursor Cursor;
         public int Limit = DefaultLimit;
         // 按 ListSql.AppendFilters 的键存放。
         public readonly Dictionary<string, object> Filters = new Dictionary<string, object>(StringComparer.Ordinal);
@@ -38,13 +41,41 @@ namespace U8Co
             }
             VoucherSearchArgs args = new VoucherSearchArgs();
             args.Kind = KindOf(body);
-            args.After = OptInt(body, "after", 0, 0, int.MaxValue);
+            args.Desc = DescPaging.ParseOrder(body);
+            if (args.Desc)
+            {
+                if (!args.Kind.Has(ListKind.Date))
+                {
+                    throw BridgeException.BadField("order", "该单据类型没有单据日期，不支持 order 为 desc");
+                }
+                args.Cursor = DescAfter(body);
+            }
+            else
+            {
+                args.After = OptInt(body, "after", 0, 0, int.MaxValue);
+            }
             args.Limit = OptInt(body, "limit", DefaultLimit, 1, MaxLimit);
             args.ParseText(body);
             args.ParseDates(body);
             args.ParseFlags(body);
             args.ParseExtra(body);
             return args;
+        }
+
+        // desc 的 after：上一页响应的 next（游标文本）；没给或 null 从头读。
+        static DescCursor DescAfter(Dictionary<string, object> body)
+        {
+            object raw = Requests.Field(body, "after");
+            if (raw == null)
+            {
+                return null;
+            }
+            string text = raw as string;
+            if (text == null || text.Length > ReportsReq.MaxCursor)
+            {
+                throw BridgeException.BadField("after", "order 为 desc 时 after 必须是上一页响应的 next");
+            }
+            return DescPaging.Parse(text, 1);
         }
 
         static ListKind KindOf(Dictionary<string, object> body)

@@ -7,6 +7,9 @@ namespace U8Co
 {
     // 经营管理销售分析 reports/mgmt/sales（读线程，只用 ctx.Conn）：期间内按客户、存货、业务员、部门、期间的任意组合
     // 汇总销售发票收入与存货核算销售成本，算毛利、毛利率；按收入从高到低取前 top 组，其余并成 others，totals 是全部组的合计。
+    // 存货分类：group_by 含 inventory_class 时按分类（class_grade 往上取该级次的祖先）分组，行带 inventory_class_code / _name；
+    // inv_class 只统计存货分类编码以它开头的行（收入、成本两侧）；按 inventory 分组的行另带 inventory_unit（主计量单位名）
+    // 和 inventory_class_code（同 class_grade 取法）。ic_customers 给出时另有 ic_totals（这些客户的合计，见 IcTotals）。
     // 不翻页（聚合结果）。账套没有启用销售管理（SA 选项 dSaleStartDate 为空）时 items 为空、sa_enabled=false；
     // 收入以发票为准，与总账 6001 可能有期间、口径差（非销售发票收入、跨期复核），利润以总账为准（mgmt/pnl）。
     // 期间按 U8 会计期间（UFSYSTEM..UA_Period）换成发票日期窗口（period_source=u8），不连续或无权读系统库时按自然月
@@ -45,7 +48,35 @@ namespace U8Co
             body["ia_enabled"] = Reports.Text(flags, "ia") != null;
             AddWarning(body, warning);
             Fill(body, groups, m.Top);
+            if (m.IcCustomers.Length > 0)
+            {
+                body["ic_totals"] = IcTotals(ctx, m, a.FiscalYear, bounds, sa);
+            }
             return ApiResult.Ok(body);
+        }
+
+        // 关联方合计 ic_totals：只含 ic_customers 里的客户，不分组、不受 top 限制（同一套期间、复核、分类口径和数据权限）。
+        // 客户不在 top 里也算得准，是调用方判断「其中关联方」的依据。没有启用销售管理或没有这些客户的销售时全为 0。
+        static Dictionary<string, object> IcTotals(WorkContext ctx, MgmtSalesArgs m, int year, string[] bounds, bool sa)
+        {
+            decimal[] sums = new decimal[Measures.Length];
+            if (sa)
+            {
+                MgmtSalesArgs only = m.ForCustomers(m.IcCustomers);
+                List<object> ps = new List<object>();
+                string sql = ReportsMgmtSalesSql.Query(ctx, only, year, bounds, ps);
+                List<Group> found = ToGroups(Rows.Query(ctx.Conn, sql, ps.ToArray(), 2), only);
+                if (found.Count > 0)
+                {
+                    sums = found[0].Sums;
+                }
+            }
+            Dictionary<string, object> totals = new Dictionary<string, object>();
+            for (int k = 0; k < Measures.Length; k++)
+            {
+                totals[Measures[k]] = sums[k];
+            }
+            return totals;
         }
 
         // 各期间起始日（yyyy-MM-dd），末尾再加 period_to 的次日；共 To-From+2 个。source：u8 / calendar；
@@ -193,6 +224,8 @@ namespace U8Co
             body["group_by"] = new List<object>(m.GroupBy);
             body["top"] = m.Top;
             body["include_unverified"] = m.Unverified;
+            body["class_grade"] = m.ClassGrade == 0 ? null : (object)m.ClassGrade;
+            body["inv_class"] = m.InvClass;
             return body;
         }
 
@@ -237,6 +270,8 @@ namespace U8Co
             if (dim == "inventory")
             {
                 item["inventory_spec"] = Reports.Text(row, "s_inventory");
+                item["inventory_unit"] = Reports.Text(row, "u_inventory");
+                item["inventory_class_code"] = Reports.Text(row, "c_inventory");
             }
         }
 

@@ -96,8 +96,8 @@ _FORWARD = (
     (
         "/v1/co/stock/current",
         "/v1/stock/current",
-        _auth(wh="01", inv="INV0001", batch="20260801", after=20, limit=100),
-        _sealed("wh", "inv", "batch", "after", "limit"),
+        _auth(wh="01", inv="INV0001", batch="20260801", nonzero=True, after=20, limit=100),
+        _sealed("wh", "inv", "batch", "nonzero", "after", "limit"),
     ),
     ("/v1/co/stock/current", "/v1/stock/current", _auth(), _sealed()),
     _doc("load", _auth(type="ar_bill", id=5), "id"),

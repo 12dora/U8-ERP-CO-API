@@ -18,6 +18,10 @@ Code30 = Annotated[str, Field(max_length=30, pattern=_TEXT)]
 Code20 = Annotated[str, Field(max_length=20, pattern=_TEXT)]
 DocId = Annotated[StrictInt, Field(ge=1, le=2147483647)]
 OrderType = Literal["sale_order", "purchase_order"]
+_ORDER = (
+    "排序。asc（缺省）按订单 id、行 id 升序；desc 按订单日期、订单 id、行 id 降序，最新的订单在前。"
+    "桥还没升级时 desc 不生效，响应的 order_applied 为 false"
+)
 # 与桥 ReportsTraceMap 的节点表一致。
 TraceKind = Literal[
     "sale_order",
@@ -69,7 +73,8 @@ class ReportOrderExecIn(CoAuth):
         description="为 true 时只要未执行完且未关闭的行：订单和行都没关闭，且销售的发货、出库、开票（采购的入库、开票）"
         "有一项未到订单数量",
     )
-    after: After | None = Field(None, description=_AFTER)
+    order: Literal["asc", "desc"] | None = Field(None, description=_ORDER)
+    after: After | None = Field(None, description=_AFTER + "。游标不能跨 order 使用，换了 order 要从头读")
     limit: StrictInt | None = Field(None, ge=1, le=1000, description="每页行数，1 到 1000，缺省 200")
 
     @field_validator("date_from", "date_to")
@@ -113,13 +118,19 @@ class ReportOrderExecOut(BaseModel):
     only_open: Scalar = Field(None, description="是否只列未执行完的行")
     items: list[dict[str, Any]] | None = Field(
         None,
-        description="按订单 id、行 id 排序，每行一项：id、code、date、partner、partner_name、currency、verified、closed、"
+        description="默认按订单 id、行 id 排序（order 为 desc 时按订单日期、订单 id、行 id 降序），每行一项：id、code、date、partner、partner_name、currency、verified、closed、"
         "open、line_id、row_no、inv_code、inv_name、inv_std、due_date、qty、amount、nat_amount、invoiced_qty、"
         "invoiced_amount、returned_qty；销售另有 shipped_qty、shipped_amount、out_qty、received_amount、"
         "received_nat_amount，采购另有 arrived_qty、arrived_amount、in_qty、paid_amount、paid_nat_amount。"
         "执行数取 U8 订单行上的累计列",
     )
     next: Scalar = Field(None, description=_NEXT)
+    order: Scalar = Field(None, description="桥按 desc 排序时为 desc；升序时省略")
+    order_applied: bool | None = Field(
+        None,
+        description="请求给了 order 时才有。true 表示按请求的顺序排；false 表示桥还没升级、不认识 order，"
+        "列表仍是最旧在前，next 是旧游标，继续读时不要带 order",
+    )
 
 
 class ReportDocTraceOut(BaseModel):

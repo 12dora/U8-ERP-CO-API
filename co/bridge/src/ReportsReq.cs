@@ -124,6 +124,12 @@ namespace U8Co
                 ReportsReadinessReq.Parse(a, body);
                 return;
             }
+            ParseOwnedMore(a, body);
+        }
+
+        // ParseOwned 的后半：固定资产、经营管理、分族报表；都不是时 400。
+        static void ParseOwnedMore(ReportArgs a, Dictionary<string, object> body)
+        {
             // 固定资产变动单、折旧（fa_changes、fa_depreciation）：参数另有 FaReportArgs，处理函数里再解析一次。
             if (ReportsFaReq.Owns(a.Name))
             {
@@ -139,6 +145,12 @@ namespace U8Co
             // 经营管理销售分析、往来账期 mgmt/sales、mgmt/arap_terms：参数另有 MgmtSalesArgs / MgmtArapArgs，处理函数里再解析一次。
             if (ReportsMgmtArapReq.Check(a, body))
             {
+                return;
+            }
+            // 按角色分族的报表（质量、生产、库龄、采购、销售、收付款与现金流、账务核对）：参数在各族的 Check 里校验，处理函数里再解析一次。
+            if (ReportsFamilies.Owns(a.Name))
+            {
+                ReportsFamilies.Check(a.Name, body);
                 return;
             }
             throw GlReq.Bad("未知的报表 " + a.Name);
