@@ -19,7 +19,7 @@ from u8co_api.co_client import DEFAULT_ROUTE
 from u8co_api.co_ic_map import IcGroup, IcMap, load_ic_map
 from u8co_api.co_models import CoAuth
 from u8co_api.co_models_ic import IcLogin
-from u8co_api.co_service import allow_acc, bridge_payload, remember_user
+from u8co_api.co_service import allow_acc, bridge_payload, check_operators, remember_user
 from u8co_api.deps import current_caller
 from u8co_api.errors import ApiError, not_found, timeout_error, unavailable, unprocessable
 
@@ -94,6 +94,8 @@ def remember_ic(request, action: str, logins: Iterable[CoAuth], ref: str = "") -
     request.state.ic_bridges = {}
     request.state.audit_action = request.state.ic_action
     remember_user(request)
+    # 每个选中的登录操作员都要在调用方的可用范围内，不然一个桥都不调。
+    check_operators(request, [login.operator for login in chosen])
 
 
 def note_outcome(request, acc: str, outcome: str) -> None:
@@ -215,6 +217,7 @@ def fanout(
 ) -> dict[str, FanResult]:
     """每个账套调一次同一个桥路由，请求体是登录字段加 body_for(login)。先检查全部账套的授权（不全则 403）。"""
     chosen = list(logins)
+    check_operators(request, [login.operator for login in chosen])
     allow_accs(request, [login.acc for login in chosen])
     jobs = {login.acc: _job(request, login, path, body_for) for login in chosen}
     return run_jobs(request, jobs, timeout=timeout)

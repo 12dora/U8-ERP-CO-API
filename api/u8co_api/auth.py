@@ -5,7 +5,7 @@
 信任项写了 accounts 时再与之取交集（静态上限，令牌声明放不宽它）。
 经营管理权限（Caller.mgmt）同样只认信任项的 mgmt_claim / mgmt_scope；信任项没配时一律为 false。
 Caller.subject 是令牌的 sub：幂等记录、频率名额、审计的终端用户都按「信任项:客户端:sub」区分，不只看 azp。
-perm_evaluate、on_behalf_header 直接取自信任项（缺省 false），令牌里的声明不能打开它们。
+perm_evaluate、on_behalf_header、operators 直接取自信任项（缺省 false），令牌里的声明不能打开它们。
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import jwt
 from u8co_api.config import Settings
 from u8co_api.errors import unauthorized
 from u8co_api.jwks import Jwk, JwksCache, JwksRegistry
-from u8co_api.trust import TrustEntry
+from u8co_api.trust import OperatorRule, TrustEntry
 
 _ACCOUNT = re.compile(r"^[0-9]{3}\Z")
 _SPLIT = re.compile(r"[\s,]+")
@@ -40,6 +40,8 @@ class Caller:
     perm_evaluate: bool = False
     # 信任项的 on_behalf_header：机器调用方代人调用时，审计的终端用户取 U8CO_USER_HEADER 头。
     on_behalf_header: bool = False
+    # 信任项的 operators：可用的 U8 登录操作员；None 表示不限。令牌里的声明不能改它。
+    operators: OperatorRule | None = None
 
 
 def bearer_token(header: str | None) -> str:
@@ -152,6 +154,7 @@ def caller_from(payload: dict, spec: TrustEntry) -> Caller:
         subject=_subject(payload),
         perm_evaluate=spec.perm_evaluate,
         on_behalf_header=spec.on_behalf_header,
+        operators=spec.operators,
     )
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 
 from u8co_api.auth import Caller
 from u8co_api.co_access import WRITE, access_of, is_mgmt, is_perm_evaluate, is_read, may_call
@@ -30,6 +31,8 @@ def bridge_payload(body: CoAuth) -> dict:
 
 def ensure_co(request, caller: Caller, action: str) -> None:
     settings = request.app.state.settings
+    # 验过签的调用方的操作员范围（check_operators 据此在联系桥之前判定）。
+    request.state.operator_rule = caller.operators
     if not settings.enabled:
         raise not_found("CO 接口未启用")
     if not may_call(caller.write, caller.read, action, caller.mgmt, caller.perm_evaluate):
@@ -72,11 +75,25 @@ def refuse_read_only(request, action: str, acc: str) -> None:
         raise forbidden("该账套只开放读取", "account_read_only")
 
 
+def check_operators(request, operators: Iterable[str]) -> None:
+    """信任项的 operators（allow / deny）：登录用的操作员不在调用方的可用范围就 403 operator_forbidden，审计 outcome 记 denied。
+    所有带操作员的入口（remember_co 单账套、remember_ic 公司间与经营管理、fanout）都在联系桥之前调这一处；
+    perm/evaluate 的 subject 是被查的人，不是登录，不在检查之内。与写入策略的操作员规则是两层。"""
+    rule = getattr(request.state, "operator_rule", None)
+    if rule is None:
+        return
+    for operator in operators:
+        if not rule.permits(operator):
+            request.state.outcome = "denied"
+            raise ApiError(403, "operator_forbidden", "该调用方不能使用此 U8 操作员", field="operator")
+
+
 def remember_co(request, action: str, body: CoAuth) -> None:
     request.state.accs = [body.acc]
     request.state.operators = [f"{body.acc}={body.operator}"]
     request.state.audit_action = _audit_action(action, body)
     remember_user(request)
+    check_operators(request, [body.operator])
 
 
 def _audit_action(route: str, body: CoAuth) -> str:

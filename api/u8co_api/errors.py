@@ -71,7 +71,7 @@ def default_hint(status: int, code: str) -> str | None:
 
 class ApiError(Exception):
     # retry_after：可以稍后重试的错误写进 Retry-After 响应头（秒），其余为 None。
-    # field：出错的请求字段路径（点分，如 lines.0.cinvcode），只用于 400。
+    # field：出错的请求字段路径（点分，如 lines.0.cinvcode），只用于 400（和 403 operator_forbidden）。
     # hint：简短的中文修正提示，构造后按需赋值；None 时按错误码取默认提示。
     # detail：桥给的结构化补充（只用于 4xx，如存货核算拒绝时列出的存货），构造后按需赋值。
     def __init__(

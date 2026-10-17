@@ -12,6 +12,9 @@ jwks_url 必须是 https；http 只允许本机回环地址，或该项显式写
 可选的 perm_evaluate（布尔，缺省 false）：只有为 true 的信任项能调 /v1/co/perm/evaluate（查别的操作员的权限）。
 可选的 on_behalf_header（布尔，缺省 false）：为 true 的机器调用方代人调用时，审计的终端用户取 U8CO_USER_HEADER
 头（同时记令牌 sub）；为 false 时令牌有 sub 就以 sub 为终端用户，头被忽略。
+可选的 operators（{"allow": [...], "deny": [...]}，两个列表都可省略）：该调用方能用哪些 U8 登录操作员。操作员编码去首尾空白后
+不分大小写比较；allow 为空或没写表示不限，deny 优先于 allow。只管请求里登录用的操作员（perm/evaluate 的 subject 不算），
+与写入策略的操作员 allow / deny 是两层，互不合并。
 """
 
 from __future__ import annotations
@@ -51,8 +54,10 @@ _KEYS = frozenset(
         "accounts",
         "perm_evaluate",
         "on_behalf_header",
+        "operators",
     }
 )
+_OPERATOR_KEYS = ("allow", "deny")
 _ENV = {
     "name": "U8CO_OIDC_NAME",
     "issuer": "U8CO_OIDC_ISSUER",
@@ -70,6 +75,26 @@ _ENV = {
 }
 _TRUE = frozenset({"1", "true", "yes", "on"})
 _ACCOUNT = re.compile(r"[0-9]{3}\Z")
+
+
+def operator_key(code: str) -> str:
+    return code.strip().casefold()
+
+
+@dataclass(frozen=True)
+class OperatorRule:
+    """调用方可用的 U8 登录操作员：allow 非空时只能用其中的，deny 里的一律不能用（deny 优先）。已规范化（去空白、casefold）。"""
+
+    allow: frozenset[str] = frozenset()
+    deny: frozenset[str] = frozenset()
+
+    def permits(self, operator: object) -> bool:
+        if not isinstance(operator, str):
+            return False
+        key = operator_key(operator)
+        if key in self.deny:
+            return False
+        return not self.allow or key in self.allow
 
 
 @dataclass(frozen=True)
@@ -93,6 +118,8 @@ class TrustEntry:
     # 能否调 perm/evaluate；代人调用时是否信任终端用户头。都只能在信任配置里打开。
     perm_evaluate: bool = False
     on_behalf_header: bool = False
+    # 可用的 U8 操作员；None 表示不限。
+    operators: OperatorRule | None = None
 
     @property
     def key_source(self) -> KeySource:
@@ -176,6 +203,7 @@ def parse_entry(item: object) -> TrustEntry:
         accounts=_accounts(item.get("accounts"), name),
         perm_evaluate=_bool(item, "perm_evaluate", name),
         on_behalf_header=_bool(item, "on_behalf_header", name),
+        operators=_operators(item.get("operators"), name),
     )
     _check(entry)
     return entry
@@ -224,6 +252,33 @@ def _accounts(raw: object, name: str) -> tuple[str, ...] | None:
     if len(set(raw)) != len(raw):
         raise SystemExit(f"信任配置 {name} 的 accounts 有重复的账套号")
     return tuple(raw)
+
+
+def _operators(raw: object, name: str) -> OperatorRule | None:
+    # 不写、或 allow / deny 都为空为不限；写了就必须是对象，只收 allow、deny，各是非空字符串数组。
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise SystemExit(f"信任配置 {name} 的 operators 必须是对象")
+    unknown = sorted(str(key) for key in set(raw) - set(_OPERATOR_KEYS))
+    if unknown:
+        raise SystemExit(f"信任配置 {name} 的 operators 有未知字段: {', '.join(unknown)}")
+    allow = _operator_list(raw.get("allow"), name, "allow")
+    deny = _operator_list(raw.get("deny"), name, "deny")
+    if not allow and not deny:
+        return None
+    return OperatorRule(allow, deny)
+
+
+def _operator_list(raw: object, name: str, key: str) -> frozenset[str]:
+    if raw is None:
+        return frozenset()
+    if not isinstance(raw, list):
+        raise SystemExit(f"信任配置 {name} 的 operators.{key} 必须是操作员编码数组")
+    for item in raw:
+        if not isinstance(item, str) or not item.strip():
+            raise SystemExit(f"信任配置 {name} 的 operators.{key} 里的操作员编码必须是非空字符串: {item!r}")
+    return frozenset(operator_key(item) for item in raw)
 
 
 def _algorithms(raw: object, name: str) -> tuple[str, ...]:

@@ -1995,6 +1995,8 @@ API 的 `/v1/co/health` 返回 `ok`、`version`，以及桥报了的 `license`�
 
 账套：请求的 `acc` 必须在 `U8CO_ACCOUNTS` 里，否则 403 `account_not_allowed`「账套不在允许列表」。信任项配置了 `accounts_claim` 时，`acc` 还必须在令牌的这个声明里，否则 403 `account_not_allowed`「令牌无权使用该账套」。`acc` 在 `U8CO_READONLY_ACCOUNTS` 里时写路由 403 `account_read_only`「该账套只开放读取」。这几种情况都不访问桥。
 
+操作员：信任项可写 `operators`（`{"allow": [...], "deny": [...]}`，两个列表都可省略，也不能有别的键，否则启动失败），限定这个调用方能用哪些 U8 登录操作员。操作员编码去首尾空白后不分大小写比较；`allow` 为空或没写表示不限，`deny` 优先于 `allow`。请求里登录用的操作员不在范围内时 403 `operator_forbidden`「该调用方不能使用此 U8 操作员」（错误体带 `field: "operator"`，`retryable` 为 false），不访问桥，审计行 `outcome` 记 `denied`。所有带操作员的路由都判定：单账套读写路由、`login-check`、`perm/snapshot`、`perm/evaluate`、`idempotency/get`，以及公司间和经营管理的多账套路由（`logins` 里任一个不符就整个请求拒绝，一个桥都不调）。`perm/evaluate` 只看登录操作员，被查的 `subject` 不是登录，不受限制；`meta` 不带操作员，不受影响。它与写入策略里的操作员 allow / deny 是两层，互不合并，两边都要通过。用途：把只给后台服务用的操作员排除在其他调用方之外（例如给前台应用的信任项写 `deny`，或只 `allow` 它自己的操作员）。
+
 调用方与审计：
 
 - 调用方按「信任项:客户端:sub」区分（令牌没有 `sub` 或 `sub` 与客户端相同时是「信任项:客户端」）：幂等记录（`caller` 字段）、`idempotency/get`、每个调用方的并发与频率名额都按它算，同一个 `azp` 下的两个用户互相查不到对方的幂等结果。
@@ -2114,6 +2116,7 @@ API 把桥的错误码原样带上，HTTP 状态按下表：
 | 403 | `forbidden` | 令牌没有所需权限 |
 | 403 | `account_not_allowed` | 账套不在 API 的白名单，不访问桥 |
 | 403 | `account_read_only` | 账套在 `U8CO_READONLY_ACCOUNTS` 里，写路由不访问桥 |
+| 403 | `operator_forbidden` | 登录操作员不在信任项 `operators` 允许的范围内（`allow` 未列出或在 `deny` 里），不访问桥；错误体带 `field: "operator"` |
 | 403 | `mgmt_forbidden` | 令牌没有经营管理权限（§17） |
 | 403、503、400 | 写入策略各码 | 配置了 `U8CO_WRITE_POLICY_FILE` 时 API 在调桥之前按同样的规则拒绝，码和消息与桥相同（不含 `write_quota`、`u8_license_hold`，那两项只在桥上） |
 | 404 | `ic_not_configured` | 没有配置公司间对照（`U8CO_IC_MAP_FILE`），公司间接口和多账套合并不可用 |

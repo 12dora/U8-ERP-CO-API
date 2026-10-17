@@ -421,6 +421,7 @@ CLR 在进程启动时读取 exe 旁的这份文件（不是 `config.json`）：
 | `accounts` | 无 | 可选，该信任项的静态账套上限：非空、不重复的三位数字字符串数组。实际可用账套 = `U8CO_ACCOUNTS` ∩ 令牌账套声明（配置了 `accounts_claim` 时）∩ `accounts`，令牌声明不能放宽它；单账套路由、经营管理查询和公司间多账套路由都按该结果判定（403 `account_not_allowed`）。适合为测试或机器客户端固定可用账套，防止身份提供方的映射误加正式账套 |
 | `perm_evaluate` | `false` | 可选，设为 JSON `true` 才能调用 `/v1/co/perm/evaluate`（查询其他操作员的权限），令牌还须有读或写权限；令牌中的声明不能打开它。只授予专门的系统后台调用方；桥一侧另须把调用操作员列入 `permEvaluateOperators` |
 | `on_behalf_header` | `false` | 可选，设为 JSON `true` 表示这是代人调用的机器调用方：审计的终端用户取 `U8CO_USER_HEADER` 头中的 UUID，令牌自身的 `sub` 另记在审计的 `sub` 字段。不设置时令牌有 `sub` 即以 `sub` 为终端用户，该头被忽略 |
+| `operators` | 无 | 可选，`{"allow": [...], "deny": [...]}`（两个列表都可省略，只收这两个键），限定该调用方能用的 U8 登录操作员：编码去首尾空白、不分大小写比较；`allow` 为空或没写表示不限，`deny` 优先。登录操作员不在范围内时 403 `operator_forbidden`，不访问桥（单账套、公司间、经营管理、`perm/*`、`idempotency/get` 都判定；`perm/evaluate` 的 `subject` 不算）。与写入策略的操作员规则是两层。用于让只给后台服务用的操作员不被其他调用方使用 |
 
 - 令牌的 `iss` 和 `aud` 必须恰好命中一项。重复的（`issuer`、`audience`）和未知键都使启动失败。没有任何信任项时，所有 `/v1` 请求返回 401。修改信任配置后须重启服务。
 - JWKS 按地址缓存：遇到未知 `kid` 才刷新，同一地址两次成功刷新至少间隔 300 秒，失败记忆 30 秒，响应上限 256 KiB。拉取发现文档和公钥时只跟随 https 到 https 的跳转，跳到 http 或其他协议、以及 http 来源的任何跳转都按拉取失败处理。

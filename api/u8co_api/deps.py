@@ -16,4 +16,6 @@ def current_caller(request: Request) -> Caller:
     request.state.caller_key = caller_key(caller)
     request.state.token_sub = caller.subject or None
     request.state.on_behalf_header = caller.on_behalf_header
+    # 信任项的 operators（co_service.check_operators 在联系桥之前统一检查）。
+    request.state.operator_rule = caller.operators
     return caller
