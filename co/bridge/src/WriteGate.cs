@@ -35,7 +35,7 @@ namespace U8Co
                 "reverse"
             });
             // 档案：get / list 是读。
-            AddOps(set, Requests.ArcRoot, new string[] { "create", "update", "delete" });
+            AddOps(set, Requests.ArcRoot, new string[] { "create", "update", "delete", ArcPerson.Op });
             // 旧版审核路由。
             set.Add("/u8co/v1/sale-orders/verify");
             set.Add("/u8co/v1/dispatches/verify");

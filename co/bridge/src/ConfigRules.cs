@@ -69,7 +69,7 @@ namespace U8Co
             CheckCodes(accounts, "readOnlyAccounts");
         }
 
-        static void CheckCodes(string[] accounts, string key)
+        internal static void CheckCodes(string[] accounts, string key)
         {
             for (int i = 0; i < accounts.Length; i++)
             {
@@ -148,6 +148,7 @@ namespace U8Co
                 list.Add("allowedClients 为空：所有来源的请求都会被拒绝");
             }
             AddTestAccountWarnings(cfg, list);
+            ConfigRulesReadOnly.Warn(cfg, list);
             if (cfg.U8Home == null || !Directory.Exists(cfg.U8Home))
             {
                 list.Add("u8Home 目录不存在：" + cfg.U8Home + "，生产订单审核和档案读写会失败");

@@ -52,11 +52,19 @@ API_POLICY_HELP = "本服务自己的写入策略（U8CO_WRITE_POLICY_FILE），
 
 
 READ_ONLY_HELP = "缺省桥的只读账套（桥 config.json 的 readOnlyAccounts），这些账套的写路由一律 403。没配或旧版桥不报则省略"
+READ_ONLY_EXC_HELP = (
+    "缺省桥的只读例外（桥 config.json 的 readOnlyExceptions）非机密摘要：账套、操作员、type、op。"
+    "没配或旧版桥不报则省略"
+)
 REPLICATED_HELP = (
     "桥的第二级写入总开关（桥 config.json 的 enableReplicatedWrites，缺省 false）：false 时结账、核算、期初等"
     "第二级写入一律 403 feature_disabled；true 时仍只对 testAccounts 开放。旧版桥不报则省略"
 )
 API_READ_ONLY_HELP = "本服务的只读账套（U8CO_READONLY_ACCOUNTS），这些账套的写路由在访问桥之前 403 account_read_only。没配时省略"
+API_READ_ONLY_EXC_HELP = (
+    "本服务的只读例外（U8CO_READONLY_EXCEPTIONS）非机密摘要：账套、操作员、type、op。"
+    "命中的 archives/customer_person 穿过只读闸门，审计字段 read_only_exception 为 true。没配时省略"
+)
 _ACC = re.compile(r"^[0-9]{3}\Z")
 
 
@@ -145,7 +153,9 @@ class CoHealthOut(BaseModel):
     write_policy: CoWritePolicyHealth | None = Field(None, description=WRITE_POLICY_HELP)
     api_write_policy: CoWritePolicyHealth | None = Field(None, description=API_POLICY_HELP)
     read_only_accounts: list[str] | None = Field(None, description=READ_ONLY_HELP)
+    read_only_exceptions: list[dict] | None = Field(None, description=READ_ONLY_EXC_HELP)
     api_read_only_accounts: list[str] | None = Field(None, description=API_READ_ONLY_HELP)
+    api_read_only_exceptions: list[dict] | None = Field(None, description=API_READ_ONLY_EXC_HELP)
     replicated_writes: bool | None = Field(None, description=REPLICATED_HELP)
 
     @field_validator("replicated_writes", mode="before")
@@ -162,6 +172,14 @@ class CoHealthOut(BaseModel):
     @classmethod
     def _read_only(cls, value: object) -> list[str] | None:
         return read_only_of(value)
+
+    @field_validator("read_only_exceptions", "api_read_only_exceptions", mode="before")
+    @classmethod
+    def _exceptions(cls, value: object) -> list[dict] | None:
+        if not isinstance(value, list):
+            return None
+        kept = [item for item in value if isinstance(item, dict)]
+        return kept or None
 
     @field_validator("license", mode="before")
     @classmethod

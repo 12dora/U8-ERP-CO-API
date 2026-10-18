@@ -114,6 +114,43 @@ namespace U8Co
             throw done;
         }
 
+        // 校验模式结束并带自定义响应体（专用路由的紧凑预演）。开着的事务先回滚。
+        public static void StopWith(WorkContext ctx, Dictionary<string, object> body)
+        {
+            DryRunState s = _cur;
+            if (s == null)
+            {
+                return;
+            }
+            if (s.Final != null)
+            {
+                throw s.Final;
+            }
+            QuietRollback(ctx);
+            DryRunDone done = new DryRunDone(DryRunModes.Validate, body ?? new Dictionary<string, object>());
+            s.Final = done;
+            throw done;
+        }
+
+        static void QuietRollback(WorkContext ctx)
+        {
+            object conn = ctx == null ? null : ctx.Conn;
+            if (conn == null)
+            {
+                return;
+            }
+            try
+            {
+                if (AdoXml.QueryInt(conn, "SELECT @@TRANCOUNT") > 0)
+                {
+                    CoTrans.Rollback(conn);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         // 执行体在处理函数之前调用；Mode 来自 WorkItem.DryRunMode（Requests 登录前已按 DryRunModes 核对）。
         internal static void Begin(WorkContext ctx)
         {

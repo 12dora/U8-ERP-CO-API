@@ -21,7 +21,8 @@ from co.client.u8co_gl_arc import GL_OPS
 WRITE_COMMANDS = (
     "create", "update", "delete", "verify", "close", "generate", "lock",
     "wf-submit", "wf-withdraw", "wf-resubmit", "wf-approve", "wf-disagree", "wf-return", "wf-abandon",
-    "gl-create", "gl-update", "arc-create", "arc-update", "arc-delete", "openings-post", "periods-close",
+    "gl-create", "gl-update", "arc-create", "arc-update", "arc-delete", "arc-customer-person",
+    "openings-post", "periods-close",
     "ia-post", "ia-period-end", "openings-arap",
     "gl-reverse",  # 红字冲销
     "gl-transfer-pnl", "gl-transfer-custom",  # 期间损益结转、自定义转账（测试账套）

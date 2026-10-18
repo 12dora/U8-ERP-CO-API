@@ -55,7 +55,7 @@ def call_route(route, request, caller, body, view: View) -> Any:
     result = runner(request, caller, route.action, route.bridge_path, body)
     if dry:
         # 预演不按路由的正式出参校验：直接返回 DryRunOut 的 JSON。
-        return UnicodeJSONResponse(dry_response(result, view.fields, view.compact))
+        return UnicodeJSONResponse(dry_response(result, view.fields, view.compact, route.keep_null))
     return shape(result, view.fields, view.compact)
 
 

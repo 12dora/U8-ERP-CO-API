@@ -191,6 +191,7 @@ namespace U8Co
         // 其余（EAI Transact、客户联系人 CRM EAI）一律 validate。
         static void AddArchives(List<Rule> list)
         {
+            Add(list, "archives/customer_person", Any, Any, Any, Validate);
             string[] ops = new string[] { "archives/create", "archives/update", "archives/delete" };
             AddMany(list, ops, "project", Any, Rollback);
             AddMany(list, ops, "customer_bank", Any, Rollback);

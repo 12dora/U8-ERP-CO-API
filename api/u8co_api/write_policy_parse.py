@@ -15,7 +15,7 @@ from decimal import Decimal, InvalidOperation
 # 操作词表（封闭），与桥 WritePolicySnapshot.OpNames 相同。规则里另可写 "*"。
 OP_NAMES = (
     "create", "update", "delete", "verify", "unverify", "close", "open", "generate", "lock", "unlock",
-    "workflow", "writeoff", "voucher", "post", "process", "other",
+    "workflow", "writeoff", "voucher", "post", "process", "other", "customer_person",
 )  # fmt: skip
 
 _TOP_KEYS = frozenset(

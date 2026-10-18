@@ -110,6 +110,11 @@ def _arc_commands(sub: Any) -> None:
     listing.add_argument("--include-disposed", action="store_true")
     # 每项只返回 code、ufts。
     listing.add_argument("--keys-only", action="store_true")
+    person = sub.add_parser("arc-customer-person")
+    _add_auth(person)
+    person.add_argument("--code", required=True)
+    person.add_argument("--person", required=True)
+    person.add_argument("--expect", default=None)
 
 
 def _list_commands(sub: Any) -> None:
@@ -214,6 +219,10 @@ def _cmd_arc(client: U8CoClient, call: U8Call, parsed: argparse.Namespace) -> di
     return client.arc_update(call, arc_record(parsed, False))
 
 
+def _cmd_arc_person(client: U8CoClient, call: U8Call, parsed: argparse.Namespace) -> dict[str, Any]:
+    return client.arc_customer_person(call, parsed.code, parsed.person, expect=parsed.expect)
+
+
 def _cmd_arc_list(client: U8CoClient, call: U8Call, parsed: argparse.Namespace) -> dict[str, Any]:
     query = ArcQuery(
         parsed.archive,
@@ -255,6 +264,7 @@ HANDLERS = {
     "arc-delete": _cmd_arc,
     "arc-create": _cmd_arc,
     "arc-update": _cmd_arc,
+    "arc-customer-person": _cmd_arc_person,
     "arc-list": _cmd_arc_list,
     "list": _cmd_list,
     "stock": _cmd_stock,

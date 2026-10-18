@@ -23,6 +23,7 @@ namespace U8Co
                 Arc(ArcPartner.VendorBank, "供应商银行账户", A("AS005Q", "AS005"), ven),
                 Arc(ArcPartner.CustomerContact, "客户联系人", A("CS020202", "AS011Q", "AS011"), cus),
                 Arc(ArcPartner.VendorContact, "供应商联系人", A("AS020302", "AS005Q", "AS005"), ven),
+                WriteRule("customer", ArcPerson.Op, "客户专管业务员修改", A("AS011"), cus),
                 WriteRule(ArcPartner.CustomerBank, "create", "客户银行账户新增", A("AS011"), cus),
                 WriteRule(ArcPartner.CustomerBank, "update", "客户银行账户修改", A("AS011"), cus),
                 WriteRule(ArcPartner.CustomerBank, "delete", "客户银行账户删除", A("AS011"), cus),

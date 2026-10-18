@@ -22,6 +22,8 @@ namespace U8Co
         public bool EnableReplicatedWrites;
         // 只读账套：名单里的账套只开放读取，WriteGate 的写路由一律 403 account_read_only（ReadOnlyGate）。缺省为空。
         public string[] ReadOnlyAccounts = new string[0];
+        // 只读账套的例外写入：匹配的 archives/customer_person 放行，其余仍 403。缺省为空。
+        public ReadOnlyExceptionRule[] ReadOnlyExceptions = new ReadOnlyExceptionRule[0];
         // 权限评估（perm/evaluate）：可以查询其他操作员权限的调用操作员编码。缺省为空，一个都不放行；账套主管不例外。
         public string[] PermEvaluateOperators = new string[0];
         public string AuditLog;
@@ -89,6 +91,8 @@ namespace U8Co
             "enableReplicatedWrites",
             // 只读账套
             "readOnlyAccounts",
+            // 只读账套的例外写入
+            "readOnlyExceptions",
             // 权限评估的调用操作员
             "permEvaluateOperators",
             // 存货核算脚本超时
@@ -144,6 +148,7 @@ namespace U8Co
             cfg.EnableReplicatedWrites = ConfigRules.OptionalBool(map, "enableReplicatedWrites", false);
             cfg.ReadOnlyAccounts = OptionalList(map, "readOnlyAccounts");
             ConfigRules.CheckReadOnlyAccounts(cfg.ReadOnlyAccounts);
+            cfg.ReadOnlyExceptions = ConfigRulesReadOnly.ReadOnlyExceptions(map, cfg.ReadOnlyAccounts);
             cfg.PermEvaluateOperators = OptionalList(map, "permEvaluateOperators");
             ConfigRules.CheckPermEvaluateOperators(cfg.PermEvaluateOperators);
             cfg.AuditLog = Paths.UnderRoot(OptionalString(map, "auditLog", Paths.DefaultAuditLog));

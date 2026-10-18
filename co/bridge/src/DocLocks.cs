@@ -292,7 +292,8 @@ namespace U8Co
             {
                 return None;
             }
-            string archive = Requests.KeyPart(Requests.Field(body, "archive"));
+            string archive = item.Path == ArcPerson.Path
+                ? "customer" : Requests.KeyPart(Requests.Field(body, "archive"));
             string code = Requests.KeyPart(Requests.Field(body, "code")).ToUpperInvariant();
             // 客户、供应商的银行账户和联系人另锁上级档案（ArcPartner.LockKeys）。
             string[] partner = ArcPartner.LockKeys(archive, code);
@@ -304,8 +305,8 @@ namespace U8Co
         // SQL Server 不报死锁（等在 U8 组件里），四个工人占满后其余请求排队超时。档案写入一律再持全局键 "arc:write" 串行。
         static bool ArcWrite(string path)
         {
-            return path != null && (path.EndsWith("/create", StringComparison.Ordinal)
-                || path.EndsWith("/update", StringComparison.Ordinal) || path.EndsWith("/delete", StringComparison.Ordinal));
+            return path != null && path.StartsWith(Requests.ArcRoot, StringComparison.Ordinal)
+                && WriteGate.IsWrite(path);
         }
 
         static string[] WithArcGate(string[] keys)

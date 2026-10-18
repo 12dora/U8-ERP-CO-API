@@ -54,6 +54,7 @@ namespace U8Co
             result["features"] = Features();
             // 只读账套（全局；meta 不带账套）。运行时配置，不进 revision。
             result["read_only_accounts"] = ReadOnlyGate.Accounts();
+            result["read_only_exceptions"] = ReadOnlyGate.ExceptionSummaries();
             return result;
         }
 

@@ -14,6 +14,7 @@ from u8co_api.co_idem import caller_tag, idempotency_fields
 from u8co_api.co_models import CoAuth
 from u8co_api.co_route_health import RouteProbes
 from u8co_api.errors import ApiError, forbidden, not_found, unavailable
+from u8co_api.readonly_exceptions import allows, health_of
 from u8co_api.write_class import WriteInfo, classify
 
 __all__ = ["login_defaults"]
@@ -65,14 +66,22 @@ def allow_acc(settings, caller: Caller, acc: str) -> None:
         raise forbidden("令牌无权使用该账套", "account_not_allowed")
 
 
-def refuse_read_only(request, action: str, acc: str) -> None:
-    """只读账套（U8CO_READONLY_ACCOUNTS）的写路由一律 403 account_read_only：在访问桥和写入策略之前判定，
-    预演、带幂等键的重试、公司间生单都一样拒绝（不重放）。读路由、经营管理路由不受影响。所有写入口都调这一处。"""
+def refuse_read_only(request, action: str, payload: dict) -> None:
+    """只读账套（U8CO_READONLY_ACCOUNTS）的写路由 403 account_read_only：在访问桥和写入策略之前判定。
+    命中 U8CO_READONLY_EXCEPTIONS（路由 archives/customer_person、操作员、账套）时放行，
+    审计 read_only_exception 为 true，成功时 outcome 也记该值；预演也必须是同一形状。读路由、经营
+    管理路由不受影响。所有写入口都调这一处。"""
     if access_of(action) != WRITE:
         return
-    if acc in request.app.state.settings.read_only_accounts:
-        request.state.outcome = "account_read_only"
-        raise forbidden("该账套只开放读取", "account_read_only")
+    settings = request.app.state.settings
+    if _acc_of(payload) not in settings.read_only_accounts:
+        return
+    if allows(settings.read_only_exceptions, action, payload):
+        request.state.read_only_exception = True
+        request.state.outcome = "read_only_exception"
+        return
+    request.state.outcome = "account_read_only"
+    raise forbidden("该账套只开放读取", "account_read_only")
 
 
 def check_operators(request, operators: Iterable[str]) -> None:
@@ -155,7 +164,7 @@ def check_write(request, action: str, payload: dict) -> None:
     )
     request.state.write_type = info.type or None
     request.state.write_op = info.op
-    refuse_read_only(request, action, _acc_of(payload))
+    refuse_read_only(request, action, payload)
     policy = getattr(request.app.state, "write_policy", None)
     if policy is None:
         return
@@ -188,7 +197,8 @@ def call_bridge(request, acc: str, bridge_path: str, payload: dict) -> dict:
     except ApiError as exc:
         request.state.outcome = exc.code
         raise
-    request.state.outcome = "ok"
+    if getattr(request.state, "outcome", None) != "read_only_exception":
+        request.state.outcome = "ok"
     return result
 
 
@@ -212,6 +222,9 @@ def run_health(request, caller: Caller) -> dict:
         read_only = request.app.state.settings.read_only_accounts
         if read_only:
             out["api_read_only_accounts"] = list(read_only)
+        exceptions = health_of(request.app.state.settings.read_only_exceptions)
+        if exceptions:
+            out["api_read_only_exceptions"] = exceptions
         return out
     finally:
         if probes is not None:

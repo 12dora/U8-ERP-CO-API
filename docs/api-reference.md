@@ -133,6 +133,7 @@
 | POST | `gl/transfer/pnl`、`gl/transfer/custom` | 写（第二级） | 期间损益结转、自定义转账：按 U8 的转账定义生成结转凭证（§14） |
 | POST | `archives/get`、`archives/list` | 读 | 基础档案读取、列表 |
 | POST | `archives/create`、`update`、`delete` | 写 | 基础档案写操作 |
+| POST | `archives/customer_person` | 写 | 修改客户专管业务员（只改 `cCusPPerson`，条件满足时一并改分管部门和 `Customer_Auth`；§15） |
 | POST | `archives/get_many` | 读 | 一次按编码读同一档案的 1 到 20 条（§28） |
 | POST | `archives/resolve` | 读 | 按名称、简称、助记码查编码，一次最多 20 项（§24） |
 | POST | `idempotency/get` | 读 | 按幂等键查第一次请求的结果（§20） |
@@ -1576,6 +1577,7 @@ U8 的已知缺陷：记账组件回写记账标志时按（期间、类别序�
 | `archives/create` | `archive`、`code`、`fields`，可选 `template` | `{"ok":true,"archive","code"}` |
 | `archives/update` | `archive`、`code`、`fields` | 同上 |
 | `archives/delete` | `archive`、`code` | 另带 `deleted: true` |
+| `archives/customer_person` | `code`、`person`，可选 `expect` | `{"ok":true,"code","before","after","dept_before","dept_after","dept_note"}` |
 
 九类可写档案的 `fields` 键是 U8 EAI 的标签名（不分大小写，发送时换成 U8 对照表的写法），值是字符串、数字或布尔，`null` 表示不发送。未知标签 400「未知字段 x」；`code`、建档/变更人和日期、统计类标签（例如客户的应收余额、最后交易日）400「不能设置字段 x」。
 
@@ -1586,7 +1588,24 @@ U8 的已知缺陷：记账组件回写记账标志时按（期间、类别序�
 - 选择器标志（整行才有，`keys_only` 不给；列值为空按 `false`）：`warehouse` 的 `bin_managed`（启用货位管理）；`position` 的 `leaf`（末级货位，`class_code` 是所属仓库）；`inventory` 的 `batch_managed`（批次管理）、`shelf_life_managed`（保质期管理）。这些键不影响事件服务的档案指纹（只看名称、分类、停用状态和停用日期）。
 - 新增必须有 `name`；存货新增必须带 `template`（已有存货编码，桥按它铺满其余标签），其他档案可选。编码已存在 409「档案编码已存在」。客户、供应商要给税号类必填项，缺了由 U8 报错。
 - 修改至少一个字段，不能改编码。桥发整条记录（当前值打底，再用 `fields` 覆盖），因为 U8 修改时按档案设置检查全部必输项。
+- 只读账套上的档案写入一律 403 `account_read_only`。配置了 `U8CO_READONLY_EXCEPTIONS` 时，仅当账套、操作员、路由 `archives/customer_person` 命中例外（`type=archives`、`op=customer_person`）才穿过只读闸门（仍受写入策略约束）；审计字段 `read_only_exception` 为 true，成功时 `outcome` 也记 `read_only_exception`。`archives/update`、新增、删除、其它操作员或其它账套、不匹配的带键重发都不放行。预演（`dry_run`）同样必须是这条路由。客户端 `arc_update` 与 `arc_create` 一样可带 `idempotency_key`。
 - 删除：已被单据使用的档案由 U8 拒绝，409 `u8_rejected`。
+
+### 客户专管业务员 `archives/customer_person`
+
+只改客户档案的专管业务员（`Customer.cCusPPerson`），不走客户 EAI（EAI 的客户修改会改动银行账号、最后收款日等无关列）。当前专管业务员对应的人员部门（`Person.cDepCode`）与客户分管部门（`cCusDepart`）一致、或分管部门为空时，一并改成分管部门为目标业务员的部门；已经不一致则只改专管业务员。新部门须在 `Department` 中、末级（`bDepEnd=1`）且未停用（`dDepEndDate` 为空或晚于登录日期），否则不改分管部门，响应 `dept_note` 说明原因（`dept_after` 等于 `dept_before`）。分管部门实际改动时，同一事务同步 `Customer_Auth`：`Account_ID` 为客户编码且 `Privilege_Type=0` 的行把 `Privilege_ID` 写成新部门；没有则插入（`autoId` 是 IDENTITY，插入不写该列）。U8 自维护列（修改人、修改日期、行版本）照常更新。
+
+| 字段 | 说明 |
+| --- | --- |
+| `code` | 客户编码，校验同 `archives/update` 的 `code` |
+| `person` | 目标业务员编码（`Person.cPersonCode`），1 到 20 个字符，首尾不能有空白，不含控制字符 |
+| `expect` | 可选。调用方认为的当前专管业务员；空串表示当前为空；省略则不校验 |
+
+响应：`{"ok":true,"code":C,"before":X 或 null,"after":P,"dept_before":D0 或 null,"dept_after":D1 或 null,"dept_note":说明 或 null}`。当前值已是 `person` 时成功返回（`before == after`），不写库、不改审计列。预演是 `validate`：`{"ok":true,"dry_run":true,"mode":"validate","code":C,"before":X 或 null,"dept_before":D0 或 null,"dept_note":说明 或 null}`。
+
+写入分类 `(archives, customer_person)`：写入策略放行 `archives/update` 不连带放行本路由。功能权限：客户档案编辑 `AS011`；记录级客户权限同档案读取。锁键与档案写入相同（`arc:customer:<编码>`、`arc:write`）。客户端 `arc_customer_person(call, code, person, expect=None, idempotency_key=None)`；命令行 `arc-customer-person --code C --person P`，可选 `--expect`、`--dry-run`、`--idempotency-key`；预演用 `client.dry()`。
+
+错误：404 `not_found` 客户不存在；409 `state_mismatch` 为 `expect` 与当前值不符或并发修改；409 `u8_rejected` 业务员不存在；504 `outcome_unknown` 写后回读不一致，先 `archives/get` 核对再决定是否重试。
 
 经 EAI 的写操作由 U8 自己提交。U8 拒绝时 409 `u8_rejected`，`message` 是 U8 原文；原文含「不可为空」时后面加「（U8 档案设置为必输）」，调用方要在 `fields` 里给出该字段。U8 说成功但回读对不上，或应答无法识别，504 `outcome_unknown`。EAI 对照文件读不到或格式不对 503 `u8_unavailable`。
 
@@ -3240,6 +3259,7 @@ API：`GET /v1/co/meta`（读权限）。桥：`POST /u8co/v1/meta`，照常 HMA
 | `gl/vouchers/*` | `void`、`unvoid`、`verify`、`unverify`、`sign`、`unsign`、`delete`、`unpost` | `create`、`update`、`post`、`reverse` |
 | `gl/transfer/pnl`、`gl/transfer/custom` | — | 全部：停在凭证导入之前，分录在 `detail.transfer` |
 | `archives/create`、`update`、`delete` | 项目（`project`）、客户和供应商银行账户（`customer_bank`、`vendor_bank`）的新增、修改、删除；币种、凭证类别、汇率、供应商联系人（`currency`、`voucher_sign`、`exchange_rate`、`vendor_contact`）的修改、删除 | 其余走 EAI 的档案（含原因码 `reason`）；币种、凭证类别、汇率、供应商联系人的新增；客户联系人（`customer_contact`） |
+| `archives/customer_person` | — | 全部（SQL，不走 EAI） |
 | `workflow/*` 写操作 | — | `submit`、`withdraw`、`approve`、`disagree`、`return`、`abandon`、`resubmit` |
 | `arap/*` | `writeoff`、`writeoff/cancel`、`voucher/delete` | `voucher`：桥算完分录、停在凭证导入之前，计划的凭证在 `detail` 里 |
 | `openings/post` | `post`、`unpost` | — |

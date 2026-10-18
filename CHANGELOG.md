@@ -6,6 +6,8 @@
 
 ### 新增
 
+- 客户专管业务员 `archives/customer_person`：只改 `Customer.cCusPPerson`（当前专管业务员对应部门与客户分管部门一致、或分管部门为空时一并改 `cCusDepart`），不走客户 EAI。新部门须在 `Department` 中、末级且未停用，否则不改分管部门，响应 `dept_note`；分管部门实际改动时同步 `Customer_Auth`（`Privilege_Type=0` 的部门维度，`autoId` 是 IDENTITY，插入不写该列）。请求 `code`、`person`，可选 `expect`（空串表示当前为空）。响应 `before` / `after`、`dept_before` / `dept_after`、`dept_note`。预演为 `validate`。写入分类 `(archives, customer_person)`，放行 `archives/update` 不连带放行。只读例外改为 `{accounts, operators, type, op}`，`op` 只收 `customer_person`；`archive` / `fields` 已取消（未知键进程起不来）。`archives/update` 在只读账套上仍一律 403。客户端 `arc_customer_person`，命令行 `arc-customer-person`。审计行另记 `read_only_exception`，健康检查列出例外。**升级顺序：先桥，后 API**。
+- 客户端 `arc_update` 接受 `idempotency_key`（与 `arc_create` 一致）。
 - `vouchers/search`、`reports/order_execution` 新增 `order`（`asc` 缺省，与以前完全一致；`desc` 最新在前）：按单据（订单）日期降序、主键降序，用 keyset 游标续读（`next` 原样放回 `after`，游标不能跨 `order` 使用），一次调用就能取到最新的单据。`vouchers/search` 的 `after` 在 `desc` 时是游标文本，`asc` 时仍是整数主键。响应在 `desc` 时另有 `order`，API 在请求给了 `order` 时另加 `order_applied`。**升级顺序：先桥，后 API**（API 对旧桥仍可用：旧桥回「含未知字段」/「不能设置字段」时去掉 `order` 重试一次，`order_applied` 为 `false`，列表仍是最旧在前）。桥的 `--selftest` 增加 `order`、游标编解码和降序 SQL 的核对。
 - `stock/current` 每行新增 `inv_unit`（存货主计量单位名，`Inventory.cComUnitCode` → `ComputationUnit.cComUnitName`），不同存货的数量可以先看单位再比较。**升级顺序：先桥，后 API**（旧桥的行里没有该键）。
 - `mgmt/sales` 按存货分类汇总：`group_by` 新增 `inventory_class`，`class_grade`（1 到 9）往上取该级次的祖先分类，`inv_class` 按存货分类编码前缀过滤收入行和成本行；`inventory` 维度的行另有 `inventory_unit`、`inventory_class_code`。

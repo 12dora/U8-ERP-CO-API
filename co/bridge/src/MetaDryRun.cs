@@ -16,7 +16,7 @@ namespace U8Co
             "gl/vouchers/unpost",
             // 期间损益结转、自定义转账（GlTransfer，测试账套）。
             "gl/transfer/pnl", "gl/transfer/custom",
-            "archives/create", "archives/update", "archives/delete",
+            "archives/create", "archives/update", "archives/delete", "archives/customer_person",
             "arap/writeoff", "arap/writeoff/cancel", "arap/writeoff/auto", "arap/voucher", "arap/voucher/delete", "arap/merge",
             "openings/post", "openings/arap", "periods/close", "ia/post", "ia/period_end",
             // 取消应收冲应付 / 应付冲应收 / 并账（ArapProcCancel）。

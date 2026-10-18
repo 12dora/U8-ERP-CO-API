@@ -3,6 +3,7 @@
 桥地址和密钥没有缺省值。缺任何一项时服务照常启动，/v1/co 返回 503 unavailable。
 账套白名单缺省为空，此时每个业务调用都返回 403 account_not_allowed。
 U8CO_READONLY_ACCOUNTS 列出只开放读取的账套（必须都在 U8CO_ACCOUNTS 里），这些账套的写路由一律 403 account_read_only。
+U8CO_READONLY_EXCEPTIONS 是 JSON 数组，按账套、操作员精确放行只读账套上的 archives/customer_person。
 可选的 U8CO_BRIDGE_ROUTES_FILE 让指定账套走另一个桥；这个文件有任何问题进程都起不来。
 """
 
@@ -19,6 +20,7 @@ from urllib.parse import urlsplit
 
 from u8co_api.co_ic_map import IcMap, load_ic_map  # 公司间对照
 from u8co_api.co_mgmt_lines import DEFAULT_LINES, MgmtLines, load_mgmt_lines  # 经营管理利润表行定义
+from u8co_api.readonly_exceptions import ReadOnlyException, parse_exceptions
 from u8co_api.trust import TrustEntry, load_trust
 
 _HEX_SECRET = re.compile(r"^[0-9a-f]{64}\Z")
@@ -289,6 +291,8 @@ class Settings:
     accounts: tuple[str, ...] = ()
     # 只开放读取的账套（U8CO_READONLY_ACCOUNTS，U8CO_ACCOUNTS 的子集）。写路由在访问桥和写入策略之前 403。
     read_only_accounts: tuple[str, ...] = ()
+    # 只读例外（U8CO_READONLY_EXCEPTIONS）：命中的 customer_person 穿过只读闸门，其余仍 403。
+    read_only_exceptions: tuple[ReadOnlyException, ...] = ()
     timezone: str = DEFAULT_TIMEZONE
     user_header: str = DEFAULT_USER_HEADER
     audit_log: str = "stdout"
@@ -336,6 +340,7 @@ def load_settings() -> Settings:
     # 没设 U8CO_BRIDGE_LONG_TIMEOUT 时取 1000 与 U8CO_BRIDGE_TIMEOUT 中较大的：已把普通超时调到 1000 以上的部署升级后照常可用。
     bridge_timeout = _co_int("U8CO_BRIDGE_TIMEOUT", 90)
     accounts = parse_accounts(_env_str("U8CO_ACCOUNTS"))
+    read_only = parse_read_only(_env_str("U8CO_READONLY_ACCOUNTS"), accounts)
     return Settings(
         trust=load_trust(os.environ),
         enabled=_flag("U8CO_ENABLED", True),
@@ -347,7 +352,8 @@ def load_settings() -> Settings:
         caller_concurrency=_co_int("U8CO_CALLER_CONCURRENCY", 4),
         rpm=_co_int("U8CO_RPM", 30),
         accounts=accounts,
-        read_only_accounts=parse_read_only(_env_str("U8CO_READONLY_ACCOUNTS"), accounts),
+        read_only_accounts=read_only,
+        read_only_exceptions=parse_exceptions(_env_str("U8CO_READONLY_EXCEPTIONS"), read_only),
         timezone=zone,
         user_header=_user_header(_env_str("U8CO_USER_HEADER", DEFAULT_USER_HEADER)),
         audit_log=_audit_target(_env_str("U8CO_AUDIT_LOG", "stdout")),

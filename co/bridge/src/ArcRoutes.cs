@@ -4,6 +4,7 @@ using System.Collections.Generic;
 namespace U8Co
 {
     // archives/<op>：get、list 只走 SQL（读线程，无 Session）；create、update、delete 走 U8SrvTrans.IClsCommon.Transact。
+    // customer_person 走受控 SQL（ArcPerson），不经 EAI。
     internal static class ArcRoutes
     {
         public static bool IsRead(string op)
@@ -26,6 +27,11 @@ namespace U8Co
                 ArcGetMany.Parse(body);
                 return;
             }
+            if (op == ArcPerson.Op)
+            {
+                ArcPerson.Parse(body);
+                return;
+            }
             ArcReq.Parse(op, body);
         }
 
@@ -34,6 +40,10 @@ namespace U8Co
             if (ctx == null || ctx.Item == null || ctx.Item.Body == null)
             {
                 throw new BridgeException(500, "internal", "档案请求缺少请求体");
+            }
+            if (op == ArcPerson.Op)
+            {
+                return ArcPerson.Run(ctx, op);
             }
             ArcReq req = ArcReq.Parse(op, ctx.Item.Body);
             switch (req.Op)

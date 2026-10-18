@@ -55,7 +55,7 @@ def run_generate(request, caller, action: str, _bridge_path: str, body: IcGenera
     group = ic_map_of(request).group_of({login.acc, body.seller_acc})
     allow_accs(request, [login.acc, body.seller_acc], caller)
     # 买方是只读账套时，查订单、查幂等记录之前就拒绝（卖方只读取，不受限）。
-    refuse_read_only(request, action, login.acc)
+    refuse_read_only(request, action, {"acc": login.acc, "operator": login.operator})
     _check_key(request, body)
     replay = _replayed(request, caller, body)
     if replay is not None:

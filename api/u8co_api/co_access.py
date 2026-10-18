@@ -93,6 +93,7 @@ ACCESS = {
     "co:archives/create": WRITE,
     "co:archives/update": WRITE,
     "co:archives/delete": WRITE,
+    "co:archives/customer_person": WRITE,
     # 只读报表。
     "co:reports/close_status": READ,
     "co:reports/gl_balance": READ,

@@ -664,6 +664,18 @@ U8 API 的行为（已在测试账套实测）。桥的实现在 `BomCom`、`Bom
 - 供应商联系人：直接调组件新增报「数据库中没有该字段(bcsexid)…」；经分发器 `ProcessEx` 发 `vendorcontact`（`code` 留空）新增成功，`u8key` 是 U8 编的编码（供应商编码加 8 位流水，如 `S90000100000001`）；`edit` / `delete` 回「供应商联系人不支持修改和删除导入」。桥（`ArcVenContact`）新增走分发器，修改、删除走受控 SQL（`ArcVenContactSql`）。
 - 功能权限：供应商联系人 Add / Modify / Del / Filter 是 `AS020305` / `AS020301` / `AS020306` / `AS020302`；客户联系人「客户联系人管理」查询 `CS020202`（读取另收 `AS011Q` / `AS011`）、增加 `CS020204`、编辑 `CS020201`、删除 `CS020205`；客户银行账户没有自己的表单按钮。
 
+### 客户专管业务员
+
+- 路由 `archives/customer_person`（`ArcPerson`）只改 `Customer.cCusPPerson`；当前专管业务员的 `Person.cDepCode` 与客户分管部门 `cCusDepart` 一致、或分管部门为空时，一并改成目标业务员的部门（新部门非空）。已经不一致则只改专管业务员。当前值已是目标时提交、不 `UPDATE`。
+- 新部门还须在 `Department` 中、末级（`bDepEnd=1`）且未停用（`dDepEndDate` 为空或晚于登录日期），否则不改 `cCusDepart`，响应 `dept_note`（「分管部门不存在 / 不是末级 / 已停用：编码」），`dept_after` 等于 `dept_before`。
+- `cCusDepart` 实际改动时，同一事务同步 `Customer_Auth`：`Account_ID` 为客户编码且 `Privilege_Type=0` 的部门维度行把 `Privilege_ID` 写成新部门；没有则 `INSERT (Account_ID, Privilege_ID, Privilege_Type)`。`autoId` 是 IDENTITY，插入不写该列。回读核对 `Privilege_ID`。其它 `Privilege_Type` 的行不动。
+- 不走客户 EAI：`diffedit` 即使只带编码和业务员也会清银行账号、改最近收款日、补助记码，并拒无所属行业的客户。
+- `Customer` 行版本列是 `pubufts`（`ArcKind.Flat`）。输出 `CONVERT(varchar(20), CONVERT(bigint, pubufts))`，比较 `pubufts=CONVERT(binary(8), CONVERT(bigint, ?))`。一个事务里 `SELECT … FROM Customer WITH (UPDLOCK, ROWLOCK)`，写后再读：专管业务员和分管部门对上才提交；`pubufts` 没变 409「客户 … 已被他人修改」，变了但对不上 504。不看 `@@ROWCOUNT`。
+- 目标业务员必须在 `Person`（`cPersonCode`）。停用日期 `Person.dPInValidDate`：空日期跳过；已填且 `<=` 登录日期 409「业务员已停用：编码」。不存在 409「业务员不存在：编码」。
+- 修改人 `cModifyPerson` 写操作员姓名（登录对象 `cUserName`），姓名为空时退回操作员编码。U8 客户卡片这一列存操作员姓名。修改日期 `dModifyDate=CONVERT(datetime, CONVERT(date, ?, 23))`。
+- 可选 `expect`：空串表示当前为空；省略或 JSON `null` 不校验；不符 409「当前专管业务员是…」。预演是 `validate`：闸门和校验之后停，响应 `{ok, dry_run, mode, code, before, dept_before, dept_note}`，回滚已开的事务。
+- 功能权限客户档案编辑 `AS011`；记录级客户权限同档案读取。锁键 `arc:customer:<编码>`、`arc:write`。写入分类 `(archives, customer_person)`，放行 `archives/update` 不连带放行。命令行 `arc-customer-person`。
+
 ### 原因码
 
 - 根标签 `reason`，`ReasonXmlRs.xml`，表 `Reason`；`in="y" out="y"`，分发到 `U8SrvTrans.IclsCommon`，登录子系统 `AS`。标签 `code` → `cReasonCode`、`name` → `cReasonName`、`Reasontype` → `iReasontype`（tinyint，非空）、`ReasonMemo` → `cReasonMemo`（大小写照 RsXml）。长度：编码 10、名称 30、说明 240；所属类型 1 不良品原因、2 让步放行原因、3 采购退货原因、4 销售退货原因、5 变更原因、6 拖欠原因（有的账套另有预置 `Refund` 类型 15 退款退货）。

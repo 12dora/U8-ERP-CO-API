@@ -147,6 +147,8 @@ namespace U8Co
             WriteClassSelfTest.Run();
             // 只读账套（ReadOnlyGateSelfTest）。
             ReadOnlyGateSelfTest.Run();
+            // 客户专管业务员 archives/customer_person（ArcPersonSelfTest）。
+            ArcPersonSelfTest.Run();
             // 第二级写入路由矩阵：每条路由经 Requests.ForPath 的开关、测试账套、只读账套顺序（TestAccountRouteSelfTest）。
             TestAccountRouteSelfTest.Run();
             // 写入策略（WritePolicySelfTest）。

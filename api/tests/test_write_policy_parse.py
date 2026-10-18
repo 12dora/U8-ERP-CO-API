@@ -110,7 +110,7 @@ def test_invalid_policies_are_rejected_with_a_key_path(data: object, fragment: s
 def test_op_vocabulary_is_the_closed_bridge_set() -> None:
     assert OP_NAMES == (
         "create", "update", "delete", "verify", "unverify", "close", "open", "generate", "lock", "unlock",
-        "workflow", "writeoff", "voucher", "post", "process", "other",
+        "workflow", "writeoff", "voucher", "post", "process", "other", "customer_person",
     )  # fmt: skip
 
 

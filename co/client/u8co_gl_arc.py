@@ -204,17 +204,32 @@ class U8CoP4Mixin:
             fields["template"] = _text(record.template, "template", 60)
         return self.call("/v1/archives/create", with_key(fields, idempotency_key))
 
-    def arc_update(self, call: U8Call, record: ArcRecord) -> dict[str, Any]:
+    def arc_update(self, call: U8Call, record: ArcRecord, idempotency_key: str | None = None) -> dict[str, Any]:
         if record.template:
             raise ValueError("修改档案不能带 template")
         if record.archive in WRITE_ARCHIVES and record.archive not in UPDATE_ARCHIVES:
             raise ValueError(NO_UPDATE_TEXT.get(record.archive, "该档案不支持修改（U8 不提供修改），请删除后重新新增"))
         fields = _arc_keyed(call, record.archive, record.code, UPDATE_ARCHIVES)
         fields["fields"] = _arc_fields(record.fields, True)
-        return self.call("/v1/archives/update", fields)
+        return self.call("/v1/archives/update", with_key(fields, idempotency_key))
 
     def arc_delete(self, call: U8Call, archive: str, code: str) -> dict[str, Any]:
         return self.call("/v1/archives/delete", _arc_keyed(call, archive, code, DELETE_ARCHIVES))
+
+    def arc_customer_person(
+        self,
+        call: U8Call,
+        code: str,
+        person: str,
+        expect: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        fields = _common(call)
+        fields["code"] = _arc_code("customer", code, "档案编码 code")
+        fields["person"] = _text(person, "person", 20)
+        if expect is not None:
+            fields["expect"] = "" if expect == "" else _text(expect, "expect", 20)
+        return self.call("/v1/archives/customer_person", with_key(fields, idempotency_key))
 
     def list_vouchers(self, call: U8Call, query: VoucherQuery) -> dict[str, Any]:
         return self.call("/v1/vouchers/list", _list_fields(call, query))

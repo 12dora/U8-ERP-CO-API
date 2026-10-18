@@ -326,6 +326,7 @@ uv run --no-project --python 3.12 --with cryptography python -m co.client.u8co_c
 | `gl-list` | `--period-from` `--period-to`，可选 `--sign` `--date-from` `--date-to` `--maker` `--state all\|unaudited\|audited\|posted\|void` `--after` `--limit`（最多 200） |
 | `arc-get` / `arc-delete` | `--archive` `--code`。档案种类、可写性和复合编码的写法见下文 |
 | `arc-create` / `arc-update` | `--archive` `--code` `--file`。文件为 `{"fields":{EAI 标签: 值}}`，新增可再带 `template`。`arc-update` 不接受 `user_define`、`customer_inventory`（U8 不提供修改，须删除后重建） |
+| `arc-customer-person` | `--code` `--person`，可选 `--expect`。只改客户专管业务员；条件满足时一并改分管部门并同步 `Customer_Auth`。写命令，可加 `--dry-run`、`--idempotency-key` |
 | `arc-list` | `--archive`，可选 `--code-prefix` `--name-like` `--changed-since` `--after` `--limit`（最多 500）；`project` 另可 `--project-class`；`exchange_rate` 另可 `--currency`（币种名称）、`--fiscal-year`（省略时取登录日期的年份）；`fa_card` 另可 `--type-code` `--dept-code` `--include-disposed` |
 | `list` | `--type`，可选 `--filter KEY=VALUE`（可重复；`verified`、`closed`、`red` 取 true/false）`--keys-only` `--changed-since` `--after` `--limit`（最多 500） |
 | `stock` | 可选 `--wh` `--inv` `--batch` `--after` `--limit`（最多 500） |
@@ -580,7 +581,7 @@ claude mcp add u8co --scope user -- u8co-mcp
 ## 6. 开放更多账套
 
 - **新增账套：** 在桥 `config.json` 的 `allowedAccounts` 和 API 的 `U8CO_ACCOUNTS` 中都加上，然后重启两端。
-- **只读开放：** 只读取的账套先放进桥的 `readOnlyAccounts` 和 API 的 `U8CO_READONLY_ACCOUNTS`，再加入白名单。这些账套的写路由（含预演和带幂等键的重发）一律 403 `account_read_only`。
+- **只读开放：** 只读取的账套先放进桥的 `readOnlyAccounts` 和 API 的 `U8CO_READONLY_ACCOUNTS`，再加入白名单。这些账套的写路由（含预演和带幂等键的重发）一律 403 `account_read_only`（配置了只读例外 `readOnlyExceptions` / `U8CO_READONLY_EXCEPTIONS` 时，与例外完全一致的那一种写入放行，见「只读例外」）。
 - **写入策略：** 开放写入的正式账套配置写入策略文件（桥 `writePolicyFile`、API `U8CO_WRITE_POLICY_FILE`），按账套、单据类型和操作逐项放行。
 - **复现写入：** 结账、存货核算、期初、坏账、汇兑损益、应付票据、总账取消记账、损益结转与自定义转账等第二级写入缺省关闭：桥未设 `enableReplicatedWrites: true` 时一律 403 `feature_disabled`；开启后仍只对 `testAccounts` 中的账套开放，其他账套 403 `test_account_only`。它们按 U8 界面执行的 SQL 写入，已在测试账套上实测核对，用于测试账套；正式账套上请在 U8 客户端中完成这些操作。正式账套不要放进 `testAccounts`。
 

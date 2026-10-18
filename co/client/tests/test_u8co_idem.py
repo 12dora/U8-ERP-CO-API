@@ -41,7 +41,8 @@ class KeyTests(unittest.TestCase):
         self.assertIs(ASSIST_WRITE_ROUTES, WRITE_ROUTES)
         # 含 openings/post、periods/close、ia/post、ia/period_end、openings/arap、应收应付处理 7 个、票据登记 / 删除 / 处理 3 个、
         # arap/bad_debt、gl/vouchers/unpost、gl/vouchers/reverse、gl/transfer/pnl、gl/transfer/custom。
-        self.assertEqual(len(WRITE_ROUTES), 54)
+        self.assertEqual(len(WRITE_ROUTES), 55)
+        self.assertIn("/v1/archives/customer_person", WRITE_ROUTES)
         self.assertIn("/v1/arap/bad_debt", WRITE_ROUTES)
         for route in ("/v1/notes/create", "/v1/notes/delete", "/v1/notes/process"):
             self.assertIn(route, WRITE_ROUTES)
@@ -97,6 +98,10 @@ class WireTests(unittest.TestCase):
         record = ArcRecord("customer", "C900001", {"name": "客户甲"})
         path, sent = self._send(lambda client: client.arc_create(_call(), record, idempotency_key=_KEY))
         self.assertEqual(path, "/u8co/v1/archives/create")
+        self.assertEqual(sent["idempotency_key"], _KEY)
+        update = ArcRecord("customer", "C900001", {"spec_operator": "EX040001"})
+        path, sent = self._send(lambda client: client.arc_update(_call(), update, idempotency_key=_KEY))
+        self.assertEqual(path, "/u8co/v1/archives/update")
         self.assertEqual(sent["idempotency_key"], _KEY)
 
     def test_keyed_client_on_every_write(self) -> None:

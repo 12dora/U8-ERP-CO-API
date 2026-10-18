@@ -15,7 +15,7 @@ namespace U8Co
         public static readonly string[] OpNames = new string[]
         {
             "create", "update", "delete", "verify", "unverify", "close", "open", "generate", "lock", "unlock",
-            "workflow", "writeoff", "voucher", "post", "process", "other"
+            "workflow", "writeoff", "voucher", "post", "process", "other", "customer_person"
         };
 
         static readonly string[] TopKeys = new string[]

@@ -253,6 +253,10 @@ def _arc_deleted(payload: dict) -> dict:
     return data
 
 
+def _arc_customer_person(payload: dict) -> dict:
+    return {"ok": True, "code": payload["code"], "before": None, "after": payload.get("person")}
+
+
 def _arc_got(payload: dict) -> dict:
     data = _arc_key(payload)
     data["fields"] = {"name": "客户甲", "abbrname": "甲", "ccusmngtypecode": "999"}
@@ -355,6 +359,7 @@ _BUILDERS = {
     "/v1/archives/create": _arc_key,
     "/v1/archives/update": _arc_key,
     "/v1/archives/delete": _arc_deleted,
+    "/v1/archives/customer_person": _arc_customer_person,
     "/v1/vouchers/list": _voucher_listed,
     "/v1/stock/current": _stock,
     "/v1/health": lambda _payload: {"ok": True, "version": "test"},

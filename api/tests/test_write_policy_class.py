@@ -46,6 +46,7 @@ def test_read_routes_do_not_classify(route: str) -> None:
         ("gl/vouchers/post", {}, ("gl", "post")),
         ("gl/vouchers/sign", {}, ("gl", "other")),
         ("archives/update", {"archive": "customer"}, ("archives", "update")),
+        ("archives/customer_person", {"code": "C900001", "person": "EX040001"}, ("archives", "customer_person")),
         ("arap/writeoff/auto", {}, ("arap", "writeoff")),
         ("arap/writeoff/cancel", {}, ("arap", "other")),
         ("arap/process/voucher", {}, ("arap", "voucher")),

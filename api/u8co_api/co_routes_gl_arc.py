@@ -1,5 +1,6 @@
 """/v1/co 路由：总账凭证、基础档案、单据列表和现存量。注册见 co_routes.register_co_routes。"""
 
+from u8co_api.co_doctext import op_doc
 from u8co_api.co_models_arc import (
     ArcCreateIn,
     ArcGetIn,
@@ -10,11 +11,7 @@ from u8co_api.co_models_arc import (
     ArcUpdateIn,
     ArcWriteOut,
 )
-from u8co_api.co_models_gl_digest import GL_DIGEST_HELP, GlDigestIn, GlDigestOut  # 凭证摘要（事件源）
-from u8co_api.co_models_gl_post import GL_POST_HELP, GlPostIn, GlPostOut
-from u8co_api.co_models_gl_reverse import GL_REVERSE_HELP, GlReverseIn, GlReverseOut  # 红字冲销
-from u8co_api.co_models_gl_unpost import GL_UNPOST_HELP, GlUnpostIn, GlUnpostOut  # 取消记账
-from u8co_api.co_models_list import CoStockIn, CoStockOut, CoVoucherListIn, CoVoucherListOut
+from u8co_api.co_models_arc_pperson import CUSTOMER_PERSON_HELP, ArcCustomerPersonIn, ArcCustomerPersonOut
 from u8co_api.co_models_gl import (
     GlCreateIn,
     GlKeyActIn,
@@ -25,7 +22,11 @@ from u8co_api.co_models_gl import (
     GlLoadOut,
     GlUpdateIn,
 )
-from u8co_api.co_doctext import op_doc
+from u8co_api.co_models_gl_digest import GL_DIGEST_HELP, GlDigestIn, GlDigestOut  # 凭证摘要（事件源）
+from u8co_api.co_models_gl_post import GL_POST_HELP, GlPostIn, GlPostOut
+from u8co_api.co_models_gl_reverse import GL_REVERSE_HELP, GlReverseIn, GlReverseOut  # 红字冲销
+from u8co_api.co_models_gl_unpost import GL_UNPOST_HELP, GlUnpostIn, GlUnpostOut  # 取消记账
+from u8co_api.co_models_list import CoStockIn, CoStockOut, CoVoucherListIn, CoVoucherListOut
 from u8co_api.co_table import TAG_READ, CoRoute
 
 TAG_GL = "总账凭证"
@@ -272,6 +273,18 @@ _ARC_ROUTES = (
                 ),
             ),
         ),
+    ),
+    CoRoute(
+        "/v1/co/archives/customer_person",
+        "/v1/archives/customer_person",
+        ArcCustomerPersonIn,
+        ArcCustomerPersonOut,
+        "修改客户专管业务员",
+        CUSTOMER_PERSON_HELP,
+        "coArchiveCustomerPerson",
+        "co:archives/customer_person",
+        TAG_ARC,
+        keep_null=True,
     ),
 )
 

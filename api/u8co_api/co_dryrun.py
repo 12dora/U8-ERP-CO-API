@@ -47,7 +47,7 @@ def take(payload: dict[str, Any], bridge_path: str, headers) -> bool:
     return True
 
 
-def dry_response(result: dict[str, Any], fields: str | None, compact: bool) -> dict[str, Any]:
+def dry_response(result: dict[str, Any], fields: str | None, compact: bool, keep_null: bool = False) -> dict[str, Any]:
     """预演响应不按路由的正式出参校验，而按 DryRunOut。桥没有按预演执行时写入可能已生效，按 504 处理。"""
     if not isinstance(result, dict) or result.get(FIELD) is not True:
         raise timeout_error("CO 桥没有按预演执行，写入可能已生效，请核对", "outcome_unknown")
@@ -56,7 +56,7 @@ def dry_response(result: dict[str, Any], fields: str | None, compact: bool) -> d
         model = DryRunOut.model_validate(shaped)
     except ValidationError as exc:
         raise bad_gateway("CO 桥的预演响应格式不对", "bad_response") from exc
-    return model.model_dump(mode="json", exclude_none=True)
+    return model.model_dump(mode="json", exclude_none=not keep_null, exclude_unset=keep_null)
 
 
 def document(paths: dict, schemas: dict) -> None:

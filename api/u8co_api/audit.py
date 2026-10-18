@@ -88,6 +88,8 @@ def write_audit(request: Request, status: int, took_ms: int) -> None:
         "op": getattr(request.state, "write_op", None),
         # 调桥的结果：ok 或错误码（含本服务按写入策略拒绝的码）；没走到桥也没被策略拒绝时为 null。
         "outcome": getattr(request.state, "outcome", None),
+        # 只读例外放行：与 outcome 独立。桥返回错误或策略拒绝时仍为 true。
+        "read_only_exception": getattr(request.state, "read_only_exception", False) is True,
         # 经营管理查询（co_mgmt_core）：report、fiscal_year、periods、consolidate、cache_hit；其它路由为 null。
         "mgmt": getattr(request.state, "mgmt_audit", None),
     }

@@ -51,10 +51,11 @@ namespace U8Co
             Add(map, "/u8co/v1/sale-orders/verify", "sale_order", "verify=verify,unverify=unverify");
             Add(map, "/u8co/v1/dispatches/verify", "dispatch", "verify=verify,unverify=unverify");
             AddGl(map);
-            // 档案：新增、修改、删除。
+            // 档案：新增、修改、删除、客户专管业务员。
             Add(map, Requests.ArcRoot + "create", "archives", "create");
             Add(map, Requests.ArcRoot + "update", "archives", "update");
             Add(map, Requests.ArcRoot + "delete", "archives", "delete");
+            Add(map, ArcPerson.Path, "archives", ArcPerson.Op);
             AddArap(map);
             AddLedger(map);
             return map;
@@ -390,8 +391,9 @@ namespace U8Co
 
     // 写入策略的两处检查（WritePolicy 未配置时什么都不做）：登录前（Requests.Build，账套名单之后、解密之前）和
     // 入队后（WorkRun.RequireAccount，登录 U8 之前）。两处都按决策顺序 1–6（WritePolicyEval）；测试账套名单另查，互不替代。
-    // 只读账套（ReadOnlyGate）在两处都先于写入策略判断，策略放行也拦。
-    // 审计：op 记分类结果，policy 记 allow 或拒绝的错误码；未配置策略时 policy 为空。
+    // 只读账套（ReadOnlyGate）在两处都先于写入策略判断，策略放行也拦；readOnlyExceptions 匹配时放行并记
+    // read_only_exception，写入策略仍接着判定。
+    // 审计：op 记分类结果，policy 记 allow、read_only_exception 或拒绝的错误码；未配置策略时 policy 为空。
     internal static class WriteClassGate
     {
         public const string Allow = "allow";
@@ -415,7 +417,7 @@ namespace U8Co
             if (info == null)
             {
                 // 未分类的写路由（WriteClassSelfTest 保证没有）同样受只读账套约束。
-                ReadOnlyGate.Pre(cfg, draft, acc);
+                ReadOnlyGate.Pre(cfg, draft, acc, user, body, null);
                 return null;
             }
             info.Acc = acc;
@@ -427,8 +429,10 @@ namespace U8Co
             {
                 draft.TypeName = info.Type;
             }
-            ReadOnlyGate.Pre(cfg, draft, acc);
+            ReadOnlyGate.Pre(cfg, draft, acc, user, body, info);
+            string prior = draft.Policy;
             BridgeException refused = Decide(info, out draft.Policy);
+            draft.Policy = KeepException(prior, draft.Policy, refused);
             if (refused != null)
             {
                 throw refused;
@@ -458,11 +462,23 @@ namespace U8Co
                 return;
             }
             item.WriteInfo = info;
+            string prior = item.Policy;
             BridgeException refused = Decide(info, out item.Policy);
+            item.Policy = KeepException(prior, item.Policy, refused);
             if (refused != null)
             {
                 throw refused;
             }
+        }
+
+        // 只读例外放行后写入策略仍判定；策略通过时 policy 保留 read_only_exception，拒绝时用策略错误码。
+        static string KeepException(string prior, string policy, BridgeException refused)
+        {
+            if (prior == ReadOnlyGate.ExceptionCode && refused == null)
+            {
+                return prior;
+            }
+            return policy;
         }
 
         static BridgeException Decide(WriteRequestInfo info, out string policy)

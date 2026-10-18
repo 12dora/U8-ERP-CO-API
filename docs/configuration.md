@@ -49,7 +49,8 @@
 | --- | --- | --- | --- |
 | `enableReplicatedWrites` | 否 | `false` | 第二级写入（复现 U8 界面 SQL 的写入，清单见 [已知限制](limitations.md)「写入分级」）的总开关，只能写 `true` / `false`。为 `false` 时第二级写入（含预演）一律返回 403 `feature_disabled`，即使账套在 `testAccounts` 里；一般在登录 U8 之前返回，`arap/voucher/delete` 取消处理凭证时在登录后、写入前返回（见第 3 节「第二级写入」）。为 `true` 时仍只对 `testAccounts` 里的账套开放。健康检查的 `replicated_writes`、`meta` 的 `features.replicated_writes` 报告该值；`--check-config` 打印该值 |
 | `testAccounts` | 否 | `[]` | 测试账套（三位数字）。`enableReplicatedWrites` 为 `true` 时，第二级写入只对这些账套开放，其他账套返回 403 `test_account_only`（判定时机同上）。只放测试账套，**不要放正式账套**。名单中的账套还须在 `allowedAccounts` 里，否则 `--check-config` 和启动时给出警告；名单不为空而 `enableReplicatedWrites` 不是 `true` 时同样警告（第二级写入仍全部关闭）。`--check-config` 打印该键 |
-| `readOnlyAccounts` | 否 | `[]` | 只读账套（三位数字）。名单中的账套只开放读取，每条写路由（含预演和带幂等键的重发）一律在解密口令、登录 U8 之前返回 403 `account_read_only`「该账套只开放读取」，出队后登录前再检查一次。写入策略放行、账套在 `testAccounts` 里都不能解除。检查位于 `allowedAccounts` 之后（名单外的账套仍是 `account_not_allowed`）；审计行 `policy` 记 `account_read_only`；读路由不受影响。可以先于 `allowedAccounts` 配置。健康检查和 `meta` 列出 `read_only_accounts`；`--check-config` 打印该键。详见第 3 节「只读账套」 |
+| `readOnlyAccounts` | 否 | `[]` | 只读账套（三位数字）。名单中的账套只开放读取，每条写路由（含预演和带幂等键的重发）一律在解密口令、登录 U8 之前返回 403 `account_read_only`「该账套只开放读取」（配置了只读例外 `readOnlyExceptions` / `U8CO_READONLY_EXCEPTIONS` 时，与例外完全一致的那一种写入放行，见「只读例外」），出队后登录前再检查一次。写入策略放行、账套在 `testAccounts` 里都不能解除。检查位于 `allowedAccounts` 之后（名单外的账套仍是 `account_not_allowed`）；审计行 `policy` 记 `account_read_only`；读路由不受影响。可以先于 `allowedAccounts` 配置。健康检查和 `meta` 列出 `read_only_accounts`；`--check-config` 打印该键。详见第 3 节「只读账套」 |
+| `readOnlyExceptions` | 否 | `[]` | 只读账套的例外写入。数组，每项 `{accounts, operators, type, op}`。账套必须同时在 `readOnlyAccounts` 里；未知键（含已取消的 `archive` / `fields`）、空 `accounts` / `operators`、`type` 不是 `archives`、`op` 不是 `customer_person` 时启动失败。只认路径 `/u8co/v1/archives/customer_person`（其它写路由即使请求体 `type`/`op` 写成 `archives`/`customer_person` 也不放行）。操作员比较不区分大小写、不去首尾空白；`operators` 不能含双引号、反斜杠或控制字符。命中后仍走写入策略。匹配时审计 `policy` 记 `read_only_exception`；`archives/update` 等其它写路由仍 403 `account_read_only`。健康检查和 `meta` 列出 `read_only_exceptions`（字符串已转义）；`--check-config` 打印该键。修改后须重启桥。形状见第 3 节「只读例外」 |
 | `permEvaluateOperators` | 否 | `[]` | 允许调用 `perm/evaluate`（查询其他操作员的有效权限）的 U8 操作员编码，每项 1 到 20 个字符，不含空白、单引号、分号，不区分大小写。为空时一个都不放行，账套主管也不例外；名单外的调用操作员在登录 U8 之前返回 403 `no_permission`。`perm/snapshot`（查询本人权限）不受影响。建议只配置专门的系统后台身份，正式账套留空。`--check-config` 打印该键。见 [接口参考](api-reference.md)「操作员权限」 |
 | `writePolicyFile` | 否 | 无 | 写入策略文件的路径，相对路径按 `<root>` 解析，必须位于 `<root>` 之下。不配置时不启用写入策略；配置后必须指向一份有效策略，文件不存在或无效时所有写入（含预演）返回 503 `write_policy_unavailable`，读路由不受影响。策略文件改动不必重启（按内容哈希每 `reloadSeconds` 秒重读），增加或修改这个键须重启。格式见第 3 节「写入策略」。健康检查多出 `write_policy`；`--check-config` 打印路径和状态，并在 `license.maxConcurrentLogins` 小于 2、或开启 `loginReuse` 而该值不大于 `staWorkers` 时警告 |
 
@@ -216,6 +217,7 @@ CLR 在进程启动时读取 exe 旁的这份文件（不是 `config.json`）：
 | --- | --- | --- |
 | `U8CO_ACCOUNTS` | 空 | 允许的账套，逗号分隔的三位数字。为空时所有业务调用返回 403 `account_not_allowed` |
 | `U8CO_READONLY_ACCOUNTS` | 空 | 可选，只开放读取的账套，写法同 `U8CO_ACCOUNTS`，每个都必须同时在 `U8CO_ACCOUNTS` 中（否则启动失败）。这些账套的写路由（含 `dry_run` 预演、带 `Idempotency-Key` 的重试、`intercompany/generate_buyer` 的买方）一律返回 403 `account_read_only`「该账套只开放读取」，在调桥和写入策略之前判定，不重放幂等结果，不带 `Retry-After`；读路由、经营管理查询不受影响。与桥的 `readOnlyAccounts` 相互独立，建议两侧同时配置。`/v1/co/health` 的 `api_read_only_accounts` 列出本值（未配置时省略），`read_only_accounts` 是桥报告的列表 |
+| `U8CO_READONLY_EXCEPTIONS` | 空 | 可选，只读例外（JSON 数组）。只读账套上仅当路由是 `archives/customer_person`，且账套、操作员、`type=archives`、`op=customer_person` 与某一项相同才穿过只读闸门（操作员不区分大小写、不去首尾空白）；审计字段 `read_only_exception` 为 true，成功时 `outcome` 也是 `read_only_exception`。`archives/update` 等其它写入仍 403 `account_read_only`。账套必须是 `U8CO_READONLY_ACCOUNTS` 的子集；未知键（含已取消的 `archive` / `fields`）、`type` 不是 `archives`、`op` 不是 `customer_person` 时进程启动失败。预演也必须是同一路由。写入策略若已配置仍在闸门之后判定。`/v1/co/health` 的 `api_read_only_exceptions` 列出本服务摘要（未配置时省略），`read_only_exceptions` 透传桥的摘要。与桥的 `readOnlyExceptions` 使用同一份内容。撤回：去掉本变量并重启。见第 3 节「只读例外」 |
 | `U8CO_WRITE_POLICY_FILE` | 无 | 可选，写入策略文件，与桥的 `writePolicyFile` 使用同一份 JSON（第 3 节）。API 在调桥之前按它判定冻结、时段、放行规则、操作员、行数和金额上限（限额和许可保护只在桥上）。设置后文件不存在或无效时所有写入返回 503 `write_policy_unavailable`；无效的新内容不替换上一份有效内容。文件不超过 1 MiB，判定或健康检查时距上次读取超过 `reloadSeconds` 即按内容哈希重读，不必重启。时段按 `U8CO_TIMEZONE` |
 | `U8CO_ENABLED` | `1` | 设为 `0` 时 `/v1/co/*` 返回 404，用作总开关 |
 
@@ -439,10 +441,12 @@ CLR 在进程启动时读取 exe 旁的这份文件（不是 `config.json`）：
 | --- | --- | --- | --- |
 | API 账套白名单 | `U8CO_ACCOUNTS`、信任项的 `accounts`、令牌的账套声明 | 哪些账套能被调用 | 重启 API |
 | API 只读账套 | `U8CO_READONLY_ACCOUNTS` | 名单中的账套一律不能写（含预演） | 重启 API |
+| API 只读例外 | `U8CO_READONLY_EXCEPTIONS` | 只读账套上按账套、操作员精确放行 `archives/customer_person` | 重启 API |
 | API 读写权限 | 令牌的写权限声明或 scope | 哪个调用方能写 | 更换令牌 |
 | API 写入策略 | `U8CO_WRITE_POLICY_FILE` | 按账套、单据类型、操作放行；冻结、时段、操作员、行数和金额上限 | 自动重载 |
 | 桥账套白名单 | `allowedAccounts` | 该桥登录哪些账套 | 重启桥 |
 | 桥只读账套 | `readOnlyAccounts` | 名单中的账套一律不能写（含预演） | 重启桥 |
+| 桥只读例外 | `readOnlyExceptions` | 只读账套上按账套、操作员精确放行 `archives/customer_person` | 重启桥 |
 | 写入分级 | `enableReplicatedWrites`、`testAccounts` | 第二级写入默认关闭；开启后也只对测试账套开放 | 重启桥 |
 | 桥写入策略 | `writePolicyFile` 指向的文件 | 同 API，另加写入限额和许可点数保护 | 自动重载 |
 | U8 权限 | U8 系统管理 | 操作员的功能权限、数据权限、字段权限 | 立即生效（读路由的权限快照缓存 60 秒） |
@@ -454,10 +458,33 @@ API 和桥配置同一份策略。API 一侧在调桥之前即拒绝，省一次
 只需读取的账套（例如只开放查询和经营管理报表的正式账套）在两侧都列为只读：桥 `readOnlyAccounts`，API `U8CO_READONLY_ACCOUNTS`。
 
 - 写闸门登记的每条写路由（单据新增、修改、删除、审核、关闭、生单、锁定，审批流操作，总账凭证、档案、应收应付、票据、期初、结账、存货核算的写入，专用审核路由）返回 403 `account_read_only`。
-- 预演（`rollback`、`validate`、`plan` 各模式）和带幂等键的重发同样被拒绝；需要查询以前的结果时用读路由 `idempotency/get`。
+- 预演（`rollback`、`validate`、`plan` 各模式）和带幂等键的重发同样被拒绝（配置了只读例外 `readOnlyExceptions` / `U8CO_READONLY_EXCEPTIONS` 时，与例外完全一致的那一种写入放行，见「只读例外」）；需要查询以前的结果时用读路由 `idempotency/get`。
 - 独立于写入策略和写入分级：策略放行全部、账套在 `testAccounts` 里都不能解除只读。
 - 桥的检查位于 `allowedAccounts` 之后、解密口令和登录 U8 之前，出队后登录前再检查一次；审计行 `policy` 记 `account_read_only`；健康检查、`meta` 和 `--check-config` 列出名单。
 - 开放只读正式账套的顺序：先把账套加入 `readOnlyAccounts`（和 `U8CO_READONLY_ACCOUNTS`），再加入 `allowedAccounts`（和 `U8CO_ACCOUNTS`）。
+
+### 只读例外
+
+正式账套保持只读（`readOnlyAccounts` / `U8CO_READONLY_ACCOUNTS`），只放行已经核对过的客户专管业务员写入时，配只读例外，不要把账套从只读名单里拿掉。
+
+API 环境变量 `U8CO_READONLY_EXCEPTIONS` 与桥 `config.json` 的 `readOnlyExceptions` 使用同一份 JSON 数组：
+
+```json
+[
+  {
+    "accounts": ["801"],
+    "operators": ["svc01"],
+    "type": "archives",
+    "op": "customer_person"
+  }
+]
+```
+
+- 命中条件：账套在该项的 `accounts` 里，操作员在 `operators` 里（不区分大小写、不去首尾空白），路由是 `archives/customer_person`（写入分类 `type=archives`、`op=customer_person`）。
+- 目前 `type` 只收 `archives`，`op` 只收 `customer_person`；其它值、未知键（含已取消的 `archive` / `fields`）、账套不在只读名单里，API 启动失败。
+- 命中后仍走写入策略（若已配置）；预演（`dry_run`）也必须是同一路由。不匹配的写入（`archives/update`、新增、删除、其它操作员、其它账套、不匹配的带键重发）仍 403 `account_read_only`。
+- 命中时审计字段 `read_only_exception` 为 true（与 `outcome` 独立：成功时 `outcome` 也是 `read_only_exception`，桥返回错误或策略拒绝时 `outcome` 是错误码）。健康检查 `api_read_only_exceptions` 列出本服务摘要，`read_only_exceptions` 透传桥的摘要。
+- 撤回：去掉 `U8CO_READONLY_EXCEPTIONS`（以及桥的 `readOnlyExceptions`）并重启，只读闸门恢复为「一律不能写」。
 
 ### 第二级写入
 
@@ -658,7 +685,7 @@ API 没有后台线程：判定或健康检查时距上次读取已过 `reloadSe
 - [ ] 策略中该账套的 `allow` 已由业务负责人确认；首批只放行最常用、最容易核对的写入（例如订单新增、审核），不使用 `"*"`。
 - [ ] 调用方使用的 U8 操作员只有所需的功能权限、数据权限和字段权限，不使用账套主管；需要时用 `operators.allow` 限定操作员。
 - [ ] 正式账套不在任何桥的 `testAccounts` 中，生产桥的 `enableReplicatedWrites` 为 `false`。
-- [ ] 只读的正式账套已列入 `readOnlyAccounts` 和 `U8CO_READONLY_ACCOUNTS`。
+- [ ] 只读的正式账套已列入 `readOnlyAccounts` 和 `U8CO_READONLY_ACCOUNTS`。若用只读例外做窄开放：`U8CO_READONLY_EXCEPTIONS` 与桥 `readOnlyExceptions` 内容相同；撤回为去掉该配置并重启。
 - [ ] 桥：`allowedAccounts` 加入该账套（重启桥），`writePolicyFile` 已配置且健康检查 `write_policy.state` 为 `ok`；API：`U8CO_ACCOUNTS`、令牌的账套声明、信任项的 `accounts`、按账套分流的桥配置（如有）加入该账套，API 的策略文件同步。
 - [ ] 先把该账套写入 `freeze.accounts`，确认读路由和健康检查正常，再在约定时间解冻。
 - [ ] 指定冻结的负责人和操作步骤（修改策略文件的 `freeze`，不必重启）；月末结账、盘点等时段提前写入 `denyDates` 或 `freeze`。

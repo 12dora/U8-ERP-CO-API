@@ -20,7 +20,7 @@ namespace U8Co
             // 凭证摘要（GlDigest，事件源）。
             GlDigest.Op
         };
-        static readonly string[] ArcOps = new string[] { "get", "list", "create", "update", "delete" };
+        static readonly string[] ArcOps = new string[] { "get", "list", "create", "update", "delete", ArcPerson.Op };
         static readonly Dictionary<string, Handler> Routes = BuildMap();
         static readonly HashSet<string> DeletePu = NameSet(new string[] { "purchase_order", "arrival" });
         static readonly HashSet<string> DeleteSt = NameSet(new string[]
