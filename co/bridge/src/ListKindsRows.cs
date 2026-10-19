@@ -116,7 +116,8 @@ namespace U8Co
         const string ApvExtra = "h.cVouchType AS vouch_type, h.cFlag AS ledger, h.cLink AS link, "
             + "h.iAmount AS amount, h.iAmount_f AS amount_fc, h.cexch_name AS currency, h.iExchRate AS rate, "
             + "h.cCode AS km_code, h.cDigest AS digest, h.cPZid AS gl_ref, h.cCoVouchType AS source_type, "
-            + "h.bd_c AS debit_side, h.dcreatesystime AS created_at, h.dmodifysystime AS modified_at";
+            + "h.bd_c AS debit_side, h.dcreatesystime AS created_at, h.dmodifysystime AS modified_at, "
+            + "h.iRAmount AS open_amount, CASE WHEN ISNULL(h.iRAmount,0) = 0 THEN 1 ELSE 0 END AS settled";
 
         static string[][] ArRows()
         {

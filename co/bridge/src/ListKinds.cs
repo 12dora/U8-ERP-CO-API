@@ -172,9 +172,17 @@ namespace U8Co
             + "h.dcreatesystime AS created_at, h.dmodifysystime AS modified_at, h.cLocker AS locker";
         const string DlExtra = "h.cSTCode AS sale_type, h.cBusType AS bus_type, h.cSOCode AS so_code, "
             + "h.iswfcontrolled AS wf, h.dcreatesystime AS created_at, h.dmodifysystime AS modified_at";
+        // {FILTER} 由表体记录权限替换（没有存货/仓库权限的行不进合计）；amount 与 open_amount 同一批行。
+        // 无权看任何明细行时 w.amount 为 NULL，settled 亦为 NULL（未知），不能当成已核销。
+        const string SbvApply = " OUTER APPLY (SELECT CONVERT(decimal(18,2), SUM(ISNULL(b.iNatSum,0)-ISNULL(b.iMoneySum,0)))"
+            + " AS open_amount, CONVERT(decimal(18,2), SUM(ISNULL(b.iNatSum,0))) AS amount"
+            + " FROM SaleBillVouchs b WHERE b.SBVID = h.SBVID{FILTER}) w";
+        internal const string SbvSettled = "CASE WHEN w.amount IS NULL THEN NULL"
+            + " WHEN ISNULL(w.open_amount,0) = 0 THEN 1 ELSE 0 END";
         const string SbvExtra = "h.cVouchType AS vouch_type, h.cSource AS source, h.cDLCode AS dl_ref, "
             + "h.cSOCode AS so_code, h.cVerifier AS ar_verifier, h.dcreatesystime AS created_at, "
-            + "h.dmodifysystime AS modified_at";
+            + "h.dmodifysystime AS modified_at, NULL AS tax_invoice_no, w.open_amount AS open_amount, "
+            + "w.amount AS amount, " + SbvSettled + " AS settled";
 
         static string[][] SaRows()
         {
@@ -191,7 +199,7 @@ namespace U8Co
                 new string[] { "sale_invoice", "SaleBillVouch", "SBVID", "h.cSBVCode", "h.dDate",
                     "h.cCusCode", null, null, "h.cDepCode", "h.cPersonCode", "h.cMaker",
                     "h.cChecker", "h.dverifydate", null, null, null, "h.bReturnFlag",
-                    "ufts", null, null, null, null, SbvExtra, null },
+                    "ufts", null, null, null, null, SbvExtra, SbvApply },
                 // 退货单：同发货单表，只列红字。
                 new string[] { "sale_return", "DispatchList", "DLID", "h.cDLCode", "h.dDate",
                     "h.cCusCode", null, null, "h.cDepCode", "h.cPersonCode", "h.cMaker",

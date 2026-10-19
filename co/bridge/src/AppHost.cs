@@ -240,6 +240,7 @@ namespace U8Co
                 Console.WriteLine(ReadOnlyGate.Describe(cfg));
                 Console.WriteLine("permEvaluateOperators（可查询其他操作员权限的调用操作员）: "
                     + string.Join(",", cfg.PermEvaluateOperators));
+                Console.WriteLine(ConfigRulesTax.Describe(cfg));
                 Console.WriteLine(WritePolicy.Describe(cfg));
                 string[] extra = LicenseRules.Describe(cfg);
                 for (int i = 0; i < extra.Length; i++)

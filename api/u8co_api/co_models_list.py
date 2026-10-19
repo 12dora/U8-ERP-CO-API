@@ -85,6 +85,8 @@ class CoVoucherListOut(BaseModel):
         "memo、line_count、posted_lines、amount、created_at、modified_at；存货调价单（inventory_price_adjust）另有 memo。"
         "退货申请单（sale_return_apply）另有 sale_type、bus_type、wf、verify_state、currency、memo、line_count、quantity、"
         "amount、created_at、modified_at（数量、金额为负数）。"
+        "销售发票另有 tax_invoice_no、amount、open_amount、settled（amount、open_amount、settled 只含操作员可见的明细行；"
+        "无权看任何明细行或金额字段时为 null）。应收应付单另有 open_amount、settled（只受记录权限约束，金额不会因字段权限遮蔽）。"
         "keys_only 时只有 id、code、ufts。ufts 和金额是字符串",
     )
     next: Scalar = Field(None, description="下一页的 after。最后一页省略")

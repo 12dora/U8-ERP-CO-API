@@ -1,7 +1,7 @@
 """命令行：字段标签 meta-fields、单据搜索 search、批量读取 load-many / arc-get-many。由 u8co_cli_assist 并入。
 
 meta-fields (--type sale_order [--op create|update|generate] [--source <来源类型>] | --archive customer | --gl)
-search --type sale_order [--code-like X] [--partner C900001] [--date-from 2026-09-01] [--verified true] [--after N] [--limit 50]
+search --type sale_order [--code-like X] [--partner C900001] [--date-from 2026-09-01] [--verified true] [--settled true] [--after N] [--limit 50]
        [--define define1=HT202601001] [--define-like define10=框架] [--define-prefix define2=HT2026]
        （表头文本自定义项，可重复，最多 4 个键）
 load-many --type sale_order --ids 101,102
@@ -49,6 +49,7 @@ def _search_command(sub: Any) -> None:
         search.add_argument("--" + name.replace("_", "-"), default="")
     search.add_argument("--verified", choices=tuple(_BOOL_TEXT))
     search.add_argument("--closed", choices=tuple(_BOOL_TEXT))
+    search.add_argument("--settled", choices=tuple(_BOOL_TEXT))
     search.add_argument("--after", type=int)
     search.add_argument("--limit", type=int)
     for op, help_text in (("", "表头自定义项等于"), ("like", "表头自定义项包含"), ("prefix", "表头自定义项开头是")):
@@ -93,6 +94,7 @@ def search_query(parsed: argparse.Namespace) -> SearchQuery:
     texts = {name: getattr(parsed, name) for name in ("code_like", *SEARCH_TEXT, "date_from", "date_to")}
     return SearchQuery(
         parsed.type, **texts, verified=_flag(parsed.verified), closed=_flag(parsed.closed),
+        settled=_flag(parsed.settled),
         after=parsed.after, limit=parsed.limit, defines=parse_defines(parsed),
     )
 

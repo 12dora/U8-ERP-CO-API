@@ -71,6 +71,23 @@ namespace U8Co
                 into.Days.TryGetValue(d.Key, out sum);
                 into.Days[d.Key] = sum + d.Value;
             }
+            TakeMax(into, p);
+        }
+
+        // others / totals：最长天数取成员的最大值，日期取该成员的 oldest_overdue_date。
+        static void TakeMax(ReportsMgmtArap.Partner into, ReportsMgmtArap.Partner p)
+        {
+            if (p.MaxOverdueDays == null)
+            {
+                return;
+            }
+            int days = (int)p.MaxOverdueDays;
+            if (into.MaxOverdueDays != null && days <= (int)into.MaxOverdueDays)
+            {
+                return;
+            }
+            into.MaxOverdueDays = p.MaxOverdueDays;
+            into.OldestOverdueDate = p.OldestOverdueDate;
         }
 
         internal static Dictionary<string, object> Summary(ReportsMgmtArap.Partner p, int count)
@@ -91,6 +108,8 @@ namespace U8Co
             item["balance"] = p.Balance;
             item["prepaid"] = p.Prepaid;
             item["overdue"] = p.Overdue;
+            item["max_overdue_days"] = p.MaxOverdueDays;
+            item["oldest_overdue_date"] = p.OldestOverdueDate;
             item["aging"] = new List<object>(Array.ConvertAll<decimal, object>(p.Aging, delegate(decimal v) { return (object)v; }));
             item["open_notes"] = p.Notes;
             item["invoice_count"] = p.Count;

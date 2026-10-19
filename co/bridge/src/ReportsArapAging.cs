@@ -10,16 +10,33 @@ namespace U8Co
     // 表名、列名只来自固定表（ReportsArap.Sides、Modes）；科目前缀、编码、天数只进参数。
     internal static class ReportsArapAging
     {
+        // 最长逾期：未结、原单计龄天数 vage>0、行余额>0 且该原单净余额 x.net>0 取 MAX(vage)。应付内层仍逐行
+        // （分桶口径不变），net 按往来单位+原单类型+单号窗口合计，同号不同类型不串账。oldk 把补零天数、类型、
+        // 单号、计龄日期打成可比较串（vt / vid 空串兜底）；同天数时较大的类型、再较大的单号胜出。
+        // 响应只输出天数和日期，不输出类型或单号。vage / vdate 只取原单自己的行（rd=0）；分桶仍用 age。
+        internal const string MaxAgeExpr = "MAX(CASE WHEN x.is_open=1 AND x.vage>0 AND x.bal>0 AND x.net>0 THEN x.vage END)";
+        internal const string OldkExpr = "MAX(CASE WHEN x.is_open=1 AND x.vage>0 AND x.bal>0 AND x.net>0 THEN"
+            + " RIGHT(REPLICATE('0',10)+CONVERT(varchar(10),x.vage),10)"
+            + " + N'|' + ISNULL(x.vt, N'')"
+            + " + N'|' + ISNULL(x.vid, N'')"
+            + " + N'|' + CONVERT(varchar(10),x.vdate,23) END)";
+        internal const string NetExpr = "SUM(m.bal) OVER (PARTITION BY m.cDwCode, m.vt, m.vid)";
+
         // {COLS} / {SUMS} 按分段个数生成（只用下标常量），{WHENS} 每段一个天数参数；{KEYS} {SELECT} {JOINS} 取自 Modes。
-        // m 层是逐张单据（应付逐行）的余额、账龄和解析后的业务员 psn（没有为空串）；src 1 单据、2 档案、0 都没有。
-        // {MFILTER}：业务员条件、分组键上的游标、数据权限。绑定顺序：limit，每段天数，{INNER}（见 InnerArgs，再接
-        // 明细条件），{MFILTER}。
-        const string AgingSql = "SELECT TOP (?) {SELECT}, CONVERT(decimal(18,2), g.bal) bal,"
-            + " CONVERT(decimal(18,2), g.pre) prepaid, CONVERT(decimal(18,2), g.ovd) ovd, g.smin, g.smax{COLS}"
+        // m 层是逐张单据（应付逐行）的余额、分桶账龄 age、原单类型 vt、原单号 vid、原单计龄日期 vdate /
+        // 天数 vage，以及解析后的业务员 psn（没有为空串）。vdate 与 vage 同一天：basis=due 为到期日，
+        // basis=document 为单据日期。src 1 单据、2 档案、0 都没有。
+        // {MFILTER}：业务员条件、分组键上的游标、数据权限；落在窗口之前。绑定顺序：limit，每段天数，
+        // {INNER}（见 InnerArgs，再接明细条件），{MFILTER}。
+        internal const string AgingSql = "SELECT TOP (?) {SELECT}, CONVERT(decimal(18,2), g.bal) bal,"
+            + " CONVERT(decimal(18,2), g.pre) prepaid, CONVERT(decimal(18,2), g.ovd) ovd, g.smin, g.smax,"
+            + " g.max_age, g.oldk{COLS}"
             + " FROM (SELECT {KEYS}, SUM(x.bal) bal, SUM(CASE WHEN x.is_open=0 THEN -x.bal ELSE 0 END) pre,"
-            + " SUM(CASE WHEN x.is_open=1 AND x.bk>0 THEN x.bal ELSE 0 END) ovd, MIN(x.src) smin, MAX(x.src) smax{SUMS}"
-            + " FROM (SELECT m.cDwCode, m.bal, m.is_open, m.psn, m.src, CASE WHEN m.age<=0 THEN 0{WHENS} END bk"
-            + " FROM (SELECT r.cDwCode, r.bal, r.is_open, r.age,"
+            + " SUM(CASE WHEN x.is_open=1 AND x.bk>0 THEN x.bal ELSE 0 END) ovd, MIN(x.src) smin, MAX(x.src) smax,"
+            + " " + MaxAgeExpr + " max_age, " + OldkExpr + " oldk{SUMS}"
+            + " FROM (SELECT m.cDwCode, m.bal, m.is_open, m.psn, m.src, m.age, m.vt, m.vid, m.vdate, m.vage, "
+            + NetExpr + " net, CASE WHEN m.age<=0 THEN 0{WHENS} END bk"
+            + " FROM (SELECT r.cDwCode, r.bal, r.is_open, r.age, r.vt, r.vid, r.vdate, r.vage,"
             + " ISNULL(COALESCE(r.psn, NULLIF(LTRIM(RTRIM(cp.{PPERSON})), N'')), N'') psn,"
             + " CASE WHEN r.psn IS NOT NULL THEN 1 WHEN NULLIF(LTRIM(RTRIM(cp.{PPERSON})), N'') IS NOT NULL THEN 2"
             + " ELSE 0 END src FROM ({INNER}) r LEFT JOIN {NTABLE} cp ON cp.{CODE}=r.cDwCode) m WHERE 1=1{MFILTER}) x"
@@ -34,12 +51,16 @@ namespace U8Co
 
         // 应收：核销行（9P，对方单据不是自己）归到原单，再按单据算账龄（与 U8 账龄分析一致）。
         // 26/27/R0 与小于 48 的单据类型是应收；其余（收款单 48/49）的剩余贷方是预收。
-        // 业务员只取原单自己的行（核销行上的是收款单的），原单没有就落到档案，不退回收款单的业务员。
-        // 同一张单据的业务员一致。
+        // 分桶 age 仍按该原单全部行的到期日 / 单据日期；业务员、vdate / vage 只取原单自己的行
+        // （rd=0），核销/收款行的日期不参与最长逾期，避免预收日期被报成逾期日。同一张单据的业务员一致。
+        // 内层选出 vt，外层窗口按（往来单位、类型、单号）合计净额。
         const string ArInner = "SELECT g.cDwCode, SUM(g.bal) bal,"
             + " CASE WHEN g.vt IN (N'26', N'27', N'R0') OR g.vt<N'48' THEN 1 ELSE 0 END is_open,"
             + " DATEDIFF(day, CASE WHEN ?=1 THEN MIN(g.dDue) ELSE MIN(g.dVouchDate) END, CONVERT(date, ?, 23)) age,"
-            + " MAX(CASE WHEN g.rd=0 THEN g.psn END) psn"
+            + " MAX(CASE WHEN g.rd=0 THEN g.psn END) psn, g.vt, g.vid,"
+            + " MIN(CASE WHEN g.rd=0 THEN CASE WHEN ?=1 THEN g.dDue ELSE g.dVouchDate END END) vdate,"
+            + " DATEDIFF(day, MIN(CASE WHEN g.rd=0 THEN CASE WHEN ?=1 THEN g.dDue ELSE g.dVouchDate END END),"
+            + " CONVERT(date, ?, 23)) vage"
             + " FROM (SELECT d.cDwCode, ISNULL(d.iDAmount,0)-ISNULL(d.iCAmount,0) bal, d.dVouchDate,"
             + DueSql + " dDue, f.rd,"
             + " CASE WHEN f.rd=1 THEN d.cCoVouchType ELSE d.cVouchType END vt,"
@@ -49,15 +70,17 @@ namespace U8Co
             + " WHERE d.iFlag<3 AND d.dRegDate<DATEADD(day, 1, CONVERT(date, ?, 23)){FILTER}) g"
             + " GROUP BY g.cDwCode, g.vt, g.vid";
 
-        // 应付：按明细行算账龄。对方单据类型小于 48 或 P0–P9 是应付，其余（付款单）的剩余借方是预付。
+        // 应付：按明细行算账龄（分桶仍逐行）。对方单据类型小于 48 或 P0–P9 是应付，其余（付款单）的剩余借方是预付。
         // 业务员与应收一样按原单解析：同一（往来单位、对方单据类型、对方单据号）里取原单自己的行
         // （cCoVouchType=cVouchType 且 cCoVouchID=cVouchID）上的 cPerson，核销行（9P）不用自己的。
+        // vdate / vage 与该行天数同一天（APPLY 的 dAge）。选出 cCoVouchType 为 vt，与应收外层窗口同形。
         const string ApInner = "SELECT d.cDwCode, ISNULL(d.iCAmount,0)-ISNULL(d.iDAmount,0) bal,"
             + " CASE WHEN d.cCoVouchType<N'48' OR (d.cCoVouchType>=N'P0' AND d.cCoVouchType<=N'P9') THEN 1 ELSE 0 END is_open,"
-            + " DATEDIFF(day, CASE WHEN ?=1 THEN" + DueSql + " ELSE d.dVouchDate END,"
-            + " CONVERT(date, ?, 23)) age, MAX(CASE WHEN d.cCoVouchType=d.cVouchType AND d.cCoVouchID=d.cVouchID"
-            + " THEN NULLIF(LTRIM(RTRIM(d.cPerson)), N'') END) OVER (PARTITION BY d.cDwCode, d.cCoVouchType, d.cCoVouchID) psn"
-            + " FROM Ap_Detail d WHERE d.iFlag<3 AND d.dRegDate<DATEADD(day, 1, CONVERT(date, ?, 23)){FILTER}";
+            + " DATEDIFF(day, a.dAge, CONVERT(date, ?, 23)) age, MAX(CASE WHEN d.cCoVouchType=d.cVouchType AND d.cCoVouchID=d.cVouchID"
+            + " THEN NULLIF(LTRIM(RTRIM(d.cPerson)), N'') END) OVER (PARTITION BY d.cDwCode, d.cCoVouchType, d.cCoVouchID) psn,"
+            + " d.cCoVouchType vt, d.cCoVouchID vid, a.dAge vdate, DATEDIFF(day, a.dAge, CONVERT(date, ?, 23)) vage"
+            + " FROM Ap_Detail d CROSS APPLY (SELECT CASE WHEN ?=1 THEN" + DueSql
+            + " ELSE d.dVouchDate END dAge) a WHERE d.iFlag<3 AND d.dRegDate<DATEADD(day, 1, CONVERT(date, ?, 23)){FILTER}";
 
         const string PartnerJoin = " LEFT JOIN {NTABLE} n ON n.{CODE}=g.cDwCode";
         const string PersonJoin = " LEFT JOIN Person p ON p.cPersonCode=g.psn";
@@ -121,20 +144,28 @@ namespace U8Co
             return (a.Side == "ar" ? ArInner : ApInner).Replace("{FILTER}", ReportsArap.Filter(a, args));
         }
 
-        // {INNER} 前段的参数，按 ? 在文本里出现的顺序：应收 basis、as_of（账龄）、default_credit_days（到期日）、as_of（登记日）；
-        // 应付的到期日在账龄的 DATEDIFF 里，是 basis、default_credit_days、as_of、as_of。
+        // {INNER} 前段的参数，按 ? 在文本里出现的顺序。
+        // 应收：分桶 age 的 basis / as_of，原单 vdate 的 basis，原单 vage 的 basis / as_of，
+        // default_credit_days（到期日），登记日 as_of。
+        // 应付：分桶 age 的 as_of，原单 vage 的 as_of，basis、default_credit_days（到期日），登记日 as_of。
         static void InnerArgs(ReportArgs a, List<object> args)
         {
-            args.Add(a.Basis == "due" ? 1 : 0);
-            if (a.Side != "ar")
-            {
-                args.Add(a.DefaultCreditDays);
-            }
-            args.Add(a.AsOf);
+            int basis = a.Basis == "due" ? 1 : 0;
             if (a.Side == "ar")
             {
+                args.Add(basis);
+                args.Add(a.AsOf);
+                args.Add(basis);
+                args.Add(basis);
+                args.Add(a.AsOf);
                 args.Add(a.DefaultCreditDays);
+                args.Add(a.AsOf);
+                return;
             }
+            args.Add(a.AsOf);
+            args.Add(a.AsOf);
+            args.Add(basis);
+            args.Add(a.DefaultCreditDays);
             args.Add(a.AsOf);
         }
 
@@ -252,7 +283,32 @@ namespace U8Co
             {
                 item["overdue"] = GlSql.Money(row, "ovd");
             }
+            string age = GlSql.Col(row, "max_age");
+            item["max_overdue_days"] = age.Length == 0 ? null : (object)GlSql.Int(row, "max_age");
+            item["oldest_overdue_date"] = OldestDate(GlSql.Col(row, "oldk"));
             return item;
+        }
+
+        // oldk = 10 位补零天数 | 类型 | 单号 | yyyy-MM-dd（计龄日期：due=到期日，document=单据日期）。
+        // 类型和单号只用于同天数比较，不进响应。
+        internal static string OldestDate(string oldk)
+        {
+            if (oldk == null)
+            {
+                return null;
+            }
+            oldk = oldk.Trim();
+            if (oldk.Length == 0)
+            {
+                return null;
+            }
+            string[] parts = oldk.Split(new char[] { '|' });
+            if (parts.Length < 3)
+            {
+                return null;
+            }
+            string date = parts[parts.Length - 1].Trim();
+            return date.Length == 0 ? null : date;
         }
 
         // person_source：document 全部取自单据，customer / vendor 全部取自档案的专管业务员，mixed 两者都有。
@@ -282,7 +338,7 @@ namespace U8Co
             return sql.ToString();
         }
 
-        static string Sums(int n)
+        internal static string Sums(int n)
         {
             StringBuilder sql = new StringBuilder();
             for (int b = 0; b <= n + 1; b++)

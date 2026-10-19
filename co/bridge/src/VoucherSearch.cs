@@ -2,11 +2,13 @@ using System.Collections.Generic;
 
 namespace U8Co
 {
-    // vouchers/search：按单号包含、往来单位、部门、业务员、仓库、制单人、存货、日期、审核 / 关闭状态查单据。
+    // vouchers/search：按单号包含、往来单位、部门、业务员、仓库、制单人、存货、日期、审核 / 关闭 / 核销状态查单据。
+    // sale_invoice 的 code_like 在账套配置了数电号列且操作员看得见该列时，同时匹配 U8 单号和该列。
     // 读路由，只跑 SQL（读线程池、登录缓存），只用 ctx.Conn，不碰 ctx.Session。
     // 与 vouchers/list 同一套列、同一套数据权限条件、同样按主键 keyset 分页（after = 上一页的 next）；
     // order 缺省 asc（按主键升序，字节不变）；desc 按单据日期、主键降序，next / after 是游标文本（DescPaging），响应另带 order: "desc"；
-    // 条目同列表的完整条目，有往来单位列的类型另加 partner_name；给了 defines 时另加 defines（请求里各键的表头值）。不给 watermark（增量同步用 vouchers/list）。
+    // 条目同列表的完整条目，有往来单位列的类型另加 partner_name；给了 defines 时另加 defines（请求里各键的表头值，
+    // 无权的 defineN 筛选 403，返回值按 cDefineN 遮蔽）。不给 watermark（增量同步用 vouchers/list）。
     internal static class VoucherSearch
     {
         internal const string Path = "/u8co/v1/vouchers/search";
@@ -15,7 +17,7 @@ namespace U8Co
         public static ApiResult Run(WorkContext ctx)
         {
             Dictionary<string, object> body = ctx == null || ctx.Item == null ? null : ctx.Item.Body;
-            VoucherSearchArgs args = VoucherSearchArgs.Parse(body);
+            VoucherSearchArgs args = VoucherSearchArgs.Parse(body, ctx);
             List<object> ps = new List<object>();
             string sql = VoucherSearchSql.Build(args, ps, ctx);
             List<Dictionary<string, object>> rows = Rows.Query(ctx.Conn, sql, ps.ToArray(), args.Limit + 1);
@@ -28,7 +30,7 @@ namespace U8Co
             {
                 DescResult(result, rows, args.Limit);
             }
-            VoucherSearchDefines.Attach(result, rows, args.Defines);
+            VoucherSearchDefines.Attach(result, rows, args.Defines, ctx);
             return page;
         }
 

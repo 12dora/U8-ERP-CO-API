@@ -207,6 +207,9 @@ ARAP_HELP = mgmt_doc(
         "近 12 个月单据的信用期分布、实际回款（付款）天数（金额加权的平均数与中位数）",
         "每个账套按余额绝对值取前 top 个单位，其余并成 others",
         "aging、overdue 是毛额；未核销的收款、付款单列在 prepaid",
+        "每个单位另有 max_overdue_days、oldest_overdue_date（最长逾期那笔的到期日，与账龄起算日相同；"
+        "只看核销后净余额大于 0 的单据；无逾期未核销项时为 null；不给单据号）",
+        "others、totals 的这两项取成员最大值及该成员的 oldest_overdue_date",
         "aging_net、overdue_net：按单位把 prepaid 按先进先出冲抵最老账龄段后的净额（分段同 aging）",
         "逾期以净额为准；合计的净额是各单位净额之和",
         "预收付超过账龄合计 10% 的账套见 warnings",

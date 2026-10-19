@@ -94,21 +94,22 @@ namespace U8Co
         }
 
         // SELECT TOP (?) … FROM head h [APPLY] [LEFT JOIN 客户 / 供应商] WHERE [类型条件 AND] h.id > ? [列表筛选]
-        // [单号包含] [往来单位] [存货] [表头自定义项] [数据权限] ORDER BY h.id（order 为 desc 时按单据日期、主键降序，见 DescPaging）。选择列另加 defines 的各列（VoucherSearchDefines）。? 的顺序就是在文本里出现的顺序。
+        // [单号包含] [往来单位] [存货] [表头自定义项] [数据权限] ORDER BY h.id（order 为 desc 时按单据日期、主键降序，见 DescPaging）。
+        // 选择列另加 defines 的各列（VoucherSearchDefines）。sale_invoice 的 APPLY 只合计有表体权限的行。? 的顺序就是在文本里出现的顺序。
         public static string Build(VoucherSearchArgs args, List<object> ps, WorkContext ctx)
         {
             ListKind kind = args.Kind;
             string id = "h." + kind[ListKind.Id];
             ps.Add(args.Limit + 1);
             StringBuilder sb = new StringBuilder("SELECT TOP (?) ");
-            sb.Append(ListSql.FullSelect(kind));
+            sb.Append(ListSql.FullSelect(kind, ctx));
             if (args.Desc)
             {
                 sb.Append(", ").Append(DescPaging.DateSql(kind[ListKind.Date])).Append(" AS ").Append(CursorDate);
             }
             AppendPartnerName(sb, kind);
-            VoucherSearchDefines.AppendSelect(sb, args.Defines);
-            sb.Append(" FROM ").Append(kind[ListKind.Head]).Append(" h").Append(ListSql.ApplyOf(kind));
+            VoucherSearchDefines.AppendSelect(sb, args.Defines, kind, ctx);
+            sb.Append(" FROM ").Append(kind[ListKind.Head]).Append(" h").Append(ListSql.ApplyOf(kind, ctx, ps));
             AppendJoins(sb, kind);
             sb.Append(" WHERE ");
             if (kind.Has(ListKind.Cond))
@@ -117,7 +118,7 @@ namespace U8Co
             }
             AppendAfter(sb, kind, args, ps);
             ListSql.AppendFilters(sb, kind, args.Filters, ps);
-            AppendExtra(sb, kind, args, ps);
+            AppendExtra(sb, kind, args, ps, ctx);
             // 数据权限：与 vouchers/list 同一套条件，放在 WHERE 最后。
             PermHook.Where(sb, ps, ctx, "h");
             if (args.Desc)
@@ -181,13 +182,10 @@ namespace U8Co
             }
         }
 
-        static void AppendExtra(StringBuilder sb, ListKind kind, VoucherSearchArgs args, List<object> ps)
+        static void AppendExtra(StringBuilder sb, ListKind kind, VoucherSearchArgs args, List<object> ps,
+            WorkContext ctx)
         {
-            if (args.CodeLike != null)
-            {
-                sb.Append(" AND ").Append(kind[ListKind.Code]).Append(" LIKE ? ESCAPE '\\'");
-                ps.Add(args.CodeLike);
-            }
+            AppendCodeLike(sb, kind, args, ps, ctx);
             if (args.Partner != null)
             {
                 AppendPartner(sb, kind, args.Partner, ps);
@@ -196,7 +194,71 @@ namespace U8Co
             {
                 AppendInventory(sb, kind, args.Inventory, ps);
             }
-            VoucherSearchDefines.AppendWhere(sb, args.Defines, ps);
+            VoucherSearchDefines.AppendWhere(sb, args.Defines, ps, kind, ctx);
+            AppendSettled(sb, kind, args, ctx);
+        }
+
+        // sale_invoice 在账套配置了数电号列、且操作员看得见该列时，单号包含同时匹配 U8 单号和该列（同一模式两个 ?）。
+        static void AppendCodeLike(StringBuilder sb, ListKind kind, VoucherSearchArgs args, List<object> ps,
+            WorkContext ctx)
+        {
+            if (args.CodeLike == null)
+            {
+                return;
+            }
+            string tax = TaxInvoiceNo.SearchColumn(kind, ctx);
+            sb.Append(" AND ");
+            if (tax == null)
+            {
+                sb.Append(kind[ListKind.Code]).Append(" LIKE ? ESCAPE '\\'");
+                ps.Add(args.CodeLike);
+                return;
+            }
+            sb.Append("(").Append(kind[ListKind.Code]).Append(" LIKE ? ESCAPE '\\' OR h.").Append(tax)
+                .Append(" LIKE ? ESCAPE '\\')");
+            ps.Add(args.CodeLike);
+            ps.Add(args.CodeLike);
+        }
+
+        internal static bool SupportsSettled(ListKind kind)
+        {
+            if (kind == null)
+            {
+                return false;
+            }
+            string name = kind[ListKind.Name];
+            return name == "sale_invoice" || name == "ar_bill" || name == "ap_bill";
+        }
+
+        static void AppendSettled(StringBuilder sb, ListKind kind, VoucherSearchArgs args, WorkContext ctx)
+        {
+            if (args.Settled == null)
+            {
+                return;
+            }
+            if (PermMask.WillMaskAmounts(ctx))
+            {
+                throw new BridgeException(403, "no_permission", "无权按核销状态筛选：缺少金额字段权限");
+            }
+            string expr = SettledSql(kind);
+            sb.Append(" AND ").Append(expr);
+            if ((bool)args.Settled)
+            {
+                sb.Append(" = 1");
+            }
+            else
+            {
+                sb.Append(" = 0");
+            }
+        }
+
+        static string SettledSql(ListKind kind)
+        {
+            if (kind[ListKind.Name] == "sale_invoice")
+            {
+                return ListKinds.SbvSettled;
+            }
+            return "CASE WHEN ISNULL(h.iRAmount,0) = 0 THEN 1 ELSE 0 END";
         }
 
         static void AppendPartner(StringBuilder sb, ListKind kind, string partner, List<object> ps)

@@ -19,7 +19,9 @@ namespace U8Co
         {
             "verified", "closed", "red", "wf", "prepay", "debit_side", "stopped",
             // 票据（ar_note / ap_note）：期初票据。
-            "opening"
+            "opening",
+            // 销售发票 / 应收应付单：本币未核销为 0。
+            "settled"
         };
 
         public static void Check(string op, Dictionary<string, object> body)

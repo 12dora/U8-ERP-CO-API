@@ -154,7 +154,16 @@ namespace U8Co
                 rule.Group = rule.Group || PermColumnMap.IsMoney(name);
             }
             rule.Group = rule.Group || (rule.Denied.Count > 0 && scope.StrictDenied(p));
+            ExpandAlias(rule, scope);
             return rule;
+        }
+
+        static void ExpandAlias(Rule rule, ColScope scope)
+        {
+            if (scope.MapColumn != null && scope.MapAlias != null && rule.Denied.Contains(scope.MapColumn))
+            {
+                rule.Denied.Add(scope.MapAlias);
+            }
         }
 
         static void AddAll(Rule rule, HashSet<string> set)
@@ -165,6 +174,11 @@ namespace U8Co
                 if (name.Length > 0)
                 {
                     rule.Denied.Add(name);
+                    string define = PermColumnMap.DefineAlias(name);
+                    if (define != null)
+                    {
+                        rule.Denied.Add(define);
+                    }
                 }
             }
         }

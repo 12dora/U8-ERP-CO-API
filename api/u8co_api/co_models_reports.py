@@ -311,7 +311,10 @@ class ReportAgingOut(BaseModel):
         "person_code、person_name、person_source（document 单据、customer / vendor 档案专管业务员、mixed 两者都有；"
         "没有业务员时 person_code 等三项为 null）；partner_person 两组都有。之后是 balance、aging（与 buckets "
         "一一对应）、prepaid（未核销的预收或预付，正数），basis=due 时另有 overdue（已逾期金额 = aging 除 not_due "
-        "外的合计）。balance = aging 合计 − prepaid。" + _MONEY,
+        "外的合计）。另有 max_overdue_days（最长逾期天数，无逾期未核销项时为 null）、oldest_overdue_date"
+        "（最长逾期那笔的起算日 yyyy-MM-dd：basis=due 为到期日，basis=document 为单据日期；"
+        "只看核销后净余额大于 0 的单据；不给单据号）。others、totals 若有，取成员最大值及该成员的日期。"
+        "balance = aging 合计 − prepaid。" + _MONEY,
     )
     next: Scalar = Field(None, description=_NEXT)
 

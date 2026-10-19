@@ -82,3 +82,4 @@ def test_list_item_description_mentions_workflow_fields() -> None:
     text = CoVoucherListOut.model_fields["items"].description or ""
     assert "wf_state" in text
     assert "current_auditor" in text
+    assert "tax_invoice_no" in text and "amount" in text and "open_amount" in text and "settled" in text

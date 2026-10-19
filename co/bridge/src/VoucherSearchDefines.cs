@@ -56,8 +56,13 @@ namespace U8Co
             return kind != null && Kinds.Contains(kind[ListKind.Name]);
         }
 
-        // 缺省或 null 返回 null。
+        // 缺省或 null 返回 null。ctx 有权限快照时，被拒绝的 cDefineN 不能当筛选条件（403，不静默丢掉）。
         public static List<DefineMatch> Parse(Dictionary<string, object> body, ListKind kind)
+        {
+            return Parse(body, kind, null);
+        }
+
+        public static List<DefineMatch> Parse(Dictionary<string, object> body, ListKind kind, WorkContext ctx)
         {
             object raw = Requests.Field(body, Field);
             if (raw == null)
@@ -84,7 +89,27 @@ namespace U8Co
                 ParseSpec(match, pair.Value);
                 list.Add(match);
             }
+            RefuseDenied(list, kind, ctx);
             return list;
+        }
+
+        // 操作员无权看该类型的 cDefineN 时，按它筛选是旁路，403。登录前解析没有 ctx，读线程再拦一次。
+        static void RefuseDenied(List<DefineMatch> list, ListKind kind, WorkContext ctx)
+        {
+            if (list == null || kind == null || ctx == null)
+            {
+                return;
+            }
+            string type = kind[ListKind.Name];
+            for (int i = 0; i < list.Count; i++)
+            {
+                DefineMatch match = list[i];
+                string col = "cDefine" + match.Number.ToString(CultureInfo.InvariantCulture);
+                if (PermColumnMap.FieldDenied(ctx.Perm, type, col))
+                {
+                    throw new BridgeException(403, "no_permission", "无权按表头自定义项 " + KeyOf(match.Number) + " 搜索");
+                }
+            }
         }
 
         // define1 … define16 中的文本列。只收规范写法（键恰好等于 "define" + 编号）：不收前导零（define01）、
@@ -208,9 +233,10 @@ namespace U8Co
                 + ", NCHAR(12288), N' '), NCHAR(160), N' ')))";
         }
 
-        // SELECT 里另加各条件列（去空格，空串为 NULL），别名 def_defineN。
-        public static void AppendSelect(StringBuilder sb, List<DefineMatch> list)
+        // SELECT 里另加各条件列（去空格，空串为 NULL），别名 def_defineN。无权列在拼 SQL 前 403，仍 SELECT 再遮。
+        public static void AppendSelect(StringBuilder sb, List<DefineMatch> list, ListKind kind, WorkContext ctx)
         {
+            RefuseDenied(list, kind, ctx);
             if (list == null)
             {
                 return;
@@ -222,9 +248,11 @@ namespace U8Co
             }
         }
 
-        // WHERE 条件，与其他条件 AND。
-        public static void AppendWhere(StringBuilder sb, List<DefineMatch> list, List<object> ps)
+        // WHERE 条件，与其他条件 AND。无权的 defineN 条件 403，不静默忽略。
+        public static void AppendWhere(StringBuilder sb, List<DefineMatch> list, List<object> ps, ListKind kind,
+            WorkContext ctx)
         {
+            RefuseDenied(list, kind, ctx);
             if (list == null)
             {
                 return;
@@ -238,14 +266,18 @@ namespace U8Co
         }
 
         // 每条另加 defines：{"define1": 值或 null}，只含请求里的键。items 与 rows 按下标一一对应（ListRoutes.Page）。
+        // 无权的 defineN 仍挂上，读路由结束时 PermMask 按 cDefineN 置空（select then mask）。
         public static void Attach(Dictionary<string, object> result, List<Dictionary<string, object>> rows,
-            List<DefineMatch> list)
+            List<DefineMatch> list, WorkContext ctx)
         {
             List<object> items = list == null ? null : result["items"] as List<object>;
             if (items == null)
             {
                 return;
             }
+            object typeRaw;
+            result.TryGetValue("type", out typeRaw);
+            string type = typeRaw as string;
             for (int i = 0; i < items.Count; i++)
             {
                 Dictionary<string, object> item = (Dictionary<string, object>)items[i];
@@ -258,7 +290,27 @@ namespace U8Co
                     text = text == null ? null : Normalize(text);
                     values[KeyOf(match.Number)] = string.IsNullOrEmpty(text) ? null : text;
                 }
+                MaskDefines(values, type, ctx);
                 item[Field] = values;
+            }
+        }
+
+        // 字段权限拒绝的 cDefineN 对应 defineN 先置空；StaExec 里 PermMask 仍会记 masked_fields。
+        static void MaskDefines(Dictionary<string, object> values, string type, WorkContext ctx)
+        {
+            if (values == null || ctx == null)
+            {
+                return;
+            }
+            List<string> keys = new List<string>(values.Keys);
+            for (int i = 0; i < keys.Count; i++)
+            {
+                string key = keys[i];
+                string col = "cDefine" + key.Substring(Prefix.Length);
+                if (PermColumnMap.FieldDenied(ctx.Perm, type, col))
+                {
+                    values[key] = null;
+                }
             }
         }
     }

@@ -60,6 +60,11 @@ namespace U8Co
             string sql = ReportsMgmtArapSql.Aging(null, g, ps);
             Expect("arap aging placeholders " + side, All(Count(sql) == ps.Count, (int)ps[0] == 30, (int)ps[3] == 180,
                 ps.Contains(AsOf), sql.Contains("GROUP BY x.cDwCode")));
+            Expect("arap aging max_age " + side, sql.Contains("max_age"));
+            Expect("arap aging net " + side, All(sql.Contains("SUM(r.bal) OVER (PARTITION BY r.cDwCode, r.vt, r.vid)"),
+                sql.Contains("x.net>0"), sql.Contains("ISNULL(x.vt, N'')"), sql.Contains("ISNULL(x.vid, N'')"),
+                sql.Contains("x.vage>0")));
+            CheckAgingType(side, sql);
             ps = new List<object>();
             sql = ReportsMgmtArapSql.History(null, g, ps);
             string[] expect = side == "ap" ? new string[] { "2202%", "Ap_Detail" } : new string[] { "1122%", "Ar_Detail" };
@@ -74,6 +79,19 @@ namespace U8Co
             Expect("arap notes placeholders " + side, All(Count(sql) == ps.Count, ps.Count == 2,
                 (string)ps[0] == side.ToUpperInvariant(), (string)ps[1] == AsOf, sql.Contains("iRAmount"),
                 sql.Contains("NULLIF(LTRIM(RTRIM(n.cEndorser)), N'')"), sql.Contains("GROUP BY x.cDwCode")));
+        }
+
+        // 同号不同类型：窗口含 vt，内层选出原单类型（应收 vt，应付 cCoVouchType）。
+        static void CheckAgingType(string side, string sql)
+        {
+            Expect("arap aging type cols " + side, sql.Contains("r.vt, r.vid"));
+            if (side == "ar")
+            {
+                Expect("arap aging ar type " + side, sql.Contains("g.vt, g.vid"));
+                return;
+            }
+            Expect("arap aging ap type " + side, sql.Contains("d.cCoVouchType vt")
+                && sql.Contains("d.cCoVouchID vid"));
         }
 
         static void CheckDays()
@@ -92,11 +110,11 @@ namespace U8Co
         static void CheckFill()
         {
             List<ReportsMgmtArap.Partner> all = new List<ReportsMgmtArap.Partner>();
-            all.Add(Partner("C1", 100m, 0));
-            all.Add(Partner("C2", -300m, 0));
+            all.Add(Overdue(Partner("C1", 100m, 0), 40, "2026-07-22"));
+            all.Add(Overdue(Partner("C2", -300m, 0), 10, "2026-08-21"));
             all.Add(Partner("C3", 0m, 0));
-            all.Add(Partner("C4", 0m, 2));
-            all.Add(Partner("C5", 50m, 1));
+            all.Add(Overdue(Partner("C4", 0m, 2), 5, "2026-08-26"));
+            all.Add(Overdue(Partner("C5", 50m, 1), 20, "2026-08-11"));
             Dictionary<string, object> body = new Dictionary<string, object>();
             ReportsMgmtArap.Fill(body, all, 2, 2);
             List<object> rows = (List<object>)body["partners"];
@@ -108,6 +126,17 @@ namespace U8Co
                 (int)others["invoice_count"] == 3));
             Expect("arap totals", All((int)totals["partners"] == 4, (decimal)totals["balance"] == -150m,
                 ((List<object>)totals["aging"]).Count == 4, ((List<object>)totals["terms"]).Count == 1));
+            Expect("arap others max", All((int)others["max_overdue_days"] == 20,
+                (string)others["oldest_overdue_date"] == "2026-08-11"));
+            Expect("arap totals max", All((int)totals["max_overdue_days"] == 40,
+                (string)totals["oldest_overdue_date"] == "2026-07-22"));
+        }
+
+        static ReportsMgmtArap.Partner Overdue(ReportsMgmtArap.Partner p, int days, string date)
+        {
+            p.MaxOverdueDays = days;
+            p.OldestOverdueDate = date;
+            return p;
         }
 
         static ReportsMgmtArap.Partner Partner(string code, decimal balance, int invoices)

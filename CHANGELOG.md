@@ -6,6 +6,7 @@
 
 ### 新增
 
+- 销售发票 `vouchers/search` 的 `code_like` 同时匹配账套配置的数电/金税发票号列；销售发票、应收应付单可按 `settled` 筛核销状态，列表/搜索行另有 `tax_invoice_no`（仅发票；无权看该列时为 null）、`amount`、`open_amount`、`settled`。销售发票的 `amount`、`open_amount`、`settled` 只含操作员有存货 / 仓库记录权限的明细行，无权看任何明细行或金额字段时为 null；无权看金额字段时按 `settled` 筛选 403「无权按核销状态筛选：缺少金额字段权限」。应收应付单的 `open_amount`、`settled` 只受记录权限约束（U8 无字段权限对象，不会遮蔽，按 `settled` 筛选也不会 403）。按被字段权限拒绝的表头自定义项筛选时 403「无权按表头自定义项 defineN 搜索」，返回的 `defines.defineN` 一并遮蔽。账龄分析与经营管理往来账期每项另有 `max_overdue_days`、`oldest_overdue_date`（无单据号；`oldest_overdue_date` 在 `basis=due` 时为到期日、`basis=document` 时为单据日期；应收应付都只看核销后净余额大于 0 的原单，按往来单位、原单类型、原单号分开合计；others/totals 取成员最大值及该成员的日期）。**升级顺序：先升级桥二进制，再在 `config.json` 写下 `taxInvoiceNoFields`；回滚到旧桥前先删除该键（旧桥遇未知键会拒绝启动，值为 `{}` 也不行）。先桥，后 API**。
 - 客户专管业务员 `archives/customer_person`：只改 `Customer.cCusPPerson`（当前专管业务员对应部门与客户分管部门一致、或分管部门为空时一并改 `cCusDepart`），不走客户 EAI。新部门须在 `Department` 中、末级且未停用，否则不改分管部门，响应 `dept_note`；分管部门实际改动时同步 `Customer_Auth`（`Privilege_Type=0` 的部门维度，`autoId` 是 IDENTITY，插入不写该列）。请求 `code`、`person`，可选 `expect`（空串表示当前为空）。响应 `before` / `after`、`dept_before` / `dept_after`、`dept_note`。预演为 `validate`。写入分类 `(archives, customer_person)`，放行 `archives/update` 不连带放行。只读例外改为 `{accounts, operators, type, op}`，`op` 只收 `customer_person`；`archive` / `fields` 已取消（未知键进程起不来）。`archives/update` 在只读账套上仍一律 403。客户端 `arc_customer_person`，命令行 `arc-customer-person`。审计行另记 `read_only_exception`，健康检查列出例外。**升级顺序：先桥，后 API**。
 - 客户端 `arc_update` 接受 `idempotency_key`（与 `arc_create` 一致）。
 - `vouchers/search`、`reports/order_execution` 新增 `order`（`asc` 缺省，与以前完全一致；`desc` 最新在前）：按单据（订单）日期降序、主键降序，用 keyset 游标续读（`next` 原样放回 `after`，游标不能跨 `order` 使用），一次调用就能取到最新的单据。`vouchers/search` 的 `after` 在 `desc` 时是游标文本，`asc` 时仍是整数主键。响应在 `desc` 时另有 `order`，API 在请求给了 `order` 时另加 `order_applied`。**升级顺序：先桥，后 API**（API 对旧桥仍可用：旧桥回「含未知字段」/「不能设置字段」时去掉 `order` 重试一次，`order_applied` 为 `false`，列表仍是最旧在前）。桥的 `--selftest` 增加 `order`、游标编解码和降序 SQL 的核对。
@@ -27,6 +28,7 @@
 
 ### 变更
 
+- 有字段权限对象的单据，`vouchers/load` 响应里的 `state.settled` 改与金额组一起遮蔽（无权看金额时为 null）。
 - 桥按操作员固定写线程：需要登录的请求（写、`login-check`、需要登录对象的读、未命中登录缓存的纯 SQL 读）按操作员编码（去首尾空白、不分大小写）固定到一个写线程，同一操作员的这些请求在该线程上逐笔执行，桥自己的线程之间不再因同一操作员同时登录而回 422 `login_failed`「登录状态不是 0」。代价是时延：同一操作员的并发请求排队依次执行，哈希到同一写线程的不同操作员共用该线程；读路由和 `login-check` 最多排队 75 秒、写路由 45 秒内开始不了即放弃，都返回 503 `busy_timeout`（可重试）。命中登录缓存的纯 SQL 读路由仍在读线程池上并行；读线程不再登录，缓存失效时把任务转回该操作员固定的写线程。登录复用时，写线程为同一操作员新建登录前先关掉本线程缓存的该操作员的其他闲置登录（计入 `logins_closed`），同一操作员在几个账套之间交替时复用效果有限。健康检查新增 `pinning` 和按写线程的 `worker_queued`，原有字段不变。桥的 `--selftest` 增加固定规则、取任务和同一操作员腾退的核对。
 - `mgmt/sales`、`mgmt/arap` 不再依赖总账：`mgmt/meta` 因功能权限不足（`no_permission`）读不到的账套照样出报表（没有水位和结账状态，`accounts[].close` 为 `null`，不缓存）。其他原因的 meta 失败行为不变。
 - `mgmt/overview` 不再依赖总账水位，某一部分无权限时只缺这一部分：账套结果的 `missing` 列出读不到的部分，新增 `missing_reasons`（部分名 → 原因码，`no_permission` 或读取故障）；三部分都无权限才是 403。`mgmt/arap` 的 `side: "both"` 一边因权限读不到时，账套仍给另一边并带 `missing_sides`，`complete` 为 `false`。

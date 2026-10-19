@@ -2,6 +2,7 @@
   "listenPrefix": "http://+:18089/u8co/",
   "u8Server": "198.51.100.10",
   "allowedAccounts": ["998"],
+  "taxInvoiceNoFields": { "998": "cDefine10" },
   "testAccounts": [],
   "enableReplicatedWrites": false,
   "allowedClients": ["192.0.2.20"],

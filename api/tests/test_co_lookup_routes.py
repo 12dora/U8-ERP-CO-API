@@ -8,6 +8,7 @@ from tests.test_co_gate import FakeBridge, _client
 from tests.test_co_core_routes import _auth
 from tests.test_co_update_close_gen import _spec
 from u8co_api.co_call import shapeable
+from u8co_api.co_models_lookup import SEARCH_HELP, VoucherSearchIn, VoucherSearchOut
 from u8co_api.co_routes_lookup import LOOKUP_ROUTES
 
 _FIELDS = "/v1/co/meta/fields"
@@ -186,6 +187,16 @@ def test_fields_projection_applies_to_the_field_lists() -> None:
     assert ok.json()["fields_revision"] == "ab" * 32
 
 
+def test_search_help_mentions_tax_invoice_and_settled() -> None:
+    assert "数电" in SEARCH_HELP and "settled" in SEARCH_HELP
+    assert "amount" in SEARCH_HELP
+    assert "无权按表头自定义项" in SEARCH_HELP
+    assert "数电" in (VoucherSearchIn.model_fields["code_like"].description or "")
+    assert "settled" in VoucherSearchIn.model_fields
+    assert "无权按表头自定义项" in (VoucherSearchIn.model_fields["defines"].description or "")
+    assert "amount" in (VoucherSearchOut.model_fields["items"].description or "")
+
+
 # ---- vouchers/search ----
 
 
@@ -211,6 +222,20 @@ def test_search_forwards_filters() -> None:
         assert payload[key] == body[key]
     assert payload["verified"] is False
     assert "closed" not in payload and "warehouse" not in payload
+    assert "settled" not in payload
+
+
+def test_search_forwards_settled() -> None:
+    # 是否支持该类型由桥判断：API 对 sale_order 也原样转交。
+    ok, fake = _post(_SEARCH, _auth(type="sale_order", settled=False))
+    assert ok.status_code == 200, ok.text
+    assert fake.calls[0][1]["settled"] is False
+    ok, fake = _post(_SEARCH, _auth(type="sale_invoice", settled=True))
+    assert ok.status_code == 200, ok.text
+    assert fake.calls[0][1]["settled"] is True
+    ok, fake = _post(_SEARCH, _auth(type="sale_invoice"))
+    assert ok.status_code == 200, ok.text
+    assert "settled" not in fake.calls[0][1]
 
 
 def test_search_forwards_defines_unchanged() -> None:
@@ -260,6 +285,8 @@ def test_search_compact_works_on_items() -> None:
         ({"date_to": "2026-02-30"}, "date_to"),
         ({"verified": "yes"}, "verified"),
         ({"closed": 1}, "closed"),
+        ({"settled": "yes"}, "settled"),
+        ({"settled": 1}, "settled"),
         ({"filter": {}}, "filter"),
         ({"defines": {}}, "defines"),
         ({"defines": "HT202609039"}, "defines"),

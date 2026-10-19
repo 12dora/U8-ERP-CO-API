@@ -7,6 +7,7 @@ namespace U8Co
     // 但这里汇总的是行，不是单据：规则里按表体登记的对象（存货等）改成对行逐行过滤，只统计有权限的行
     // （比单据级「表体有一行放行就保留」更严）；表头对象过滤 headAlias 上的同名列。
     // 开关没开、账套主管、该对象的数据权限管理员都不过滤（PermSql.AppendObj 里判断）；ctx 为 null（自检）时不过滤。
+    // ApplyBody 给列表 APPLY 合计用：只过滤表体行（存货、仓库），表头条件仍在外层 PermHook。
     internal static class ReportsMfgPerm
     {
         // 把规则里全部受控对象的条件追加到 WHERE 末尾（ORDER BY / GROUP BY 之前）。
@@ -34,6 +35,29 @@ namespace U8Co
                 else
                 {
                     PermSql.AppendObj(sql, ps, p, o, headAlias);
+                }
+            }
+        }
+
+        // 只把表体对象改成对行过滤（合计、APPLY 用）：没有存货/仓库权限的行不进合计。
+        internal static void ApplyBody(StringBuilder sql, List<object> ps, WorkContext ctx, string key, string rowAlias)
+        {
+            PermContext p = ReadPerm(ctx);
+            if (p == null)
+            {
+                return;
+            }
+            PermRule rule = ctx.PermRule ?? PermRegistry.ForKey(key);
+            if (rule == null)
+            {
+                throw new BridgeException(403, "no_permission", "该接口没有登记权限规则");
+            }
+            for (int i = 0; i < rule.Objs.Length; i++)
+            {
+                PermObj o = rule.Objs[i];
+                if (o.Mode == PermObj.Body)
+                {
+                    PermSql.AppendObj(sql, ps, p, RowObj(o), rowAlias);
                 }
             }
         }

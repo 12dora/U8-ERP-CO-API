@@ -247,6 +247,11 @@ namespace U8Co
             return text != null && text.Length == 2 && text[0] >= 'A' && text[0] <= 'Z' && text[1] >= 'A' && text[1] <= 'Z';
         }
 
+        internal static bool AccountDigits(string text)
+        {
+            return ThreeDigits(text);
+        }
+
         static bool ThreeDigits(string text)
         {
             if (text == null || text.Length != 3)

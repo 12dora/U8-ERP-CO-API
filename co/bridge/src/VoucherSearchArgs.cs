@@ -32,8 +32,15 @@ namespace U8Co
         public string Inventory;
         // 表头自定义项条件（VoucherSearchDefines）；null 表示没给 defines。
         public List<DefineMatch> Defines;
+        // 核销状态（sale_invoice / ar_bill / ap_bill）；null 表示不按核销筛选。
+        public object Settled;
 
         public static VoucherSearchArgs Parse(Dictionary<string, object> body)
+        {
+            return Parse(body, null);
+        }
+
+        public static VoucherSearchArgs Parse(Dictionary<string, object> body, WorkContext ctx)
         {
             if (body == null)
             {
@@ -58,7 +65,7 @@ namespace U8Co
             args.ParseText(body);
             args.ParseDates(body);
             args.ParseFlags(body);
-            args.ParseExtra(body);
+            args.ParseExtra(body, ctx);
             return args;
         }
 
@@ -123,20 +130,31 @@ namespace U8Co
 
         void ParseFlags(Dictionary<string, object> body)
         {
-            object verified = Guard(delegate { return Flag(body, "verified"); }, "verified");
+            object verified = OptionalFlag(body, "verified");
             if (verified != null)
             {
                 Filters["verified"] = verified;
             }
-            object closed = Guard(delegate { return Flag(body, "closed"); }, "closed");
+            object closed = OptionalFlag(body, "closed");
             if (closed != null)
             {
                 Require(Kind.ClosedSql() != null, "closed");
                 Filters["closed"] = closed;
             }
+            object settled = OptionalFlag(body, "settled");
+            if (settled != null)
+            {
+                Require(VoucherSearchSql.SupportsSettled(Kind), "settled");
+                Settled = settled;
+            }
         }
 
-        void ParseExtra(Dictionary<string, object> body)
+        object OptionalFlag(Dictionary<string, object> body, string key)
+        {
+            return Guard(delegate { return Flag(body, key); }, key);
+        }
+
+        void ParseExtra(Dictionary<string, object> body, WorkContext ctx)
         {
             string code = Text(body, "code_like", CodeLikeMax);
             CodeLike = ArcRead.Like(code, true);
@@ -150,7 +168,7 @@ namespace U8Co
             {
                 Require(VoucherSearchSql.HasInventory(Kind), "inventory");
             }
-            Defines = VoucherSearchDefines.Parse(body, Kind);
+            Defines = VoucherSearchDefines.Parse(body, Kind, ctx);
         }
 
         static void Require(bool present, string field)

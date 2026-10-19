@@ -52,6 +52,7 @@
 | `readOnlyAccounts` | 否 | `[]` | 只读账套（三位数字）。名单中的账套只开放读取，每条写路由（含预演和带幂等键的重发）一律在解密口令、登录 U8 之前返回 403 `account_read_only`「该账套只开放读取」（配置了只读例外 `readOnlyExceptions` / `U8CO_READONLY_EXCEPTIONS` 时，与例外完全一致的那一种写入放行，见「只读例外」），出队后登录前再检查一次。写入策略放行、账套在 `testAccounts` 里都不能解除。检查位于 `allowedAccounts` 之后（名单外的账套仍是 `account_not_allowed`）；审计行 `policy` 记 `account_read_only`；读路由不受影响。可以先于 `allowedAccounts` 配置。健康检查和 `meta` 列出 `read_only_accounts`；`--check-config` 打印该键。详见第 3 节「只读账套」 |
 | `readOnlyExceptions` | 否 | `[]` | 只读账套的例外写入。数组，每项 `{accounts, operators, type, op}`。账套必须同时在 `readOnlyAccounts` 里；未知键（含已取消的 `archive` / `fields`）、空 `accounts` / `operators`、`type` 不是 `archives`、`op` 不是 `customer_person` 时启动失败。只认路径 `/u8co/v1/archives/customer_person`（其它写路由即使请求体 `type`/`op` 写成 `archives`/`customer_person` 也不放行）。操作员比较不区分大小写、不去首尾空白；`operators` 不能含双引号、反斜杠或控制字符。命中后仍走写入策略。匹配时审计 `policy` 记 `read_only_exception`；`archives/update` 等其它写路由仍 403 `account_read_only`。健康检查和 `meta` 列出 `read_only_exceptions`（字符串已转义）；`--check-config` 打印该键。修改后须重启桥。形状见第 3 节「只读例外」 |
 | `permEvaluateOperators` | 否 | `[]` | 允许调用 `perm/evaluate`（查询其他操作员的有效权限）的 U8 操作员编码，每项 1 到 20 个字符，不含空白、单引号、分号，不区分大小写。为空时一个都不放行，账套主管也不例外；名单外的调用操作员在登录 U8 之前返回 403 `no_permission`。`perm/snapshot`（查询本人权限）不受影响。建议只配置专门的系统后台身份，正式账套留空。`--check-config` 打印该键。见 [接口参考](api-reference.md)「操作员权限」 |
+| `taxInvoiceNoFields` | 否 | `{}` | 销售发票（`sale_invoice`）表头上存放数电 / 金税发票号的列，按账套配置。对象，键是三位账套号（必须同时在 `allowedAccounts` 里），值是 `SaleBillVouch` 表头文本列名，只认 `cDefine1`–`3`、`cDefine8`–`14`、`cTaxBillCode`（大小写不敏感，写入时用规范大小写）。未配置或该账套没有键时，`vouchers/search` 的 `code_like` 仍只匹配 U8 单号，列表 / 搜索行的 `tax_invoice_no` 为 `null`。列名不在白名单、账套不在 `allowedAccounts`、键不是三位数字或值不是字符串时服务不启动。`--check-config` 打印该键。修改后须重启桥。**先升级桥二进制，再写入本键；回滚到旧桥前先删除本键**（旧桥把未知键当启动失败，值为 `{}` 也不行）。新桥读不含本键的旧配置正常。见下文「销售发票数电号列」 |
 | `writePolicyFile` | 否 | 无 | 写入策略文件的路径，相对路径按 `<root>` 解析，必须位于 `<root>` 之下。不配置时不启用写入策略；配置后必须指向一份有效策略，文件不存在或无效时所有写入（含预演）返回 503 `write_policy_unavailable`，读路由不受影响。策略文件改动不必重启（按内容哈希每 `reloadSeconds` 秒重读），增加或修改这个键须重启。格式见第 3 节「写入策略」。健康检查多出 `write_policy`；`--check-config` 打印路径和状态，并在 `license.maxConcurrentLogins` 小于 2、或开启 `loginReuse` 而该值不大于 `staWorkers` 时警告 |
 
 **线程、队列与超时**
@@ -98,6 +99,19 @@
 ```
 
 白名单为空或 `u8Home` 不存在时服务仍能启动，但 `--check-config` 和启动时给出警告。
+
+**销售发票数电号列（`taxInvoiceNoFields`）。** 各账套把 20 位数电 / 金税发票号写在销售发票表头的哪一列，由这份映射给出，不是 U8 固定列。`vouchers/search` 在 `type` 为 `sale_invoice` 且该账套有配置时，`code_like` 同时匹配 U8 单号（`cSBVCode`）和配置列（同一模式两个参数）；操作员被拒绝查看该列时只匹配 U8 单号，行上 `tax_invoice_no` 为 `null`。其他单据类型不变。
+
+部署顺序：先升级桥的二进制并确认服务能启动，再把本键写进 `config.json` 后重启。回滚到不含本键的旧桥时，必须先从 `config.json` 删掉本键再换二进制——旧桥的 `Load → CheckKeys → RejectUnknown` 遇到未知键（含 `"taxInvoiceNoFields": {}`）会报 `config.json 含未知字段 taxInvoiceNoFields` 并拒绝启动。新桥读没有本键的旧配置按缺省 `{}` 处理，数电号列视为未配置。
+
+示例（账套号是占位）：
+
+```json
+{
+  "allowedAccounts": ["801", "802"],
+  "taxInvoiceNoFields": { "801": "cDefine10", "802": "cTaxBillCode" }
+}
+```
 
 **长时操作。** `iaCommandSeconds` 控制存货核算脚本：每个脚本的命令超时取「本值」与「预算剩余减 120 秒回滚预留」中的较小者，剩余不足 30 秒时不再开始新的脚本（409，已回滚）；超时返回 503 `ia_timeout`（已回滚，可重试）。这几类请求（`periods/close` 为 `module` 是 `ia` 或 `through` 为 `true` 时）桥的 HTTP 等待为本值加 60 秒（缺省 960 秒），排队容忍度仍是 45 秒；卡死检测平时为 3 分钟，脚本执行期间放宽到脚本超时的两倍再加 120 秒，脚本结束后（提交、回读或回滚）按已执行脚本总时长加 120 秒（至少 3 分钟）。回滚超过 HTTP 等待时调用方收到 504 `outcome_unknown`，实际没有写入。调用方对这几条路由的超时必须大于该等待：API 用 `U8CO_BRIDGE_LONG_TIMEOUT`（缺省 1000 秒），Python 客户端用 `U8CoClient` 的 `long_timeout`（缺省 1000 秒），MCP 用 `long_timeout_s`；调大本值时一并调整。
 

@@ -135,8 +135,8 @@ namespace U8Co
             string id = "h." + kind[ListKind.Id];
             ps.Add(args.Limit + 1);
             StringBuilder sb = new StringBuilder("SELECT TOP (?) ");
-            sb.Append(args.KeysOnly ? KeySelect(kind) : FullSelect(kind));
-            sb.Append(" FROM ").Append(kind[ListKind.Head]).Append(" h").Append(ApplyOf(kind));
+            sb.Append(args.KeysOnly ? KeySelect(kind) : FullSelect(kind, ctx));
+            sb.Append(" FROM ").Append(kind[ListKind.Head]).Append(" h").Append(ApplyOf(kind, ctx, ps));
             sb.Append(" WHERE ");
             if (kind.Has(ListKind.Cond))
             {
@@ -160,6 +160,11 @@ namespace U8Co
 
         internal static string FullSelect(ListKind kind)
         {
+            return FullSelect(kind, null);
+        }
+
+        internal static string FullSelect(ListKind kind, WorkContext ctx)
+        {
             StringBuilder sb = new StringBuilder();
             sb.Append("h.").Append(kind[ListKind.Id]).Append(" AS id");
             for (int i = 0; i < CommonKeys.Length; i++)
@@ -172,7 +177,7 @@ namespace U8Co
             sb.Append(", ").Append(UftsSql(kind)).Append(" AS ufts");
             if (kind.Has(ListKind.Extra))
             {
-                sb.Append(", ").Append(kind[ListKind.Extra]);
+                sb.Append(", ").Append(TaxInvoiceNo.FillExtra(kind[ListKind.Extra], ctx));
             }
             return sb.ToString();
         }
@@ -191,9 +196,15 @@ namespace U8Co
 
         internal static string ApplyOf(ListKind kind)
         {
+            return ApplyOf(kind, null, null);
+        }
+
+        // sale_invoice 的 APPLY 带 {FILTER}：把表体存货/仓库等记录权限接到行上，没有权限的行不进 open_amount / amount。
+        internal static string ApplyOf(ListKind kind, WorkContext ctx, List<object> ps)
+        {
             if (kind.Has(ListKind.Apply))
             {
-                return kind[ListKind.Apply];
+                return FillApply(kind, ctx, ps);
             }
             if (!kind.HasBodyUfts)
             {
@@ -201,6 +212,30 @@ namespace U8Co
             }
             return " OUTER APPLY (SELECT MAX(d." + kind[ListKind.BodyUfts] + ") AS bu FROM " + kind[ListKind.Body]
                 + " d WHERE d." + kind[ListKind.BodyFk] + " = h." + kind[ListKind.Id] + ") b";
+        }
+
+        static string FillApply(ListKind kind, WorkContext ctx, List<object> ps)
+        {
+            string apply = kind[ListKind.Apply];
+            const string mark = "{FILTER}";
+            int at = apply.IndexOf(mark, StringComparison.Ordinal);
+            if (at < 0)
+            {
+                return apply;
+            }
+            string extra = LineFilter(kind, ctx, ps);
+            return apply.Substring(0, at) + extra + apply.Substring(at + mark.Length);
+        }
+
+        static string LineFilter(ListKind kind, WorkContext ctx, List<object> ps)
+        {
+            if (ctx == null || ctx.Perm == null || ps == null)
+            {
+                return "";
+            }
+            StringBuilder sb = new StringBuilder();
+            ReportsMfgPerm.ApplyBody(sb, ps, ctx, "voucher:" + kind[ListKind.Name], "b");
+            return sb.ToString();
         }
 
         internal static void AppendFilters(StringBuilder sb, ListKind kind, Dictionary<string, object> filters, List<object> ps)

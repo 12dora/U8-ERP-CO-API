@@ -7,9 +7,11 @@ namespace U8Co
 {
     // 经营管理往来账期的 SQL（只读）。表名、列名只来自固定表（ReportsArap.Sides 与这里的 Origins）；
     // 日期、天数、科目前缀、往来标志只进 ? 参数。三句：
-    // 1. 余额与账龄：ReportsArapAging.Inner（basis=due，同 arap_aging 的逐单据余额、到期日与账龄）外面再按往来单位汇总，
+    // 1. 余额与账龄：ReportsArapAging.Inner（basis=due，同 arap_aging 的逐单据／应付逐行余额、到期日与账龄）外面再按往来单位汇总，
     //    分段 b0（未到期，账龄 <= 0）、b1…bn（按 buckets）、b(n+1)（最后一段以上）；逾期 = 账龄 > 0 的未结余额；
-    //    未核销的收付款（预收 / 预付）单列 prepaid，余额 = 各段合计 - prepaid。
+    //    未核销的收付款（预收 / 预付）单列 prepaid，余额 = 各段合计 - prepaid；max_age / oldk 同 arap_aging
+    //    （只计净余额 > 0 的原单，按往来单位+原单类型+单号合计；oldest_overdue_date 与到期日相同，因本报表
+    //    basis=due）。
     // 2. 近 12 个月的原始单据（as_of 次日往前 12 个月起、到 as_of，按单据日期）：先按单据（类型 + 单号）合计各行，
     //    单据数按张计；信用期 iCreditPeriod 分布，以及到 as_of 为止第一次收付款核销（9P，登记日期 dRegDate）距单据日期的
     //    天数（早于单据日期按 0 天）。核销行按（对方单据类型、单号）找，不比往来单位：转账、应收冲应付核销到别的单位名下。
@@ -25,8 +27,11 @@ namespace U8Co
 
         const string AgingSql = "SELECT x.cDwCode AS partner, n.{NAME} AS pname, CONVERT(decimal(18,2), SUM(x.bal)) AS bal,"
             + " CONVERT(decimal(18,2), SUM(CASE WHEN x.is_open = 0 THEN -x.bal ELSE 0 END)) AS pre,"
-            + " CONVERT(decimal(18,2), SUM(CASE WHEN x.is_open = 1 AND x.age > 0 THEN x.bal ELSE 0 END)) AS ovd{COLS}"
-            + " FROM (SELECT r.cDwCode, r.bal, r.is_open, r.age, CASE WHEN r.age <= 0 THEN 0{WHENS} END AS bk"
+            + " CONVERT(decimal(18,2), SUM(CASE WHEN x.is_open = 1 AND x.age > 0 THEN x.bal ELSE 0 END)) AS ovd,"
+            + " " + ReportsArapAging.MaxAgeExpr + " AS max_age, " + ReportsArapAging.OldkExpr + " AS oldk{COLS}"
+            + " FROM (SELECT r.cDwCode, r.bal, r.is_open, r.age, r.vt, r.vid, r.vdate, r.vage,"
+            + " SUM(r.bal) OVER (PARTITION BY r.cDwCode, r.vt, r.vid) AS net,"
+            + " CASE WHEN r.age <= 0 THEN 0{WHENS} END AS bk"
             + " FROM ({INNER}) r) x LEFT JOIN {NTABLE} n ON n.{CODE} = x.cDwCode WHERE 1 = 1";
 
         const string DaysExpr = "CASE WHEN w.f IS NULL THEN NULL WHEN w.f < x.dVouchDate THEN 0"

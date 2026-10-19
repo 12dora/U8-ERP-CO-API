@@ -38,6 +38,7 @@ namespace U8Co
             Refused("warehouse", Body("sale_order", "warehouse", "01"), "warehouse");
             Refused("inventory", Body("ar_bill", "inventory", "M1"), "inventory");
             Refused("closed", Body("sale_invoice", "closed", true), "closed");
+            Refused("settled", Body("sale_order", "settled", false), "settled");
             Refused("dept", Body("production_order", "dept", "01"), "dept");
             Refused("limit", Body("sale_order", "limit", VoucherSearchArgs.MaxLimit + 1), "limit");
             Refused("after", Body("sale_order", "after", -1), "after");
@@ -46,6 +47,7 @@ namespace U8Co
             Refused("verified", Body("sale_order", "verified", "yes"), "verified");
             Refused("type", Body("no_such_type", null, null), "type");
             Defines();
+            TaxInvoiceNoSelfTest.Run();
         }
 
         // 表头自定义项（VoucherSearchDefines）：条件、选择列、LIKE 转义，以及各种 400 的 field。
@@ -116,6 +118,7 @@ namespace U8Co
             Optional(body, kind.Has(ListKind.Person), "person", "P01");
             Optional(body, kind.Has(ListKind.Wh), "warehouse", "W01");
             Optional(body, kind.ClosedSql() != null, "closed", false);
+            Optional(body, VoucherSearchSql.SupportsSettled(kind), "settled", false);
             Optional(body, VoucherSearchSql.HasInventory(kind), "inventory", "M1");
             Optional(body, VoucherSearchDefines.Supports(kind), "defines", One("define1", Spec("like", "HT")));
             VoucherSearchArgs args = VoucherSearchArgs.Parse(body);

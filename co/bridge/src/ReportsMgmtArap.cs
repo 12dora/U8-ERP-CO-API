@@ -9,10 +9,13 @@ namespace U8Co
     // 按 |余额| 从大到小取前 top 个单位，其余并成 others，totals 是全部单位的合计。不翻页（聚合结果）。
     // 没有启用应收（应付）款管理（AR dARStartDate / AP dAPStartDate 为空）时 partners 为空、enabled=false，不查明细。
     // SQL 见 ReportsMgmtArapSql；账龄口径与 arap_aging basis=due 相同（到期日：收付款日期，否则信用起始日 + 信用期，
-    // 都没有时单据日期 + default_credit_days）。
+    // 都没有时单据日期 + default_credit_days）。oldest_overdue_date 即该笔到期日（与天数同一天），只计净余额 > 0
+    // 的原单（按往来单位、原单类型、原单号合计）。
     internal static class ReportsMgmtArap
     {
-        // 一个单位（或合计）：余额、预收付、逾期、账龄各段、票据，近 12 个月单据数与金额、信用期分布、已核销天数分布。
+        // 一个单位（或合计）：余额、预收付、逾期、最长逾期天数与日期、账龄各段、票据，近 12 个月单据数与金额、
+        // 信用期分布、已核销天数分布。没有逾期未结单据时 MaxOverdueDays / OldestOverdueDate 为 null；
+        // others / totals 取成员的最大值及该成员的日期。
         internal sealed class Partner
         {
             public string Code;
@@ -20,6 +23,8 @@ namespace U8Co
             public decimal Balance;
             public decimal Prepaid;
             public decimal Overdue;
+            public object MaxOverdueDays;
+            public string OldestOverdueDate;
             public decimal[] Aging;
             public decimal Notes;
             public int Count;
@@ -63,6 +68,7 @@ namespace U8Co
                 p.Balance += GlSql.Money(row, "bal");
                 p.Prepaid += GlSql.Money(row, "pre");
                 p.Overdue += GlSql.Money(row, "ovd");
+                TakeOverdue(p, row);
                 for (int b = 0; b < p.Aging.Length; b++)
                 {
                     p.Aging[b] += GlSql.Money(row, "b" + ReportsMgmtArapSql.Idx(b));
@@ -97,6 +103,23 @@ namespace U8Co
                 p.Name = Reports.Text(row, "pname");
             }
             return p;
+        }
+
+        // 一行是一个往来单位的账龄汇总；多行时取较长的逾期（同天数保留已有的日期）。
+        static void TakeOverdue(Partner p, Dictionary<string, object> row)
+        {
+            string age = GlSql.Col(row, "max_age");
+            if (age.Length == 0)
+            {
+                return;
+            }
+            int days = GlSql.Int(row, "max_age");
+            if (p.MaxOverdueDays != null && days <= (int)p.MaxOverdueDays)
+            {
+                return;
+            }
+            p.MaxOverdueDays = days;
+            p.OldestOverdueDate = ReportsArapAging.OldestDate(GlSql.Col(row, "oldk"));
         }
 
         // 一行是（单位、信用期、核销天数）的单据数与金额；天数为空表示到 as_of 还没有核销。

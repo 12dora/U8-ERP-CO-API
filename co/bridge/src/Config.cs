@@ -67,6 +67,8 @@ namespace U8Co
         public int IaCommandSeconds = 900;
         // 写入策略文件（WritePolicy）的完整路径，位于运行目录之下。null 表示不启用写入策略。
         public string WritePolicyFile;
+        // 销售发票数电 / 金税号列（taxInvoiceNoFields）：账套 → SaleBillVouch 表头文本列。缺省空。
+        public Dictionary<string, string> TaxInvoiceNoFields = new Dictionary<string, string>(StringComparer.Ordinal);
 
         static readonly string[] ConfigKeys = new string[]
         {
@@ -98,7 +100,9 @@ namespace U8Co
             // 存货核算脚本超时
             "iaCommandSeconds",
             // 写入策略文件
-            "writePolicyFile"
+            "writePolicyFile",
+            // 销售发票数电 / 金税号列
+            "taxInvoiceNoFields"
         };
 
         static readonly string[] SqlKeys = new string[] { "user", "password" };
@@ -154,6 +158,7 @@ namespace U8Co
             cfg.AuditLog = Paths.UnderRoot(OptionalString(map, "auditLog", Paths.DefaultAuditLog));
             cfg.U8Home = ConfigRules.CheckU8Home(OptionalString(map, "u8Home", Paths.DefaultU8Home));
             cfg.WritePolicyFile = WritePolicy.ResolvePath(map);
+            cfg.TaxInvoiceNoFields = ConfigRulesTax.Load(map, cfg.AllowedAccounts);
         }
 
         public static bool AllowsAccount(BridgeConfig cfg, string acc)

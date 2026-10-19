@@ -130,7 +130,7 @@ Content-Type: application/json; charset=utf-8
 | --- | --- | --- |
 | `u8_guide` | 无 | 返回给代理看的简短操作指南（中文）：先解析、再查字段、先预演、再写入、写后核对；504 的处理；幂等键；`fields` / `compact` |
 | `u8_describe` | `route?`、`type?`（配 `op?`、`source?`）、`archive?`、`gl?` | 四个选择一次只给一个。`route`：该路由的请求 JSON Schema（取自 API 的 `/v1/openapi.json`，展开引用，去掉 `acc`、`operator`、`password`，约 12 KB 封顶）、说明和读写分级；`type`：meta 里该单据类型的条目（操作、可写字段、必填项、生单来源、预演模式）加 `field_refs`，`op`（`create` 缺省、`update`、`generate`）和 `source`（`generate` 必填）选字段所属的操作；`archive`：meta 里该档案的条目；`gl=true`（或 `type=gl`）：meta 的 `gl` 和 `gl_field_refs`；不带参数：路由目录（路由、读写、说明）。`type`、`archive`、`gl` 另调 `meta/fields`（`api-reference.md`），把本账套模板里的字段中文名、类型、必填、枚举放进 `fields`；这一步失败时照样返回 meta 的内容，另带 `fields_error`（同工具错误的形状）。结果超过大小上限时按步骤删减（先去掉重复的可写字段表，再截枚举、去枚举，再只留字段名和中文名，最后从最长的字段列表尾部删项并标 `fields_truncated`），做过的步骤列在 `trimmed` 里 |
-| `u8_read` | `route`（读路由）、`body?`、`fields?`、`compact?`（缺省 `true`） | 调读路由，包括 `meta/fields`、`vouchers/search`、`vouchers/load_many`、`archives/get_many`。`fields`、`compact` 转成查询参数（`api-reference.md`） |
+| `u8_read` | `route`（读路由）、`body?`、`fields?`、`compact?`（缺省 `true`） | 调读路由，包括 `meta/fields`、`vouchers/search`、`vouchers/load_many`、`archives/get_many`。销售发票 `code_like` 同时匹配数电/金税发票号，行上另有 `amount`（与 `open_amount`、`settled` 只算有权限的明细行）；`settled` 筛核销状态（销售发票无权看金额时 403）；无权按 `defines.defineN` 搜索时 403。账龄/往来账期另有 `max_overdue_days`、`oldest_overdue_date`（起算日与 `basis` 相同）。`fields`、`compact` 转成查询参数（`api-reference.md`） |
 | `u8_write` | `route`（写路由）、`body`、`dry_run?`（缺省 `false`）、`idempotency_key?` | 调写路由。`dry_run: true` 做预演（`architecture.md`「预演」）；`body` 里也可以写 `dry_run`，但必须是 JSON 布尔值，与参数 `dry_run` 不一致时拒绝（`arap/writeoff/auto` 的计划模式也这样传）。每个正式写入（不是预演）没给键时都自动生成一个（UUID），包括审核、删除、核销和自动核销的执行；预演和自动核销的计划模式从不带键。结果（成功或失败）里带用到的 `idempotency_key`，重试时用同一个。`read_only` 时没有这个工具 |
 | `u8_resolve` | `items`（`[{archive, q}]`）、`limit?`、`include_disabled?` | 名称 → 编码，调 `archives/resolve`（`api-reference.md`） |
 | `u8_idempotency_get` | `route`（任一写路由）、`key` | 按幂等键查第一次请求的结果，调 `idempotency/get`（`architecture.md`「幂等键」） |
@@ -176,7 +176,7 @@ Content-Type: application/json; charset=utf-8
 让代理按这个顺序做写入（指南里也是这么写的，完整示例见 [快速开始](getting-started.md)）：
 
 1. **解析。** 用户说的是名称（「甲公司」「示例存货 X1」），用 `u8_resolve` 换成编码；`ambiguous`、`partial` 要让用户确认，不要自己挑。
-2. **查字段。** `u8_describe type=<类型>`（修改加 `op=update`，生单加 `op=generate source=<来源>`）看能写哪些字段、中文名、哪些必填、枚举值、字段对应哪个档案。要找已有单据用 `u8_read vouchers/search`，一次读几张用 `vouchers/load_many` / `archives/get_many`。
+2. **查字段。** `u8_describe type=<类型>`（修改加 `op=update`，生单加 `op=generate source=<来源>`）看能写哪些字段、中文名、哪些必填、枚举值、字段对应哪个档案。要找已有单据用 `u8_read vouchers/search`（销售发票可用数电号、`settled` 筛核销；账龄与往来账期看最长逾期天数），一次读几张用 `vouchers/load_many` / `archives/get_many`。
 3. **预演。** `u8_write dry_run=true`，把 `docs` 里的客户、存货、数量、金额给用户看。`validate_only` 表示 U8 自己的保存检查没有跑。
 4. **写入。** 用户确认后同样的 `body` 去掉 `dry_run` 再调一次；记下结果里的 `idempotency_key`（没给就自动生成），重试时带上同一个。
 5. **核对。** 用 `u8_read vouchers/load` 等读回结果。

@@ -21,7 +21,7 @@
 - arap/transfer、merge、red_offset、exchange_gain、bad_debt 返回处理号 cancel_no：取消用 arap/process/cancel（汇兑损益用 exchange_gain/cancel），制单用 arap/process/voucher。汇兑损益、bad_debt 默认关闭（403 feature_disabled），打开后只限测试账套（403 test_account_only）；汇兑损益制单须给 pl_code。
 
 ## 读取
-- 找单据：u8_read vouchers/search（type 加 code_like、partner、dept、inventory、date_from/date_to、verified 等条件；合同号等录在表头自定义项里的用 defines，如 {"define1": "HT202601001"} 或 {"define1": {"like": "…"}}）。
+- 找单据：u8_read vouchers/search（type 加 code_like、partner、dept、inventory、date_from/date_to、verified、settled 等条件；合同号等表头自定义项用 defines，如 {"define1": {"like": "…"}}）。销售发票 code_like 也匹配数电发票号。
 - 批量：vouchers/load_many（ids 最多 20，COM 读取的类型最多 5）、archives/get_many（codes 最多 20）；单项失败在该项的 error 里，不影响其他项；用 fields 投影时每项仍保留 id / code / error。
 - u8_read 缺省 compact=true（去掉空值）。fields 只取需要的字段，如 fields=head.ccode,lines.cinvcode,lines.iquantity。
-- 列表翻页：把上一页返回的 next 作为下一次 body 的 after。meta 很大，查结构用 u8_describe。
+- 列表翻页：把上一页的 next 作为下次 body 的 after。meta 很大，查结构用 u8_describe。

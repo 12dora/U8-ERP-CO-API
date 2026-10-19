@@ -44,7 +44,8 @@ class FieldsTarget:
 
 @dataclass(frozen=True)
 class SearchQuery:
-    """vouchers/search。过滤条件都可省略；partner 是该类型的客户 / 供应商 / 往来单位编码，没有这一列的类型桥 400。"""
+    """vouchers/search。过滤条件都可省略；partner 是该类型的客户 / 供应商 / 往来单位编码，没有这一列的类型桥 400。
+    code_like 是 U8 单据编号包含，销售发票同时匹配数电/金税发票号。settled 只对销售发票、应收单、应付单有效。"""
 
     kind: str
     code_like: str = ""
@@ -58,6 +59,7 @@ class SearchQuery:
     date_to: str = ""
     verified: bool | None = None
     closed: bool | None = None
+    settled: bool | None = None
     after: int | None = None
     limit: int | None = None
     # 表头自定义项条件：{"define1": "HT001"} 或 {"define1": {"like" | "prefix" | "eq": "HT"}}，1 到 4 个键。
@@ -119,7 +121,7 @@ def search_body(call: U8Call, query: SearchQuery) -> dict[str, Any]:
     _put_optional(fields, "date_to", query.date_to and _ymd(query.date_to, "date_to"))
     if query.date_from and query.date_to and query.date_from > query.date_to:
         raise ValueError("date_from 不能晚于 date_to")
-    for name in ("verified", "closed"):
+    for name in ("verified", "closed", "settled"):
         value = getattr(query, name)
         if value is not None:
             fields[name] = _bool(value, name)
@@ -187,7 +189,7 @@ class U8CoLookupMixin:
         return self.call("/v1/meta/fields", fields_body(call, target))
 
     def search(self, call: U8Call, query: SearchQuery) -> dict[str, Any]:
-        """按条件找单据：items 同 vouchers/list 的行，另有 partner_name；还有下一页时带 next（传给 after）。"""
+        """按条件找单据：items 同 vouchers/list 的行，另有 partner_name；销售发票可按数电号 code_like、按 settled 筛核销；还有下一页时带 next（传给 after）。"""
         return self.call("/v1/vouchers/search", search_body(call, query))
 
     def load_many(self, call: U8Call, kind: str, ids: object) -> dict[str, Any]:

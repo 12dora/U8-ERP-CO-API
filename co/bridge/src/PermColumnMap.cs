@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace U8Co
 {
@@ -13,6 +14,9 @@ namespace U8Co
         public string[] Keys;
         // 报表自己的字段权限对象（Keys 的子集）：这些对象上的任何拒绝都按金额组处理，见 PermMask.RuleOf。
         public string[] Strict = new string[0];
+        // 响应别名 → 物理列（按账套配置的数电号列）。物理列被拒绝时别名一并置空。
+        public string MapAlias;
+        public string MapColumn;
 
         public ColScope(string section, string[] keys)
         {
@@ -63,13 +67,14 @@ namespace U8Co
             "fSaleCost", "fSalePrice", "iTVACost", "iTVAPrice", "iTVPCost", "iTVPPrice", "iAVACost", "iAVAPrice",
             "iAVPCost", "iAVPPrice", "iArrMoney", "iArrNatMoney", "iInvMoney", "iOriTotal", "iTotal", "iFHMoney",
             "iKPMoney", "iExchSum", "iMoneySum", "iAOutPrice", "iAInPrice", "iProcessCost", "iProcessFee", "iMaterialFee",
-            "iSettleCost", "iNatInvMoney", "iOriInvMoney", "iClaim", "fcusminprice", "iAmount", "iAmount_f");
+            "iSettleCost", "iNatInvMoney", "iOriInvMoney", "iClaim", "fcusminprice", "iAmount", "iAmount_f",
+            "iRAmount");
 
         // 桥自己起的金额别名（列表、报表的汇总列）。只在有字段权限对象的范围里起作用。
         static readonly HashSet<string> Alias = Set(
             "amount", "amt", "nat_amount", "amount_tax_incl", "total_amount", "total_amount_tax_incl", "cogs", "gross",
             "gross_pct", "in_price", "price", "unit_price", "unit_cost", "cost", "amount_tax", "unit_price_tax", "est_amount",
-            "open_amount", "refund_amount", "net_amount", "revenue_current", "revenue_baseline");
+            "open_amount", "refund_amount", "net_amount", "revenue_current", "revenue_baseline", "settled");
 
         // 报表对象的中文列名 → 物理列名（如 pu[__]入库明细表）。没有对上的中文名不起作用（响应里没有这个键）。
         static readonly Dictionary<string, string> Titles = BuildTitles();
@@ -161,6 +166,79 @@ namespace U8Co
             return Titles.TryGetValue(text, out mapped) ? mapped : text;
         }
 
+        // 表头自定义项物理列 → 搜索响应键：cDefine10 → define10。Titles 若把栏目标题映到 cDefineN，Normalize 之后同样对得上。
+        internal static string DefineAlias(string column)
+        {
+            string name = Normalize(column);
+            const string prefix = "cDefine";
+            int n;
+            if (name.Length <= prefix.Length
+                || !name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                || !int.TryParse(name.Substring(prefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out n)
+                || n < 1 || n > 16)
+            {
+                return null;
+            }
+            return "define" + n.ToString(CultureInfo.InvariantCulture);
+        }
+
+        // 操作员是否被拒绝该物理列：按类型的字段权限对象（KeysOfType）比对 Normalize 后的名字。
+        // 没有登记对象（空数组，如应收单）不遮；未登记类型（null）从严按全部对象的拒绝字段比对。
+        internal static bool FieldDenied(PermContext p, string type, string column)
+        {
+            if (p == null || p.Supervisor || p.Columns.Count == 0 || string.IsNullOrEmpty(column))
+            {
+                return false;
+            }
+            string want = Normalize(column);
+            if (want.Length == 0)
+            {
+                return false;
+            }
+            string[] keys = KeysOfType(type);
+            if (keys != null && keys.Length == 0)
+            {
+                return false;
+            }
+            return keys == null ? DeniedAny(p, want) : DeniedOn(p, keys, want);
+        }
+
+        static bool DeniedOn(PermContext p, string[] keys, string want)
+        {
+            for (int i = 0; i < keys.Length; i++)
+            {
+                if (DeniedSet(p.DeniedFields(keys[i]), want))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        static bool DeniedAny(PermContext p, string want)
+        {
+            foreach (HashSet<string> set in p.Columns.Values)
+            {
+                if (DeniedSet(set, want))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        static bool DeniedSet(HashSet<string> set, string want)
+        {
+            foreach (string fld in set)
+            {
+                if (string.Equals(Normalize(fld), want, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         internal static bool IsMoney(string name)
         {
             return name != null && Money.Contains(name);
@@ -195,7 +273,7 @@ namespace U8Co
             string type = TypeOf(item);
             if (type.Length > 0)
             {
-                plan.Add(new ColScope("", KeysOfType(type)));
+                plan.Add(ScopeOfType(item, type));
             }
             return plan;
         }
@@ -226,6 +304,28 @@ namespace U8Co
             {
                 plan.Add(new ColScope("", RdUnion));
             }
+        }
+
+        static ColScope ScopeOfType(WorkItem item, string type)
+        {
+            ColScope scope = new ColScope("", KeysOfType(type));
+            BindTax(scope, item, type);
+            return scope;
+        }
+
+        static void BindTax(ColScope scope, WorkItem item, string type)
+        {
+            if (type != TaxInvoiceNo.KindName)
+            {
+                return;
+            }
+            string col = TaxInvoiceNo.FieldOf(item);
+            if (col == null)
+            {
+                return;
+            }
+            scope.MapAlias = TaxInvoiceNo.Alias;
+            scope.MapColumn = col;
         }
 
         static string TypeOf(WorkItem item)

@@ -109,10 +109,12 @@ SEARCH_HELP = (
     "按条件查某类单据的表头。\n\n"
     "**用法**\n"
     "- 与 vouchers/list 同一套取数：相同的条目、记录级数据权限、按主键续读。\n"
-    "- code_like：单据编号包含。\n"
+    "- code_like：U8 单据编号包含；销售发票同时匹配账套配置的数电/金税发票号列（无权看该列时只匹配 U8 单号）。\n"
     "- partner：客户或供应商（收付款单、应收应付单是往来单位 cDwCode）；有往来单位列的类型每条另有 partner_name。\n"
     "- warehouse：表头仓库。\n"
     "- inventory：明细含该存货（表头有存货列的类型按表头）。\n"
+    "- settled：true 只要已核销，false 只要未核销（仅销售发票、应收单、应付单）。\n"
+    "- 销售发票每条另有 amount、open_amount、settled（只含操作员可见的明细行；无权看任何明细行或金额字段时为 null）。\n"
     "- defines：按表头自定义项找单据，如表头自定义项 1 里的纸质合同号。\n"
     "- next 原样放进 after 读下一页。\n"
     "- order 为 desc 时先给最新的单据：按单据日期降序、同日按主键降序，next 是游标文本，原样放进 after。\n\n"
@@ -125,6 +127,9 @@ SEARCH_HELP = (
     "- 游标不能跨 order 使用，换了 order 要从头读。\n\n"
     "**错误**\n"
     "- 该类型没有往来单位列、仓库列、存货列或关闭状态时，对应的 partner、warehouse、inventory、closed 返回 400。\n"
+    "- 该类型不支持按 settled 搜索时 400（仅 sale_invoice、ar_bill、ap_bill）。\n"
+    "- 销售发票无权按核销状态筛选（缺少金额字段权限）时 403；应收应付单只受记录权限约束，不会因此 403。\n"
+    "- 无权按表头自定义项 defineN 搜索（该列被字段权限拒绝）时 403。\n"
     "- defines 的其他键 400（field 为 `defines.<键>`）；日期、数字自定义项 define4–7、define15–16 也不收。\n"
     "- 生产订单、物料清单没有表头自定义项：400（field 为 defines）。\n"
     "- order 为 desc 时 after 不是桥给的游标：400（field 为 after）。"
@@ -240,7 +245,9 @@ class MetaFieldsOut(BaseModel):
 class VoucherSearchIn(CoAuth):
     type: VoucherType = Field(..., description="单据类型，与 vouchers/list 相同")
     code_like: str | None = Field(
-        None, pattern=r"^[^\x00-\x1f\x7f]{1,40}$", description="单据编号包含这段文字，1 到 40 个字符"
+        None,
+        pattern=r"^[^\x00-\x1f\x7f]{1,40}$",
+        description="U8 单据编号包含这段文字，销售发票同时匹配数电/金税发票号，1 到 40 个字符",
     )
     partner: Word | None = Field(None, description="客户或供应商编码（收付款单、应收应付单是往来单位）")
     dept: Word | None = Field(None, description="部门编码")
@@ -252,6 +259,12 @@ class VoucherSearchIn(CoAuth):
     date_to: str | None = Field(None, pattern=DATE, description="单据日期上限，yyyy-MM-dd，含当天")
     verified: StrictBool | None = Field(None, description="true 只要已审核，false 只要未审核")
     closed: StrictBool | None = Field(None, description="true 只要已关闭，false 只要未关闭")
+    settled: StrictBool | None = Field(
+        None,
+        description="true 只要已核销，false 只要未核销。仅销售发票、应收单、应付单；其他类型桥 400。"
+        "销售发票无权看金额字段时 403；无权看任何明细行时 settled 为 null，true/false 都筛不到。"
+        "应收应付单只受记录权限约束，按 settled 筛选不会 403",
+    )
     order: Literal["asc", "desc"] | None = Field(None, description=ORDER_DESC)
     after: SearchAfter | None = Field(None, description=AFTER_DESC)
     limit: int | None = Field(None, ge=1, le=200, description="每页条数，1 到 200，缺省 50")
@@ -262,7 +275,8 @@ class VoucherSearchIn(CoAuth):
         description="表头自定义项条件，1 到 4 个键。\n\n"
         "- 键：" + "、".join(DEFINE_KEYS) + "\n"
         "- 值：字符串（规整后相等）或 {eq | like | prefix: 字符串}，1 到 120 个字符\n"
-        "- 键由桥核对，不认识的键 400（field 为 defines.<键>）",
+        "- 键由桥核对，不认识的键 400（field 为 defines.<键>）\n"
+        "- 无权按该列搜索时 403「无权按表头自定义项 defineN 搜索」",
         examples=[{"define1": "HT202609039"}, {"define1": {"prefix": "HT2026"}, "define10": {"like": "框架"}}],
     )
 
@@ -288,6 +302,8 @@ class VoucherSearchOut(BaseModel):
     items: list[dict[str, Any]] | None = Field(
         None,
         description="默认按主键排序、order 为 desc 时按单据日期降序再主键降序的单据表头，与 vouchers/list 的条目相同；有往来单位列的类型另有 partner_name；"
+        "销售发票另有 tax_invoice_no、amount、open_amount、settled（amount、open_amount、settled 只含操作员可见的明细行；"
+        "无权看任何明细行或金额字段时为 null），应收应付单另有 open_amount、settled（只受记录权限约束）；"
         "请求给了 defines 时另有 defines（请求里各键的表头值，规整后，空为 null）",
     )
     next: Scalar = Field(None, description="下一页的 after。最后一页省略")

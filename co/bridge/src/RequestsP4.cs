@@ -61,7 +61,7 @@ namespace U8Co
             new string[]
             {
                 VoucherSearch.Path, "type", "code_like", "partner", "dept", "person", "warehouse", "maker", "inventory",
-                "date_from", "date_to", "verified", "closed", "after", "limit", "defines", "order"
+                "date_from", "date_to", "verified", "closed", "settled", "after", "limit", "defines", "order"
             },
             new string[] { LoadMany.Path, "type", "ids" },
             new string[] { ArcGetMany.Path, "archive", "codes" },

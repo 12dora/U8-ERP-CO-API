@@ -55,6 +55,8 @@ namespace U8Co
             Expect("norm prefix", PermColumnMap.Normalize(" B;iPrice ") == "iPrice" && PermColumnMap.Normalize("T;x;iSum") == "iSum");
             Expect("norm title", PermColumnMap.Normalize("原币无税金额") == "iOriMoney" && PermColumnMap.Normalize("本币税额") == "iTaxPrice");
             Expect("norm plain", PermColumnMap.Normalize("cItemCName") == "cItemCName");
+            Expect("define alias", PermColumnMap.DefineAlias("B;cDefine10") == "define10"
+                && PermColumnMap.DefineAlias("CDEFINE1") == "define1" && PermColumnMap.DefineAlias("iNatSum") == null);
             Expect("money ci", PermColumnMap.IsMoney("iunitcost") && !PermColumnMap.IsMoney("iQuantity"));
             Expect("money alias", PermColumnMap.IsMoneyKey("amount") && PermColumnMap.IsMoneyKey("paid_nat_amount")
                 && !PermColumnMap.IsMoneyKey("qty"));

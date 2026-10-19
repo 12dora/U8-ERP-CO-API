@@ -68,6 +68,9 @@ class SearchTests(unittest.TestCase):
         fields = search_body(make_call(), SearchQuery("purchase_order", closed=False))
         self.assertEqual(list(fields), ["acc", "year", "operator", "password", "date", "type", "closed"])
         self.assertIs(fields["closed"], False)
+        fields = search_body(make_call(), SearchQuery("sale_invoice", settled=False))
+        self.assertEqual(list(fields), ["acc", "year", "operator", "password", "date", "type", "settled"])
+        self.assertIs(fields["settled"], False)
 
     def test_rejects_bad_values(self) -> None:
         bad = (
@@ -77,6 +80,7 @@ class SearchTests(unittest.TestCase):
             SearchQuery("sale_order", date_from="2026-13-01"),
             SearchQuery("sale_order", date_from="2026-09-30", date_to="2026-09-01"),
             SearchQuery("sale_order", verified=1),  # type: ignore[arg-type]
+            SearchQuery("sale_invoice", settled=1),  # type: ignore[arg-type]
             SearchQuery("sale_order", limit=201),
             SearchQuery("sale_order", limit=0),
             SearchQuery("sale_order", after=-1),
@@ -170,8 +174,10 @@ class CliTests(unittest.TestCase):
         parsed = _parser().parse_args(_argv("search", "--type", "sale_order", "--partner", "C001", "--verified", "false",
                                             "--limit", "5"))
         query = search_query(parsed)
-        self.assertEqual((query.kind, query.partner, query.verified, query.closed, query.limit),
-                         ("sale_order", "C001", False, None, 5))
+        self.assertEqual((query.kind, query.partner, query.verified, query.closed, query.settled, query.limit),
+                         ("sale_order", "C001", False, None, None, 5))
+        settled = search_query(_parser().parse_args(_argv("search", "--type", "sale_invoice", "--settled", "false")))
+        self.assertIs(settled.settled, False)
 
     def test_meta_fields_needs_one_target(self) -> None:
         for extra in ((), ("--type", "sale_order", "--gl")):
