@@ -60,6 +60,8 @@ $exe = "$env:ProgramData\U8Co\u8co\bin\u8co-bridge.exe"
 3. 桥的 `allowedAccounts` 只放测试账套；需要测试第二级写入时，再设置 `enableReplicatedWrites: true` 并把测试账套放入 `testAccounts`（`configuration.md`）。正式账套永远不要放入 `testAccounts`。
 4. 本机按 `configuration.md` 配好客户端（桥地址和共享密钥），本机 IP 须在桥的 `allowedClients` 中。
 
+字段权限 e2e 用例（`col-auth-mask-*`、`col-auth-mgmt-cogs`）用通道配置 `account.perm_operator_file` 指向的非账套主管操作员（`0600` JSON，字段同 `operator_file`）；未配置记 N/A。账套操作员（`operator_file`）仍给其余用例。对象在 `AA_BusObject_base`（`langid` zh-CN、`iAuthType=1`）已有行但开关关闭时，用例会临时打开并在结束时恢复原值；没有对象行则记 N/A，不会插入。
+
 ### 步骤
 
 ```bash
