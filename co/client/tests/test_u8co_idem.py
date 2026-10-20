@@ -41,8 +41,9 @@ class KeyTests(unittest.TestCase):
         self.assertIs(ASSIST_WRITE_ROUTES, WRITE_ROUTES)
         # 含 openings/post、periods/close、ia/post、ia/period_end、openings/arap、应收应付处理 7 个、票据登记 / 删除 / 处理 3 个、
         # arap/bad_debt、gl/vouchers/unpost、gl/vouchers/reverse、gl/transfer/pnl、gl/transfer/custom。
-        self.assertEqual(len(WRITE_ROUTES), 55)
-        self.assertIn("/v1/archives/customer_person", WRITE_ROUTES)
+        self.assertEqual(len(WRITE_ROUTES), 57)
+        for route in ("customer_person", "customer_fields", "customer_address"):
+            self.assertIn("/v1/archives/" + route, WRITE_ROUTES)
         self.assertIn("/v1/arap/bad_debt", WRITE_ROUTES)
         for route in ("/v1/notes/create", "/v1/notes/delete", "/v1/notes/process"):
             self.assertIn(route, WRITE_ROUTES)

@@ -51,11 +51,14 @@ namespace U8Co
             Add(map, "/u8co/v1/sale-orders/verify", "sale_order", "verify=verify,unverify=unverify");
             Add(map, "/u8co/v1/dispatches/verify", "dispatch", "verify=verify,unverify=unverify");
             AddGl(map);
-            // 档案：新增、修改、删除、客户专管业务员。
+            // 档案：新增、修改、删除、客户专用路由（专管业务员、字段、收货地址，各自独立的 op）。
             Add(map, Requests.ArcRoot + "create", "archives", "create");
             Add(map, Requests.ArcRoot + "update", "archives", "update");
             Add(map, Requests.ArcRoot + "delete", "archives", "delete");
-            Add(map, ArcPerson.Path, "archives", ArcPerson.Op);
+            for (int i = 0; i < ArcCustomerOps.Ops.Length; i++)
+            {
+                Add(map, Requests.ArcRoot + ArcCustomerOps.Ops[i], "archives", ArcCustomerOps.Ops[i]);
+            }
             AddArap(map);
             AddLedger(map);
             return map;

@@ -167,6 +167,11 @@ _WRITES = (
     ("/v1/co/archives/update", _auth(fields={"name": "客户乙"}, **_ARC)),
     ("/v1/co/archives/delete", _auth(**_ARC)),
     ("/v1/co/archives/customer_person", _auth(code="C900001", person="EX040001")),
+    ("/v1/co/archives/customer_fields", _auth(code="C900001", fields={"abbrname": "示例简称"})),
+    (
+        "/v1/co/archives/customer_address",
+        _auth(code="C900001", address="1", fields={"name": "示例车间"}, expect={"name": "3车间"}),
+    ),
 )
 
 # 不在路由表里的 GET 路由：健康检查、字段元数据。

@@ -327,6 +327,8 @@ uv run --no-project --python 3.12 --with cryptography python -m co.client.u8co_c
 | `arc-get` / `arc-delete` | `--archive` `--code`。档案种类、可写性和复合编码的写法见下文 |
 | `arc-create` / `arc-update` | `--archive` `--code` `--file`。文件为 `{"fields":{EAI 标签: 值}}`，新增可再带 `template`。`arc-update` 不接受 `user_define`、`customer_inventory`（U8 不提供修改，须删除后重建） |
 | `arc-customer-person` | `--code` `--person`，可选 `--expect`。只改客户专管业务员；条件满足时一并改分管部门并同步 `Customer_Auth`。写命令，可加 `--dry-run`、`--idempotency-key` |
+| `arc-customer-fields` | `--code` `--file`，文件 `{"fields":{"abbrname","district","end_date"},"expect":{...}}`（`expect` 可选，建议带上）。只改客户简称、地区分类、停用日期。写命令，可加 `--dry-run`、`--idempotency-key` |
+| `arc-customer-address` | `--code` `--address` `--file`，文件 `{"fields":{"code","name","unit","default"},"expect":{...}}`（改 `name` / `unit` / `default` 时 `expect` 必填）。只改客户已有收货地址。写命令，可加 `--dry-run`、`--idempotency-key` |
 | `arc-list` | `--archive`，可选 `--code-prefix` `--name-like` `--changed-since` `--after` `--limit`（最多 500）；`project` 另可 `--project-class`；`exchange_rate` 另可 `--currency`（币种名称）、`--fiscal-year`（省略时取登录日期的年份）；`fa_card` 另可 `--type-code` `--dept-code` `--include-disposed` |
 | `list` | `--type`，可选 `--filter KEY=VALUE`（可重复；`verified`、`closed`、`red` 取 true/false）`--keys-only` `--changed-since` `--after` `--limit`（最多 500） |
 | `stock` | 可选 `--wh` `--inv` `--batch` `--after` `--limit`（最多 500） |

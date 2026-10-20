@@ -70,6 +70,7 @@ from co.client.u8co_kinds import (
 from co.client.u8co_idem import key_fields, with_key  # 幂等键
 from co.client.u8co_qm import qm_head  # 检验单表头的 items
 from co.client.u8co_gl_arc import U8CoP4Mixin
+from co.client.u8co_arc_cus import U8CoArcCusMixin  # 客户主数据专用写入：专管业务员、字段、收货地址
 from co.client.u8co_reports import U8CoReportsMixin  # 只读报表
 from co.client.u8co_meta import U8CoMetaMixin  # 字段元数据
 from co.client.u8co_lock import U8CoLockMixin  # 销售订单 / 采购订单锁定、解锁
@@ -231,7 +232,7 @@ class U8CoClient(
     U8CoP4Mixin, U8CoReportsMixin, U8CoMetaMixin, U8CoLockMixin, U8CoOpeningsMixin, U8CoPeriodsMixin, U8CoIaMixin,
     U8CoR9Mixin, U8CoLookupMixin, U8CoArapProcMixin, U8CoGlDigestMixin, U8CoNotesReadMixin,
     U8CoArapProcListMixin, U8CoNotesRegMixin, U8CoNotesProcMixin, U8CoArapBadMixin, U8CoGlUnpostMixin,
-    U8CoGlReverseMixin, U8CoMgmtGlMixin, U8CoMgmtSaMixin, U8CoGlTransferMixin,
+    U8CoGlReverseMixin, U8CoMgmtGlMixin, U8CoMgmtSaMixin, U8CoGlTransferMixin, U8CoArcCusMixin,
 ):
     def __init__(self, base_url: str, secret_hex: str, timeout: float = 90, long_timeout: float = 1000) -> None:
         # long_timeout：存货核算记账、期末处理和经过存货核算的月末结账的超时（u8co_ia.is_long_call），不小于 timeout。

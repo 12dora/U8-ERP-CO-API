@@ -292,7 +292,7 @@ namespace U8Co
             {
                 return None;
             }
-            string archive = item.Path == ArcPerson.Path
+            string archive = ArcCustomerOps.IsPath(item.Path)
                 ? "customer" : Requests.KeyPart(Requests.Field(body, "archive"));
             string code = Requests.KeyPart(Requests.Field(body, "code")).ToUpperInvariant();
             // 客户、供应商的银行账户和联系人另锁上级档案（ArcPartner.LockKeys）。

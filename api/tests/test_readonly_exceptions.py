@@ -1,5 +1,5 @@
-"""只读例外（U8CO_READONLY_EXCEPTIONS）：解析失败让进程起不来；命中 archives/customer_person 才穿过闸门。
-假桥，不访问网络。
+"""只读例外（U8CO_READONLY_EXCEPTIONS）：解析失败让进程起不来；路由、账套、操作员（create 另看 archive）命中才穿过闸门。
+op 为 customer_person、customer_fields、customer_address、create、delete（后两者须列 archives，目前只有 district_class）。假桥，不访问网络。
 """
 
 from __future__ import annotations
@@ -19,6 +19,8 @@ _PERSON = "/v1/co/archives/customer_person"
 _UPDATE = "/v1/co/archives/update"
 _CREATE = "/v1/co/archives/create"
 _DELETE = "/v1/co/archives/delete"
+_FIELDS = "/v1/co/archives/customer_fields"
+_ADDRESS = "/v1/co/archives/customer_address"
 _VOUCHER = "/v1/co/vouchers/create"
 _VOUCHER_UPDATE = "/v1/co/vouchers/update"
 _KEY = "replay-non-matching"
@@ -113,13 +115,50 @@ def test_account_must_be_read_only() -> None:
     ("over", "text"),
     (
         ({"type": "vouchers"}, "只能是 archives"),
-        ({"op": "update"}, "只能是 customer_person"),
-        ({"op": "create"}, "只能是 customer_person"),
-        ({"op": "delete"}, "只能是 customer_person"),
+        ({"op": "update"}, "只能是 customer_person、customer_fields、customer_address、create、delete"),
+        ({"op": "list"}, "只能是 customer_person、customer_fields、customer_address、create、delete"),
+        ({"op": "get"}, "只能是 customer_person、customer_fields、customer_address、create、delete"),
     ),
 )
 def test_type_and_op_must_be_the_opened_pair(over: dict, text: str) -> None:
     _exits(_raw(**over), _RO, text)
+
+
+@pytest.mark.parametrize("op", ("customer_person", "customer_fields", "customer_address"))
+def test_customer_ops_parse_without_archives(op: str) -> None:
+    (item,) = _rules(op=op)
+    assert (item.type, item.op, item.archives) == ("archives", op, None)
+    assert item.summary() == {**_SUMMARY, "op": op}
+
+
+@pytest.mark.parametrize("op", ("customer_person", "customer_fields", "customer_address"))
+def test_customer_ops_reject_archives(op: str) -> None:
+    _exits(_raw(op=op, archives=["district_class"]), _RO, "archives 只能用于 op=create 或 delete")
+    _exits(_raw(op=op, archives=None), _RO, "archives 只能用于 op=create 或 delete")
+
+
+@pytest.mark.parametrize("op", ("create", "delete"))
+def test_create_and_delete_require_the_archives_list(op: str) -> None:
+    _exits(_raw(op=op), _RO, f"archives 在 op={op} 时必须给出")
+    _exits(_raw(op=op, archives=None), _RO, "必须是非空数组")
+    _exits(_raw(op=op, archives=[]), _RO, "必须是非空数组")
+    _exits(_raw(op=op, archives="district_class"), _RO, "必须是非空数组")
+    _exits(_raw(op=op, archives=[""]), _RO, "非空字符串")
+    _exits(_raw(op=op, archives=["district_class", "district_class"]), _RO, "重复")
+
+
+@pytest.mark.parametrize("op", ("create", "delete"))
+@pytest.mark.parametrize("kind", ("customer", "vendor", "project", "fa_card", "District_class", "unit"))
+def test_archives_must_be_eligible(op: str, kind: str) -> None:
+    _exits(_raw(op=op, archives=[kind]), _RO, "不能开放写入")
+    _exits(_raw(op=op, archives=["district_class", kind]), _RO, "不能开放写入")
+
+
+@pytest.mark.parametrize("op", ("create", "delete"))
+def test_district_class_parses_and_summarises(op: str) -> None:
+    (item,) = _rules(op=op, archives=["district_class"])
+    assert (item.type, item.op, item.archives) == ("archives", op, ("district_class",))
+    assert item.summary() == {**_SUMMARY, "op": op, "archives": ["district_class"]}
 
 
 @pytest.mark.parametrize(
@@ -135,6 +174,26 @@ def test_type_and_op_must_be_the_opened_pair(over: dict, text: str) -> None:
 )
 def test_parse_applies_bridge_rules(over: dict, text: str) -> None:
     _exits(_raw(**over), _RO, text)
+
+
+def test_load_settings_reads_create_and_customer_rules(monkeypatch) -> None:
+    monkeypatch.setenv("U8CO_TRUST_FILE", "")
+    monkeypatch.setenv("U8CO_ACCOUNTS", "803,801")
+    monkeypatch.setenv("U8CO_READONLY_ACCOUNTS", "803")
+    rules = [
+        {**_ITEM, "op": "customer_fields"},
+        {**_ITEM, "op": "customer_address"},
+        {**_ITEM, "op": "create", "archives": ["district_class"]},
+        {**_ITEM, "op": "delete", "archives": ["district_class"]},
+    ]
+    monkeypatch.setenv("U8CO_READONLY_EXCEPTIONS", json.dumps(rules))
+    loaded = load_settings().read_only_exceptions
+    assert [(item.op, item.archives) for item in loaded] == [
+        ("customer_fields", None),
+        ("customer_address", None),
+        ("create", ("district_class",)),
+        ("delete", ("district_class",)),
+    ]
 
 
 def test_load_settings_reads_the_env(monkeypatch) -> None:

@@ -21,6 +21,7 @@ from co.client.u8co_cli_gl_reverse import add_commands as add_gl_reverse_command
 from co.client.u8co_cli_gl_transfer import HANDLERS as GL_TRANSFER_HANDLERS  # 期间损益结转、自定义转账
 from co.client.u8co_cli_gl_transfer import add_commands as add_gl_transfer_commands
 from co.client.u8co_idem import add_key_arg, key_kwargs  # 幂等键
+from co.client.u8co_arc_cus import CustomerAddressEdit  # 客户主数据专用写入
 from co.client.u8co_gl_arc import (
     BOOL_FILTERS,
     DELETE_ARCHIVES,
@@ -115,6 +116,16 @@ def _arc_commands(sub: Any) -> None:
     person.add_argument("--code", required=True)
     person.add_argument("--person", required=True)
     person.add_argument("--expect", default=None)
+    # 客户字段、收货地址：--file 是 {"fields": {...}, "expect": {...}}，expect 可选（改地址的 name / unit / default 时必填）。
+    cus_fields = sub.add_parser("arc-customer-fields")
+    _add_auth(cus_fields)
+    cus_fields.add_argument("--code", required=True)
+    cus_fields.add_argument("--file", required=True)
+    address = sub.add_parser("arc-customer-address")
+    _add_auth(address)
+    address.add_argument("--code", required=True)
+    address.add_argument("--address", required=True)
+    address.add_argument("--file", required=True)
 
 
 def _list_commands(sub: Any) -> None:
@@ -223,6 +234,23 @@ def _cmd_arc_person(client: U8CoClient, call: U8Call, parsed: argparse.Namespace
     return client.arc_customer_person(call, parsed.code, parsed.person, expect=parsed.expect)
 
 
+def _customer_edit(path: str) -> tuple[Any, Any]:
+    data = _json_object(path)
+    if "fields" not in data or not set(data) <= {"fields", "expect"}:
+        raise SystemExit("文件只能包含 fields，可选 expect")
+    return data["fields"], data.get("expect")
+
+
+def _cmd_arc_cus_fields(client: U8CoClient, call: U8Call, parsed: argparse.Namespace) -> dict[str, Any]:
+    fields, expect = _customer_edit(parsed.file)
+    return client.arc_customer_fields(call, parsed.code, fields, expect=expect)
+
+
+def _cmd_arc_cus_address(client: U8CoClient, call: U8Call, parsed: argparse.Namespace) -> dict[str, Any]:
+    fields, expect = _customer_edit(parsed.file)
+    return client.arc_customer_address(call, CustomerAddressEdit(parsed.code, parsed.address, fields, expect))
+
+
 def _cmd_arc_list(client: U8CoClient, call: U8Call, parsed: argparse.Namespace) -> dict[str, Any]:
     query = ArcQuery(
         parsed.archive,
@@ -265,6 +293,8 @@ HANDLERS = {
     "arc-create": _cmd_arc,
     "arc-update": _cmd_arc,
     "arc-customer-person": _cmd_arc_person,
+    "arc-customer-fields": _cmd_arc_cus_fields,
+    "arc-customer-address": _cmd_arc_cus_address,
     "arc-list": _cmd_arc_list,
     "list": _cmd_list,
     "stock": _cmd_stock,

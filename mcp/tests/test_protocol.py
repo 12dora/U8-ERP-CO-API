@@ -215,6 +215,15 @@ class PackageDataTests(unittest.TestCase):
         self.assertEqual(routes["archives/customer_person"]["summary"], "修改客户专管业务员")
         self.assertIn("archives/customer_person", route_names("write"))
 
+    def test_routes_contain_archives_customer_fields_and_address_as_write(self):
+        routes = {r["route"]: r for r in load_routes()}
+        self.assertEqual(routes["archives/customer_fields"]["access"], "write")
+        self.assertEqual(routes["archives/customer_fields"]["summary"], "修改客户简称、地区分类、停用日期")
+        self.assertEqual(routes["archives/customer_address"]["access"], "write")
+        self.assertEqual(routes["archives/customer_address"]["summary"], "修改客户收货地址")
+        for route in ("archives/customer_fields", "archives/customer_address"):
+            self.assertIn(route, route_names("write"))
+
     def test_routes_contain_ia_post_and_period_end_as_write(self):
         routes = {r["route"]: r for r in load_routes()}
         self.assertEqual(routes["ia/post"]["access"], "write")

@@ -1,10 +1,12 @@
 """只读例外（U8CO_READONLY_EXCEPTIONS）：只读账套上允许穿过闸门的精确写入。
 
-JSON 数组，每项 accounts / operators / type / op。当前只开放 type=archives、
-op=customer_person，且路由必须是 archives/customer_person。账套必须是
-U8CO_READONLY_ACCOUNTS 的子集。未知键（含已取消的 archive / fields）、其它 type/op、
-不合规的操作员编码一律让进程起不来。操作员比较不区分大小写，不去首尾空白。
-archives/update 在只读账套上仍一律 403。
+JSON 数组，每项 accounts / operators / type / op，op 为 create、delete 时另有 archives。type 只能是 archives，
+op 只能是 customer_person、customer_fields、customer_address（客户主数据的受控 SQL 写入）、create 或 delete。
+请求路径必须恰好是 archives/<op>。op=create、delete 必须写 archives：非空的档案种类列表，每项都在代码里的
+可开放集合（目前只有 district_class）内，放行时请求体的 archive 须在列表里；其它 op 不能写 archives。
+delete 与 create 成对开放，用来回滚刚新增的档案。
+账套必须是 U8CO_READONLY_ACCOUNTS 的子集。未知键、其它 type/op、不合规的操作员编码一律让进程起不来。
+操作员比较不区分大小写，不去首尾空白。archives/update、其它档案的 create / delete 在只读账套上仍一律 403。
 """
 
 from __future__ import annotations
@@ -15,11 +17,17 @@ import unicodedata
 from dataclasses import dataclass
 
 ENV = "U8CO_READONLY_EXCEPTIONS"
-_KEYS = frozenset(("accounts", "operators", "type", "op"))
+_KEYS = frozenset(("accounts", "operators", "type", "op", "archives"))
 _REQUIRED = ("accounts", "operators", "type", "op")
 _TYPE = "archives"
-_OP = "customer_person"
-_ACTION = "co:archives/customer_person"
+_CREATE = "create"
+_DELETE = "delete"
+# 必须带 archives 的 op：新增与删除成对开放。
+_ARCHIVE_OPS = (_CREATE, _DELETE)
+_OPS = ("customer_person", "customer_fields", "customer_address", *_ARCHIVE_OPS)
+# op 为 create、delete 时 archives 可以列出的档案种类（代码里的封闭集合，配置只能从中选）。
+CREATE_ARCHIVES = frozenset(("district_class",))
+_PREFIX = "co:archives/"
 _SIZE = 65536
 _ACCOUNT = re.compile(r"^[0-9]{3}\Z")
 
@@ -32,6 +40,8 @@ class ReadOnlyException:
     operators: tuple[str, ...]
     type: str
     op: str
+    # 只有 op 为 create、delete 时有：允许写入的档案种类。
+    archives: tuple[str, ...] | None = None
 
     def matches(self, acc: str, operator: str) -> bool:
         if acc not in self.accounts:
@@ -39,13 +49,23 @@ class ReadOnlyException:
         who = operator.casefold()
         return who in {item.casefold() for item in self.operators}
 
+    def covers(self, payload: dict) -> bool:
+        """op 为 create、delete 时请求体的 archive 须在 archives 里；其它 op 没有这一层限制。"""
+        if self.op not in _ARCHIVE_OPS:
+            return True
+        # 解析器保证这两个 op 一定有 archives；对象被直接构造成没有时，一律不放行。
+        return bool(self.archives) and _text(payload.get("archive")) in self.archives
+
     def summary(self) -> dict:
-        return {
+        found = {
             "accounts": list(self.accounts),
             "operators": list(self.operators),
             "type": self.type,
             "op": self.op,
         }
+        if self.archives is not None:
+            found["archives"] = list(self.archives)
+        return found
 
 
 def parse_exceptions(raw: str, read_only: tuple[str, ...]) -> tuple[ReadOnlyException, ...]:
@@ -59,12 +79,13 @@ def parse_exceptions(raw: str, read_only: tuple[str, ...]) -> tuple[ReadOnlyExce
 
 
 def allows(exceptions: tuple[ReadOnlyException, ...], action: str, payload: dict) -> bool:
-    """路由必须是 archives/customer_person，且任一例外的账套、操作员命中才放行。"""
-    if not exceptions or action != _ACTION:
+    """路由必须恰好是 archives/<op>，且任一同 op 例外的账套、操作员命中（create、delete 另看请求体 archive）才放行。"""
+    if not exceptions or not action.startswith(_PREFIX):
         return False
+    op = action[len(_PREFIX) :]
     acc = _text(payload.get("acc"))
     operator = _text(payload.get("operator"))
-    return any(item.matches(acc, operator) for item in exceptions)
+    return any(item.op == op and item.matches(acc, operator) and item.covers(payload) for item in exceptions)
 
 
 def health_of(exceptions: tuple[ReadOnlyException, ...]) -> list[dict] | None:
@@ -98,15 +119,32 @@ def _one(where: str, raw: object, read_only: tuple[str, ...]) -> ReadOnlyExcepti
         operators=_operators(where, raw["operators"]),
         type=type_,
         op=op,
+        archives=_archives(where, op, raw),
     )
 
 
 def _kind(where: str, type_: object, op: object) -> tuple[str, str]:
     if type_ != _TYPE:
-        raise SystemExit(f"{where}.type 只能是 archives（目前只开放客户专管业务员）")
-    if op != _OP:
-        raise SystemExit(f"{where}.op 只能是 customer_person（目前只开放客户专管业务员）")
-    return _TYPE, _OP
+        raise SystemExit(f"{where}.type 只能是 archives")
+    if op not in _OPS:
+        raise SystemExit(f"{where}.op 只能是 {'、'.join(_OPS)}")
+    return _TYPE, str(op)
+
+
+def _archives(where: str, op: str, item: dict) -> tuple[str, ...] | None:
+    # op 为 create、delete 时必须列出档案种类，且都在代码里的可开放集合内；其它 op 不能写这个键（null 也不行）。
+    if op not in _ARCHIVE_OPS:
+        if "archives" in item:
+            raise SystemExit(f"{where}.archives 只能用于 op=create 或 delete")
+        return None
+    if "archives" not in item:
+        raise SystemExit(f"{where}.archives 在 op={op} 时必须给出")
+    found = _strings(where, item["archives"], "archives", False)
+    for kind in found:
+        if kind not in CREATE_ARCHIVES:
+            allowed = "、".join(sorted(CREATE_ARCHIVES))
+            raise SystemExit(f"{where}.archives 里的 {kind!r} 不能开放写入（目前只有 {allowed}）")
+    return found
 
 
 def _accounts(where: str, raw: object, read_only: tuple[str, ...]) -> tuple[str, ...]:

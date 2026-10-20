@@ -68,7 +68,7 @@ def allow_acc(settings, caller: Caller, acc: str) -> None:
 
 def refuse_read_only(request, action: str, payload: dict) -> None:
     """只读账套（U8CO_READONLY_ACCOUNTS）的写路由 403 account_read_only：在访问桥和写入策略之前判定。
-    命中 U8CO_READONLY_EXCEPTIONS（路由 archives/customer_person、操作员、账套）时放行，
+    命中 U8CO_READONLY_EXCEPTIONS（路由 archives/<op>、操作员、账套；create、delete 另看请求体 archive）时放行，
     审计 read_only_exception 为 true，成功时 outcome 也记该值；预演也必须是同一形状。读路由、经营
     管理路由不受影响。所有写入口都调这一处。"""
     if access_of(action) != WRITE:

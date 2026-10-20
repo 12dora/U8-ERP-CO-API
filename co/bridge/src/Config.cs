@@ -22,7 +22,8 @@ namespace U8Co
         public bool EnableReplicatedWrites;
         // 只读账套：名单里的账套只开放读取，WriteGate 的写路由一律 403 account_read_only（ReadOnlyGate）。缺省为空。
         public string[] ReadOnlyAccounts = new string[0];
-        // 只读账套的例外写入：匹配的 archives/customer_person 放行，其余仍 403。缺省为空。
+        // 只读账套的例外写入：匹配的 archives/customer_person、customer_fields、customer_address，
+        // 或 archives/create、archives/delete 且 archive 在规则 archives 里（目前只有 district_class），放行；其余仍 403。缺省为空。
         public ReadOnlyExceptionRule[] ReadOnlyExceptions = new ReadOnlyExceptionRule[0];
         // 权限评估（perm/evaluate）：可以查询其他操作员权限的调用操作员编码。缺省为空，一个都不放行；账套主管不例外。
         public string[] PermEvaluateOperators = new string[0];

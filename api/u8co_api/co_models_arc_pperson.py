@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Annotated
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -10,16 +9,15 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from u8co_api.co_doctext import op_doc
 from u8co_api.co_models import CoAuth
 from u8co_api.co_models_arc import Code, check_read_code
+from u8co_api.co_models_arc_cus import PERMISSION_RULES, TRIMMED, only_read_only_rule
 from u8co_api.co_models_dry import DryRunFlag
 from u8co_api.co_models_gl import PASS, Scalar
 
-# 与档案编码相同：不含控制字符，首尾不能有空白。业务员编码最长 20（Person.cPersonCode）。
-_CTRL = "\\x00-\\x1f\\x7f\\uFFFE\\uFFFF"
-_TRIMMED = re.compile(rf"[^\s{_CTRL}](?:[^{_CTRL}]*[^\s{_CTRL}])?")
+# 业务员编码最长 20（Person.cPersonCode），写法同档案编码。
 Person = Annotated[
     str,
     Field(
-        pattern=rf"^{_TRIMMED.pattern}$",
+        pattern=rf"^{TRIMMED.pattern}$",
         min_length=1,
         max_length=20,
         description="目标专管业务员编码（Person.cPersonCode），1 到 20 个字符，首尾不能有空白，不含控制字符",
@@ -44,10 +42,9 @@ CUSTOMER_PERSON_HELP = op_doc(
         "规则",
         (
             "EAI 客户修改会改动银行账号、最后收款日等无关列；本路由只更新 cCusPPerson 和条件满足时的 cCusDepart",
-            "操作员须有客户档案编辑权限（AS011）；记录级客户权限同档案读取",
+            *PERMISSION_RULES,
             "当前值已是 person 时成功返回，不写库、不改审计列",
-            "写入分类 (archives, customer_person)：放行 archives/update 不连带放行本路由",
-            "只读账套上仅当只读例外 type=archives、op=customer_person 且账套、操作员命中才穿过闸门",
+            only_read_only_rule("customer_person"),
         ),
     ),
     (
@@ -81,7 +78,7 @@ class ArcCustomerPersonIn(CoAuth):
     def _expect(cls, value: str | None) -> str | None:
         if value is None or value == "":
             return value
-        if _TRIMMED.fullmatch(value) is None:
+        if TRIMMED.fullmatch(value) is None:
             raise ValueError("expect 必须是 1 到 20 个字符，首尾不能有空白，不含控制字符")
         return value
 

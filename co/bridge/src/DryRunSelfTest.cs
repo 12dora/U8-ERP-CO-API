@@ -91,6 +91,8 @@ namespace U8Co
             Mode("arc currency update", "rollback", "archives/update", "currency", "archive_update", "");
             Mode("arc contact", "validate", "archives/delete", "customer_contact", "archive_delete", "");
             Mode("arc customer_person", "validate", "archives/customer_person", "", "archive_customer_person", "");
+            Mode("arc customer_fields", "validate", "archives/customer_fields", "", "archive_customer_fields", "");
+            Mode("arc customer_address", "validate", "archives/customer_address", "", "archive_customer_address", "");
             Mode("wf approve", "validate", "workflow/approve", "sale_order", "approve", "");
             Mode("writeoff", "rollback", "arap/writeoff", "", "writeoff", "");
             Mode("arap voucher", "validate", "arap/voucher", "ar_bill", "arap_voucher", "");
@@ -223,6 +225,8 @@ namespace U8Co
             Dictionary<string, object> arc = routes["archives/create"] as Dictionary<string, object>;
             Expect("meta arc", arc != null && (string)arc["project"] == "rollback" && (string)arc["*"] == "validate");
             Expect("meta person", (string)routes["archives/customer_person"] == "validate");
+            Expect("meta fields", (string)routes["archives/customer_fields"] == "validate");
+            Expect("meta address", (string)routes["archives/customer_address"] == "validate");
             Expect("meta gl", (string)routes["gl/vouchers/create"] == "validate" && (string)routes["arap/writeoff/auto"] == "plan");
             Expect("meta refs", (string)MetaRefs.FieldRefs()["cowhcode"] == "warehouse"
                 && (string)MetaRefs.FieldRefs()["inv_code"] == "inventory" && !MetaRefs.FieldRefs().ContainsKey("cdwcode")

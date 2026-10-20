@@ -15,8 +15,8 @@ namespace U8Co
         public static ArcPersonAsk Parse(Dictionary<string, object> body)
         {
             ArcPersonAsk ask = new ArcPersonAsk();
-            ask.Code = ArcReq.CheckCode(Text(body, "code"), "code");
-            ask.Person = ArcReq.CheckCode(Text(body, "person"), "person", PersonMax);
+            ask.Code = ArcReq.CheckCode(ArcCustomerRow.Text(body, "code"), "code");
+            ask.Person = ArcReq.CheckCode(ArcCustomerRow.Text(body, "person"), "person", PersonMax);
             object raw;
             if (body != null && body.TryGetValue("expect", out raw) && raw != null)
             {
@@ -33,18 +33,8 @@ namespace U8Co
                 throw new BridgeException(500, "internal", "档案请求缺少请求体");
             }
             ArcPersonAsk ask = Parse(ctx.Item.Body);
-            Permit(ctx, ask.Code);
+            ArcCustomerRow.Permit(ctx, RuleKey, ask.Code);
             return ArcPersonSql.Run(ctx, ask);
-        }
-
-        static void Permit(WorkContext ctx, string code)
-        {
-            PermContext p = PermCheck.Of(ctx);
-            PermCheck.RequireRule(p, PermRegistry.ForKey(RuleKey));
-            if (!PermCheck.Allow(p, PermObj.Customer, code))
-            {
-                throw new BridgeException(403, "no_permission", PermCheck.DeniedRow);
-            }
         }
 
         // cCusDepart 为空，或等于旧业务员所在部门时，改成新业务员的部门（新部门非空）。
@@ -84,21 +74,6 @@ namespace U8Co
         internal static string BlankNull(string text)
         {
             return text == null || text.Length == 0 ? null : text;
-        }
-
-        static string Text(Dictionary<string, object> body, string key)
-        {
-            object value = Requests.Field(body, key);
-            if (value == null)
-            {
-                return null;
-            }
-            string text = value as string;
-            if (text == null)
-            {
-                throw ArcReq.Bad(key + " 必须是字符串", key);
-            }
-            return text;
         }
 
         static string ExpectText(object raw)

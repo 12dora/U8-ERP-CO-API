@@ -1,5 +1,6 @@
 """CO gates. The fake bridge is never a socket to the Windows host."""
 
+from tests.gate_customer import CUSTOMER_BUILDERS
 from tests.support import base_claims, entry, make_client
 from u8co_api.co_clock import login_defaults
 from u8co_api.errors import ApiError
@@ -253,10 +254,6 @@ def _arc_deleted(payload: dict) -> dict:
     return data
 
 
-def _arc_customer_person(payload: dict) -> dict:
-    return {"ok": True, "code": payload["code"], "before": None, "after": payload.get("person")}
-
-
 def _arc_got(payload: dict) -> dict:
     data = _arc_key(payload)
     data["fields"] = {"name": "客户甲", "abbrname": "甲", "ccusmngtypecode": "999"}
@@ -359,7 +356,7 @@ _BUILDERS = {
     "/v1/archives/create": _arc_key,
     "/v1/archives/update": _arc_key,
     "/v1/archives/delete": _arc_deleted,
-    "/v1/archives/customer_person": _arc_customer_person,
+    **CUSTOMER_BUILDERS,
     "/v1/vouchers/list": _voucher_listed,
     "/v1/stock/current": _stock,
     "/v1/health": lambda _payload: {"ok": True, "version": "test"},

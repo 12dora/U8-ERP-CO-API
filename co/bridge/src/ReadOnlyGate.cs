@@ -7,8 +7,9 @@ namespace U8Co
 {
     // 只读账套（config.json 的 readOnlyAccounts）：名单里的账套只开放读取。WriteGate 登记的每条写路由一律
     // 403 account_read_only，含预演与幂等重放；写入策略文件、测试账套名单都不能放行。
-    // readOnlyExceptions 匹配的写入（路径必须是 archives/customer_person）放行，审计 policy 记
-    // read_only_exception；不匹配的仍拒绝。登录前在 WriteClassGate.Pre（账套名单之后、解密之前，先于写入策略）
+    // readOnlyExceptions 匹配的写入放行，审计 policy 记 read_only_exception；不匹配的仍拒绝。匹配 = 账套、操作员
+    // （不分大小写）、写入分类 (archives, op) 都对上，路径恰为 archives/<op>；op=create / delete 另要求请求体
+    // archive 在规则的 archives 里（目前只有 district_class）。登录前在 WriteClassGate.Pre（账套名单之后、解密之前，先于写入策略）
     // 查，入队后在 WriteClassGate.Post（登录 U8 之前）再查一次。
     internal static class ReadOnlyGate
     {
@@ -54,7 +55,7 @@ namespace U8Co
             {
                 return;
             }
-            if (Matches(cfg, AskOf(acc, user, info)))
+            if (Matches(cfg, AskOf(acc, user, info, body)))
             {
                 draft.Policy = ExceptionCode;
                 return;
@@ -71,7 +72,7 @@ namespace U8Co
                 return;
             }
             WriteRequestInfo info = item.WriteInfo ?? WriteClass.Of(item);
-            if (Matches(item.Config, AskOf(item.Acc, item.Operator, info)))
+            if (Matches(item.Config, AskOf(item.Acc, item.Operator, info, item.Body)))
             {
                 item.Policy = ExceptionCode;
                 return;
@@ -97,7 +98,7 @@ namespace U8Co
             return false;
         }
 
-        static Ask AskOf(string acc, string user, WriteRequestInfo info)
+        static Ask AskOf(string acc, string user, WriteRequestInfo info, Dictionary<string, object> body)
         {
             Ask ask = new Ask();
             ask.Acc = acc;
@@ -105,6 +106,7 @@ namespace U8Co
             ask.Type = info == null ? null : info.Type;
             ask.Op = info == null ? null : info.Op;
             ask.Path = info == null ? null : info.Path;
+            ask.Archive = body == null ? null : Requests.Field(body, "archive") as string;
             return ask;
         }
 
@@ -122,9 +124,18 @@ namespace U8Co
             {
                 return false;
             }
-            return string.Equals(rule.Type, ask.Type, StringComparison.Ordinal)
-                && string.Equals(rule.Op, ask.Op, StringComparison.Ordinal)
-                && string.Equals(ask.Path, ArcPerson.Path, StringComparison.Ordinal);
+            if (!string.Equals(rule.Type, ask.Type, StringComparison.Ordinal)
+                || !string.Equals(rule.Op, ask.Op, StringComparison.Ordinal)
+                || !string.Equals(ask.Path, Requests.ArcRoot + rule.Op, StringComparison.Ordinal))
+            {
+                return false;
+            }
+            // op=create / delete 的规则必须带 archives，请求的档案类型要在里面（缺省或为空不匹配任何请求）；其它 op 不带。
+            if (Array.IndexOf(ConfigRulesReadOnly.ArchiveOps, rule.Op) >= 0)
+            {
+                return Contains(rule.Archives, ask.Archive, StringComparison.Ordinal);
+            }
+            return rule.Archives == null;
         }
 
         static bool Contains(string[] list, string value, StringComparison cmp)
@@ -175,6 +186,12 @@ namespace U8Co
             JsonStrings(sb, rule.Operators);
             sb.Append("],\"type\":").Append(Quote(rule.Type));
             sb.Append(",\"op\":").Append(Quote(rule.Op));
+            if (rule.Archives != null)
+            {
+                sb.Append(",\"archives\":[");
+                JsonStrings(sb, rule.Archives);
+                sb.Append(']');
+            }
             sb.Append('}');
         }
 
@@ -206,6 +223,10 @@ namespace U8Co
             map["operators"] = rule.Operators;
             map["type"] = rule.Type;
             map["op"] = rule.Op;
+            if (rule.Archives != null)
+            {
+                map["archives"] = rule.Archives;
+            }
             return map;
         }
 
@@ -237,6 +258,7 @@ namespace U8Co
             public string Type;
             public string Op;
             public string Path;
+            public string Archive;
         }
     }
 }

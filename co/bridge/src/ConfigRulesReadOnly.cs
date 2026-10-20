@@ -6,13 +6,19 @@ using System.Globalization;
 namespace U8Co
 {
     // config.json 的 readOnlyExceptions：只读账套上允许穿过闸门的精确写入。账套必须同时在
-    // readOnlyAccounts 里；目前只开放 type=archives、op=customer_person。operators 比较不区分大小写，
+    // readOnlyAccounts 里；目前只开放 type=archives，op 是客户专用路由（ArcCustomerOps.Ops：customer_person、
+    // customer_fields、customer_address）或 create、delete。op=create / delete 必须另写 archives（非空列表，
+    // 每项须在 EligibleArchives 里，目前只有 district_class；delete 用于回滚刚新增的档案）；其余 op 不能写 archives。operators 比较不区分大小写，
     // 且不能含双引号、反斜杠或控制字符（健康检查 JSON 仍会转义）。
     internal static class ConfigRulesReadOnly
     {
+        // 带 archives 的 op：请求体 archive 必须在规则的 archives 里。
+        internal static readonly string[] ArchiveOps = new string[] { "create", "delete" };
+        // 允许走只读例外新增 / 删除的档案类型（官方 EAI 组件写入的末端档案）。
+        internal static readonly string[] EligibleArchives = new string[] { ArcKindRwMore.District };
         static readonly string[] Keys = new string[]
         {
-            "accounts", "op", "operators", "type"
+            "accounts", "archives", "op", "operators", "type"
         };
 
         public static ReadOnlyExceptionRule[] ReadOnlyExceptions(Dictionary<string, object> map, string[] readOnly)
@@ -58,7 +64,8 @@ namespace U8Co
             rule.Accounts = ExceptionCodes(obj, at, readOnly);
             rule.Operators = ExceptionOperators(obj, at);
             rule.Type = TypeOp(obj, "type", at, "archives");
-            rule.Op = TypeOp(obj, "op", at, ArcPerson.Op);
+            rule.Op = OpOf(obj, at);
+            rule.Archives = ArchivesOf(obj, at, rule.Op);
             return rule;
         }
 
@@ -104,6 +111,43 @@ namespace U8Co
                     throw new InvalidOperationException(at + ".operators 的每一项必须是有效的 U8 操作员编码：" + list[i]);
                 }
                 JsonSafe(list[i], at + ".operators");
+            }
+            return list;
+        }
+
+        // op：客户专用路由或 create。
+        static string OpOf(Dictionary<string, object> obj, string at)
+        {
+            string text = NeedText(obj, "op", at);
+            if (Array.IndexOf(ArchiveOps, text) < 0 && !ArcCustomerOps.Is(text))
+            {
+                List<string> allowed = new List<string>(ArcCustomerOps.Ops);
+                allowed.AddRange(ArchiveOps);
+                throw new InvalidOperationException(at + ".op 目前只允许 " + string.Join(", ", allowed.ToArray())
+                    + "：" + text);
+            }
+            return text;
+        }
+
+        // op=create / delete 必须有 archives 且每项在 EligibleArchives 里；其它 op 不能写 archives（返回 null）。
+        static string[] ArchivesOf(Dictionary<string, object> obj, string at, string op)
+        {
+            if (Array.IndexOf(ArchiveOps, op) < 0)
+            {
+                if (obj.ContainsKey("archives"))
+                {
+                    throw new InvalidOperationException(at + ".archives 只能用于 op=" + string.Join(" / ", ArchiveOps));
+                }
+                return null;
+            }
+            string[] list = NeedStrings(obj, "archives", at, StringComparer.Ordinal);
+            for (int i = 0; i < list.Length; i++)
+            {
+                if (Array.IndexOf(EligibleArchives, list[i]) < 0)
+                {
+                    throw new InvalidOperationException(at + ".archives 目前只允许 "
+                        + string.Join(", ", EligibleArchives) + "：" + list[i]);
+                }
             }
             return list;
         }
@@ -224,5 +268,7 @@ namespace U8Co
         public string[] Operators;
         public string Type;
         public string Op;
+        // 仅 op=create / delete：放行的档案类型；其它 op 为 null。
+        public string[] Archives;
     }
 }

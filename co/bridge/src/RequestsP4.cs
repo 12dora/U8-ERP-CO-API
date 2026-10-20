@@ -56,6 +56,9 @@ namespace U8Co
             new string[] { ArcRoot + "update", "archive", "code", "fields" },
             new string[] { ArcRoot + "delete", "archive", "code" },
             new string[] { ArcPerson.Path, "code", "person", "expect" },
+            // 客户字段修改（ArcCusFields）、客户收货地址修改（ArcCusAddr）。
+            new string[] { ArcCusFields.Path, "code", "fields", "expect" },
+            new string[] { ArcCusAddr.Path, "code", "address", "fields", "expect" },
             new string[] { ListPath, "type", "filter", "keys_only", "changed_since", "after", "limit" },
             // 单据搜索（VoucherSearchArgs）、单据批量读取（LoadManyReq）、档案批量读取（ArcGetMany）。
             new string[]

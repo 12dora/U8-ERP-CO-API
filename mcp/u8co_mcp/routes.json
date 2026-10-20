@@ -14,6 +14,8 @@
 {"route": "arap/writeoff/auto", "access": "write", "summary": "应收 / 应付自动核销"},
 {"route": "arap/writeoff/cancel", "access": "write", "summary": "取消应收 / 应付核销"},
 {"route": "archives/create", "access": "write", "summary": "新增档案"},
+{"route": "archives/customer_address", "access": "write", "summary": "修改客户收货地址"},
+{"route": "archives/customer_fields", "access": "write", "summary": "修改客户简称、地区分类、停用日期"},
 {"route": "archives/customer_person", "access": "write", "summary": "修改客户专管业务员"},
 {"route": "archives/delete", "access": "write", "summary": "删除档案"},
 {"route": "archives/get", "access": "read", "summary": "读取档案"},

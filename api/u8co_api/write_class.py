@@ -44,11 +44,13 @@ RULES: dict[str, tuple[str | None, str | dict[str, str]]] = {
     # 期间损益结转、自定义转账：按定义生成结转凭证，记 voucher（同制单）；放行手工填制不连带放行自动转账。
     "gl/transfer/pnl": ("gl", "voucher"),
     "gl/transfer/custom": ("gl", "voucher"),
-    # 档案：新增、修改、删除；客户专管业务员是独立 op，放行 update 不连带放行。
+    # 档案：新增、修改、删除；客户专管业务员、客户字段、收货地址是独立 op，放行 update 不连带放行。
     "archives/create": ("archives", "create"),
     "archives/update": ("archives", "update"),
     "archives/delete": ("archives", "delete"),
     "archives/customer_person": ("archives", "customer_person"),
+    "archives/customer_fields": ("archives", "customer_fields"),
+    "archives/customer_address": ("archives", "customer_address"),
     # 应收 / 应付：核销、自动核销 writeoff；制单、处理制单 voucher；
     # 并账、转账、红票对冲、汇兑损益、坏账 process；取消类 other。
     "arap/writeoff": ("arap", "writeoff"),

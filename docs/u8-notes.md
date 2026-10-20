@@ -676,6 +676,15 @@ U8 API 的行为（已在测试账套实测）。桥的实现在 `BomCom`、`Bom
 - 可选 `expect`：空串表示当前为空；省略或 JSON `null` 不校验；不符 409「当前专管业务员是…」。预演是 `validate`：闸门和校验之后停，响应 `{ok, dry_run, mode, code, before, dept_before, dept_note}`，回滚已开的事务。
 - 功能权限客户档案编辑 `AS011`；记录级客户权限同档案读取。锁键 `arc:customer:<编码>`、`arc:write`。写入分类 `(archives, customer_person)`，放行 `archives/update` 不连带放行。命令行 `arc-customer-person`。
 
+### 客户简称、地区分类、停用日期、收货地址
+
+- 路由 `archives/customer_fields`、`archives/customer_address` 走受控 SQL，不走客户 EAI。原因同 `customer_person`：客户 `diffedit` 即使只带编码和一个字段，也会清空开户银行与银行账号、改写最后收款日期、补助记码，并拒绝未填所属行业的客户；而 U8 没有收货地址（`CusDeliverAdd`）的任何组件，EAI 里也没有对应报文。
+- `customer_fields` 只更新请求里列出的列：`abbrname` → `Customer.cCusAbbName`（nvarchar(60) NOT NULL，去首尾空白后不能为空）、`district` → `cDCCode`（nvarchar(12)，空串清为空；非空必须在 `DistrictClass` 中且 `bDCEnd=1`，否则 409 `district_invalid`）、`end_date` → `dEndDate`（空串清为 NULL，否则不得早于 `dCusCreateDatetime` 的日期）。同一事务内 `SELECT … WITH (UPDLOCK, ROWLOCK)` 读出当前值和 `pubufts`，`expect` 逐项核对（空串表示当前为空或 NULL，日期按 `yyyy-MM-dd`），`UPDATE … WHERE cCusCode=? AND pubufts=<读到的值>`；修改人、修改日期的写法同 `customer_person`；`pubufts` 变了 409，写后回读对不上 504。请求值已等于当前值时提交、不 `UPDATE`，响应 `changed:false`。
+- `CusDeliverAdd`：`id` 自增，`cCusCode`、`cAddCode`（每个客户内唯一）、`cDeliverAdd`（地址名称，可为 NULL）、`cDeliverUnit`（收货单位，可为 NULL）、`cLinkPerson`、`bDefault`（NOT NULL）、`cEnglishAdd*`、`cCusAddressGUID`。**没有行版本**，所以 `customer_address` 的 `expect` 必填：它是唯一的并发判据（比较前 NULL 当空串）；事务内先 `UPDLOCK, ROWLOCK` 锁住该客户的全部地址行，再核对、改写、回读。
+- `default:true` 把本行 `bDefault` 置 1、同客户其它行置 0，同一事务。不改客户档案的修改人和修改日期（U8 界面改地址也不改）。
+- 改地址编码的引用规则：旧编码出现在单据里时，改编码会让单据上的地址编码悬空，所以桥拒绝（409 `address_in_use`）。检查范围不写死表名，运行时从 `INFORMATION_SCHEMA.COLUMNS` 找所有带 `cAddCode` 列（不分大小写）的基表，`CusDeliverAdd` 自己除外；表有客户列（`cCusCode`，不分大小写）时按「客户 + 旧编码」查，没有时只按旧编码查（保守，宁可多拒）。生产库实测带这一列的表包括：`DispatchList`、`SO_SOMain`、`SaleBillVouch`、`rdrecord32`、`RdRecord09`（均另有 `…History`）、`SA_QuoMain`、`SA_ReturnsApplyMain`、`SA_SettleVouch`、`HY_DZ_BorrowOutChange`、`KC_BoxUp`、`Customer`、`Customer_ContraRef`、`AA_ApplyCustomers`、`AA_ApplyCustomersDeliverAdd`、`customer_import`。表名、列名只取自 `INFORMATION_SCHEMA`，加方括号引用，值走参数。新编码已被同一客户的另一行占用时 409 `address_code_taken`。
+- 功能权限客户档案编辑 `AS011`；记录级客户权限同档案读取。锁键 `arc:customer:<编码>`、`arc:write`。写入分类 `(archives, customer_fields)`、`(archives, customer_address)`，放行 `archives/update` 不连带放行。命令行 `arc-customer-fields`、`arc-customer-address`。
+
 ### 原因码
 
 - 根标签 `reason`，`ReasonXmlRs.xml`，表 `Reason`；`in="y" out="y"`，分发到 `U8SrvTrans.IclsCommon`，登录子系统 `AS`。标签 `code` → `cReasonCode`、`name` → `cReasonName`、`Reasontype` → `iReasontype`（tinyint，非空）、`ReasonMemo` → `cReasonMemo`（大小写照 RsXml）。长度：编码 10、名称 30、说明 240；所属类型 1 不良品原因、2 让步放行原因、3 采购退货原因、4 销售退货原因、5 变更原因、6 拖欠原因（有的账套另有预置 `Refund` 类型 15 退款退货）。

@@ -11,6 +11,8 @@ from u8co_api.co_models_arc import (
     ArcUpdateIn,
     ArcWriteOut,
 )
+from u8co_api.co_models_arc_cusaddr import CUSTOMER_ADDRESS_HELP, ArcCustomerAddressIn, ArcCustomerAddressOut
+from u8co_api.co_models_arc_cusfields import CUSTOMER_FIELDS_HELP, ArcCustomerFieldsIn, ArcCustomerFieldsOut
 from u8co_api.co_models_arc_pperson import CUSTOMER_PERSON_HELP, ArcCustomerPersonIn, ArcCustomerPersonOut
 from u8co_api.co_models_gl import (
     GlCreateIn,
@@ -65,6 +67,22 @@ def _arc(op: str, pair: tuple[type, type], summary: str, text: str) -> CoRoute:
         f"coArchive{op.title()}",
         f"co:archives/{op}",
         TAG_ARC,
+    )
+
+
+def _customer(op: str, pair: tuple[type, type], summary: str, text: str) -> CoRoute:
+    # 客户主数据的受控 SQL 写入：响应里值为 null 的键照样保留（before 为 null 表示改前为空）。
+    return CoRoute(
+        f"/v1/co/archives/{op}",
+        f"/v1/archives/{op}",
+        pair[0],
+        pair[1],
+        summary,
+        text,
+        "coArchive" + op.title().replace("_", ""),
+        f"co:archives/{op}",
+        TAG_ARC,
+        keep_null=True,
     )
 
 
@@ -274,17 +292,23 @@ _ARC_ROUTES = (
             ),
         ),
     ),
-    CoRoute(
-        "/v1/co/archives/customer_person",
-        "/v1/archives/customer_person",
-        ArcCustomerPersonIn,
-        ArcCustomerPersonOut,
+    _customer(
+        "customer_person",
+        (ArcCustomerPersonIn, ArcCustomerPersonOut),
         "修改客户专管业务员",
         CUSTOMER_PERSON_HELP,
-        "coArchiveCustomerPerson",
-        "co:archives/customer_person",
-        TAG_ARC,
-        keep_null=True,
+    ),
+    _customer(
+        "customer_fields",
+        (ArcCustomerFieldsIn, ArcCustomerFieldsOut),
+        "修改客户简称、地区分类、停用日期",
+        CUSTOMER_FIELDS_HELP,
+    ),
+    _customer(
+        "customer_address",
+        (ArcCustomerAddressIn, ArcCustomerAddressOut),
+        "修改客户收货地址",
+        CUSTOMER_ADDRESS_HELP,
     ),
 )
 

@@ -8,15 +8,16 @@ namespace U8Co
     // --selftest 的只读账套部分（ReadOnlyGate）：走 Requests.ForPath 的真实解析。名单里的账套对 WriteGate 登记的
     // 每条写路由（枚举登记表，新增写路由自动覆盖）都 403 account_read_only，含预演，写入策略放行、测试账套名单也不放行；
     // 拒绝发生在解密之前（口令故意写成解不开的值，放行时是 400 口令无法解密）。名单外账套不受影响，读路由照常通过。
-    // readOnlyExceptions 只放行路径 archives/customer_person（审计 policy 记 read_only_exception）；
+    // readOnlyExceptions 只放行规则指定的 archives/<op>（审计 policy 记 read_only_exception）；
     // archives/update、新增、删除、其它操作员、其它账套、vouchers/update 伪造成 archives 仍拒绝。
+    // 三条客户专用路由与 op=create / delete + archives 的规则见 ReadOnlyExceptionSelfTest（由 CheckExceptionGate 调用）。
     // 写入策略在放行之后仍判定。配置校验错误在加载时抛出。不连库、不建 COM、不登录。
     // 由 SelfTest.RunWritePolicy 调用。
     internal static class ReadOnlyGateSelfTest
     {
-        const string Listed = "801";
+        internal const string Listed = "801";
         const string Other = "802";
-        const string ExtraAcc = "803";
+        internal const string ExtraAcc = "803";
         const string ArcUpdate = Requests.ArcRoot + "update";
         const string VoucherUpdate = "/u8co/v1/vouchers/update";
 
@@ -240,6 +241,7 @@ namespace U8Co
             ExpectVoucherSpoof();
             ExpectPolicyDeny();
             CheckExceptionHealth();
+            ReadOnlyExceptionSelfTest.Run();
         }
 
         static void CheckExceptionHealth()
@@ -381,7 +383,7 @@ namespace U8Co
             Expect(name, CodeOf(path, body, draft) == ReadOnlyGate.Code && draft.Policy == ReadOnlyGate.Code);
         }
 
-        static void ExpectConfigError(string name, Dictionary<string, object> map, string[] ro, string text)
+        internal static void ExpectConfigError(string name, Dictionary<string, object> map, string[] ro, string text)
         {
             string msg = null;
             try
@@ -397,10 +399,15 @@ namespace U8Co
 
         static string CodeOf(string path, byte[] body, AuditDraft draft)
         {
+            return CodeWith(CfgEx(), path, body, draft);
+        }
+
+        internal static string CodeWith(BridgeConfig cfg, string path, byte[] body, AuditDraft draft)
+        {
             draft.Path = path;
             try
             {
-                Requests.ForPath(CfgEx(), path, body, draft);
+                Requests.ForPath(cfg, path, body, draft);
                 return null;
             }
             catch (BridgeException ex)
@@ -453,7 +460,7 @@ namespace U8Co
             return Encoding.UTF8.GetBytes(new JavaScriptSerializer().Serialize(body));
         }
 
-        static BridgeConfig CfgEx()
+        internal static BridgeConfig CfgEx()
         {
             BridgeConfig cfg = Cfg();
             cfg.AllowedAccounts = new string[] { Listed, Other, ExtraAcc };
@@ -472,7 +479,7 @@ namespace U8Co
             return rule;
         }
 
-        static Dictionary<string, object> RuleDict()
+        internal static Dictionary<string, object> RuleDict()
         {
             Dictionary<string, object> rule = new Dictionary<string, object>();
             rule["accounts"] = new object[] { Listed };
@@ -482,20 +489,20 @@ namespace U8Co
             return rule;
         }
 
-        static Dictionary<string, object> ExMap(object rules)
+        internal static Dictionary<string, object> ExMap(object rules)
         {
             Dictionary<string, object> map = new Dictionary<string, object>();
             map["readOnlyExceptions"] = rules;
             return map;
         }
 
-        static Dictionary<string, object> WithKey(Dictionary<string, object> rule, string key, object value)
+        internal static Dictionary<string, object> WithKey(Dictionary<string, object> rule, string key, object value)
         {
             rule[key] = value;
             return ExMap(new object[] { rule });
         }
 
-        static Dictionary<string, object> WithList(Dictionary<string, object> rule, string key, object[] value)
+        internal static Dictionary<string, object> WithList(Dictionary<string, object> rule, string key, object[] value)
         {
             rule[key] = value;
             return ExMap(new object[] { rule });
@@ -515,7 +522,7 @@ namespace U8Co
             return item;
         }
 
-        static void Expect(string name, bool ok)
+        internal static void Expect(string name, bool ok)
         {
             if (!ok)
             {

@@ -7,46 +7,19 @@ namespace U8Co
     // 按规则改 cCusPPerson（及合格的 cCusDepart），同步 Customer_Auth，写 cModifyPerson、dModifyDate，回读核对。
     internal static class ArcPersonSql
     {
-        const string LockSql = "SELECT LTRIM(RTRIM(ISNULL(cCusPPerson,''))) AS person,"
-            + " LTRIM(RTRIM(ISNULL(cCusDepart,''))) AS dept,"
-            + " CONVERT(varchar(20), CONVERT(bigint, pubufts)) AS ts"
-            + " FROM Customer WITH (UPDLOCK, ROWLOCK) WHERE cCusCode=?";
+        static readonly string LockSql = ArcCustomerRow.LockSql(
+            "LTRIM(RTRIM(ISNULL(cCusPPerson,''))) AS person, LTRIM(RTRIM(ISNULL(cCusDepart,''))) AS dept");
         const string PersonSql = "SELECT LTRIM(RTRIM(ISNULL(cPersonCode,''))) AS code,"
             + " LTRIM(RTRIM(ISNULL(cDepCode,''))) AS dept,"
             + " CONVERT(varchar(10), dPInValidDate, 23) AS ended"
             + " FROM Person WHERE cPersonCode=?";
-        const string UpdatePerson = "UPDATE Customer SET cCusPPerson=?, cModifyPerson=?,"
-            + " dModifyDate=CONVERT(datetime, CONVERT(date, ?, 23))"
-            + " WHERE cCusCode=? AND pubufts=CONVERT(binary(8), CONVERT(bigint, ?))";
-        const string UpdateBoth = "UPDATE Customer SET cCusPPerson=?, cCusDepart=?, cModifyPerson=?,"
-            + " dModifyDate=CONVERT(datetime, CONVERT(date, ?, 23))"
-            + " WHERE cCusCode=? AND pubufts=CONVERT(binary(8), CONVERT(bigint, ?))";
+        const string SetPerson = "cCusPPerson=?";
+        const string SetBoth = "cCusPPerson=?, cCusDepart=?";
 
         public static ApiResult Run(WorkContext ctx, ArcPersonAsk ask)
         {
-            object conn = ctx.Conn;
-            bool open = false;
-            try
-            {
-                CoTrans.Begin(conn);
-                open = true;
-                ctx.Item.TranBefore = CoTrans.Count(conn);
-                ApiResult result = Apply(conn, ctx, ask);
-                ctx.Item.TranAfter = CoTrans.Count(conn);
-                CoTrans.Commit(conn);
-                open = false;
-                CoRows.Note(ctx.Item, "customer_person " + ask.Code);
-                return result;
-            }
-            catch (DryRunDone)
-            {
-                throw;
-            }
-            catch (Exception)
-            {
-                CoRows.CatchTran(conn, ctx.Item, open);
-                throw;
-            }
+            return ArcCustomerRow.Transact(ctx, "customer_person " + ask.Code,
+                delegate(object conn) { return Apply(conn, ctx, ask); });
         }
 
         static ApiResult Apply(object conn, WorkContext ctx, ArcPersonAsk ask)
@@ -68,11 +41,7 @@ namespace U8Co
 
         static ArcPersonSnap Load(object conn, ArcPersonAsk ask, string date)
         {
-            Dictionary<string, object> row = Rows.One(conn, LockSql, new object[] { ask.Code });
-            if (row == null)
-            {
-                throw new BridgeException(404, "not_found", "档案不存在");
-            }
+            Dictionary<string, object> row = ArcCustomerRow.Need(conn, LockSql, ask.Code);
             ArcPersonSnap snap = new ArcPersonSnap();
             snap.Person = Cell(row, "person");
             snap.Dept = Cell(row, "dept");
@@ -135,23 +104,18 @@ namespace U8Co
 
         static void Write(object conn, WorkContext ctx, ArcPersonAsk ask, ArcPersonSnap snap)
         {
-            string who = Modifier(ctx);
-            string date = ctx.Item.Date;
             if (snap.Follow)
             {
-                GlSql.Exec(conn, UpdateBoth, new object[]
-                {
-                    ask.Person, snap.NewDept, who, date, ask.Code, snap.Ts
-                });
+                ArcCustomerRow.Update(conn, ctx, SetBoth, new object[] { ask.Person, snap.NewDept }, ask.Code, snap.Ts);
                 ArcPersonAuth.Apply(conn, ask.Code, snap.NewDept);
                 return;
             }
-            GlSql.Exec(conn, UpdatePerson, new object[] { ask.Person, who, date, ask.Code, snap.Ts });
+            ArcCustomerRow.Update(conn, ctx, SetPerson, new object[] { ask.Person }, ask.Code, snap.Ts);
         }
 
         static void Confirm(object conn, ArcPersonAsk ask, ArcPersonSnap snap)
         {
-            Dictionary<string, object> row = Rows.One(conn, LockSql, new object[] { ask.Code });
+            Dictionary<string, object> row = ArcCustomerRow.Lock(conn, LockSql, ask.Code);
             if (row == null)
             {
                 throw Unknown(ask.Code);
@@ -169,36 +133,24 @@ namespace U8Co
             }
             if (Cell(row, "ts") == snap.Ts)
             {
-                throw new BridgeException(409, "state_mismatch", "客户 " + ask.Code + " 已被他人修改");
+                throw ArcCustomerRow.Concurrent(ask.Code);
             }
             throw Unknown(ask.Code);
         }
 
-        static string Modifier(WorkContext ctx)
-        {
-            string name = ctx.OperatorName;
-            if (name != null && name.Trim().Length > 0)
-            {
-                return name.Trim();
-            }
-            string code = ctx.Item == null ? null : ctx.Item.Operator;
-            return code ?? "";
-        }
-
         static string Cell(Dictionary<string, object> row, string name)
         {
-            return (GlSql.Col(row, name) ?? "").Trim();
+            return ArcCustomerRow.Cell(row, name);
         }
 
         static bool Same(string a, string b)
         {
-            return string.Equals((a ?? "").Trim(), (b ?? "").Trim(), StringComparison.OrdinalIgnoreCase);
+            return ArcCustomerRow.Same(a, b);
         }
 
         static BridgeException Unknown(string code)
         {
-            return new BridgeException(504, "outcome_unknown",
-                "客户 " + code + " 已写入专管业务员，但回读与写入不一致，结果未知");
+            return ArcCustomerRow.Unknown(code, "专管业务员");
         }
     }
 }
