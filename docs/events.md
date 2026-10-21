@@ -366,7 +366,7 @@ uv run u8co-events run
 - 删除扫描失败（`scan_error`），或超过 max(10 分钟, 3 × `delete_scan_minutes`) 没有完成一次扫描；
 - 24 小时内发现过水位倒退（`restored_by_tests` 为 true 的测试账套只记警告，不报不健康）。
 
-启动后的前 max(10 分钟, 10 个轮询周期) 不检查「多久没成功」。`warnings` 只提示、不影响 200/503，目前是 stream 超过 `maxlen` 但有消费组没读完。`types[].lag_seconds` 是距上次成功轮询的秒数，`scan_age_seconds` 是距上次完成删除扫描的秒数，`outbox_size` 是还没发出的事件数。
+启动后的前 max(10 分钟, 10 个轮询周期) 不检查「多久没成功」。`warnings` 只提示、不影响 200/503：stream 超过 `maxlen` 但有消费组没读完，以及测试账套（`restored_by_tests`）24 小时内的水位倒退。`types[].lag_seconds` 是距上次成功轮询的秒数，`scan_age_seconds` 是距上次完成删除扫描的秒数，`outbox_size` 是还没发出的事件数。
 
 ## 5. 配置
 

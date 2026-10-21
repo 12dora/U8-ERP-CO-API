@@ -167,15 +167,20 @@ def test_watermark_reset_alerts_for_a_day_and_notes_are_warnings(tmp_path):
 
 
 def test_watermark_reset_on_an_account_restored_by_tests_is_only_a_warning(tmp_path):
-    accounts = [{**BASE_CONF["accounts"][0], "restored_by_tests": True}]
+    base = BASE_CONF["accounts"][0]
+    accounts = [{**base, "restored_by_tests": True}, {**base, "acc": "998"}]
     cfg = make_config(str(tmp_path / "s.sqlite3"), accounts=accounts)
     at = "2026-09-28T01:00:00Z"
-    row = TypeStatus("999", "sale_order", "10", 1, at, at, at, None, None, at, "900->10")
-    report = health.Monitor(cfg, now=Clock()).report(_FakeState([row]))
-    assert report["ok"] is True
-    assert report["problems"] == []
-    assert len(report["warnings"]) == 1 and "900->10" in report["warnings"][0]
-    assert "测试账套" in report["warnings"][0]
+    test_row = TypeStatus("999", "sale_order", "10", 1, at, at, at, None, None, at, "900->10")
+    report = health.Monitor(cfg, now=Clock()).report(_FakeState([test_row]))
+    assert report["ok"] is True and report["problems"] == []
+    assert len(report["warnings"]) == 1 and "900->10" in report["warnings"][0] and "测试账套" in report["warnings"][0]
+    # 正式账套的水位倒退照旧报不健康；测试账套的删除扫描失败也照旧报
+    real_row = TypeStatus("998", "sale_order", "10", 1, at, at, at, None, None, at, "800->10")
+    broken = TypeStatus("999", "sale_order", "10", 1, at, at, at, None, "boom", None, None)
+    report = health.Monitor(cfg, now=Clock()).report(_FakeState([real_row, broken]))
+    assert report["ok"] is False
+    assert any("800->10" in p for p in report["problems"]) and any("boom" in p for p in report["problems"])
 
 
 def test_readonly_state_never_creates_db(tmp_path):

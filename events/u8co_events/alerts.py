@@ -1,6 +1,6 @@
 """状态告警：给健康检查和启动检查用的纯判断，不连桥、不连 Redis。
 
-- type_problems：某个（账套, 类型）的删除扫描失败、扫描过期、水位倒退；
+- type_problems：某个（账套, 类型）的删除扫描失败、扫描过期（水位倒退由 health 判断，见 health._recent_resets）；
 - reseed_problem：状态库是新的但 Redis 里已经有事件流（多半是状态卷丢了），拒绝悄悄重新回填。
 """
 
@@ -14,8 +14,6 @@ from u8co_events.state import Store, TypeStatus
 
 # 扫描超过间隔的这么多倍还没成功，算过期。
 SCAN_STALE_FACTOR = 3
-# 水位倒退后告警保留多久（之后只在 status 里能看到记录）。
-RESET_ALERT = timedelta(hours=24)
 
 
 def _parse(ts: str | None) -> datetime | None:
@@ -47,11 +45,6 @@ def type_problems(st: TypeStatus, now: datetime, cfg: Config) -> list[str]:
         problems.append(f"{name} 删除扫描失败：{st.scan_error}")
     if _scan_stale(st, now, cfg):
         problems.append(f"{name} 删除扫描超过 {cfg.delete_scan_minutes * SCAN_STALE_FACTOR:.0f} 分钟没有成功")
-    reset_at = _parse(st.watermark_reset_at)
-    if reset_at is not None and now - reset_at < RESET_ALERT:
-        problems.append(
-            f"{name} 水位倒退（{st.watermark_reset}），已整轮重新对比；请确认 U8 库是否被还原或凭证指向了别的库"
-        )
     return problems
 
 

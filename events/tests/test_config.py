@@ -87,6 +87,12 @@ def test_bad_values(changes: dict) -> None:
         from_dict(_with(**changes), env={})
 
 
+def test_restored_by_tests_is_read() -> None:
+    data = _with()
+    data["accounts"][0]["restored_by_tests"] = True
+    assert from_dict(data, env={}).accounts[0].restored_by_tests is True
+
+
 def test_env_overrides_paths_only() -> None:
     env = {
         "U8CO_EVENTS_STATE": "/data/state.db",
