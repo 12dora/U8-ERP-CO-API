@@ -43,7 +43,7 @@ _TOP_KEYS = frozenset(
     )
 )
 _BRIDGE_KEYS = frozenset(("base_url", "secret_file", "timeout_seconds"))
-_ACCOUNT_KEYS = frozenset(("acc", "operator_file", "types", "sources", "archives"))
+_ACCOUNT_KEYS = frozenset(("acc", "operator_file", "types", "sources", "archives", "restored_by_tests"))
 _REDIS_KEYS = frozenset(("url", "password_file", "stream_prefix", "maxlen", "allow_nondurable_redis"))
 _PUBLISHER_KEYS = frozenset(("kind", "batch", "idle_seconds"))
 _HEALTH_KEYS = frozenset(("listen",))
@@ -98,6 +98,8 @@ class AccountConf:
     types: tuple[str, ...]
     sources: tuple[str, ...] = DEFAULT_SOURCES
     archives: tuple[str, ...] = RV_ARCHIVES
+    # 测试账套：回归测试会按快照还原它，水位倒退是预期的，只记警告、不报不健康。
+    restored_by_tests: bool = False
 
     def list_types(self) -> tuple[str, ...]:
         """走单据轮询（vouchers/list）的类型：单据类型，加上开了 notes 时的两种票据。"""
@@ -305,7 +307,10 @@ def _account(item: object, index: int) -> AccountConf:
         raise ConfigError(f"配置项 {where}.acc 必须是 3 位数字账套号")
     operator = _path(_text(item, "operator_file", "", where + ".operator_file"), where + ".operator_file")
     sources, types, archives = _sources(item, where)
-    return AccountConf(acc=acc, operator_file=operator, types=types, sources=sources, archives=archives)
+    restored = _flag(item, "restored_by_tests", False, where + ".restored_by_tests")
+    return AccountConf(
+        acc=acc, operator_file=operator, types=types, sources=sources, archives=archives, restored_by_tests=restored
+    )
 
 
 def _accounts(data: Mapping) -> tuple[AccountConf, ...]:
