@@ -25,9 +25,11 @@ namespace U8Co
             {
                 return new BridgeException(409, "person_invalid", "业务员不存在：" + code);
             }
-            if (!VoucherHeadFixSql.ValidOn(GlSql.Col(row, "vfrom"), GlSql.Col(row, "vto"), date))
+            // 只看失效日期：U8 不按「有效期起」限制单据，历史单据常早于后补的有效期起（实际数据里很常见），
+            // 按它拒绝会挡住 U8 自己就接受的业务员。
+            if (!VoucherHeadFixSql.ValidOn("", GlSql.Col(row, "vto"), date))
             {
-                return new BridgeException(409, "person_invalid", "业务员 " + code + " 在发货日期 " + date + " 不在有效期内");
+                return new BridgeException(409, "person_invalid", "业务员 " + code + " 在发货日期 " + date + " 之前已失效");
             }
             string dept = GlSql.Col(row, "dept");
             if (!HeadFixPlan.Same(dept, want))

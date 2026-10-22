@@ -34,7 +34,9 @@ namespace U8Co
             HeadFixField f = Field("person_code", "P900001", "P900002");
             Expect("person original missing", HeadFixRevert.Original(f, null, "C", "2026-03-01", "D901", null), 409, "not_reversible", "不存在");
             Dictionary<string, object> ended = Map("code", "P900001", "dept", "D901", "vfrom", "2020-01-01", "vto", "2026-02-28");
-            Expect("person original ended", HeadFixRevert.Original(f, ended, "C", "2026-03-01", "D901", null), 409, "not_reversible", "有效期");
+            Expect("person original ended", HeadFixRevert.Original(f, ended, "C", "2026-03-01", "D901", null), 409, "not_reversible", "已失效");
+            Dictionary<string, object> later = Map("code", "P900001", "dept", "D901", "vfrom", "2026-04-01", "vto", "");
+            Expect("person valid-from after the date is accepted", HeadFixRevert.PersonFault(later, "P900001", "2026-03-01", "D901") == null);
             Dictionary<string, object> moved = Map("code", "P900001", "dept", "D902", "vfrom", "", "vto", "");
             Expect("person original other dept", HeadFixRevert.Original(f, moved, "C", "2026-03-01", "D901", null), 409,
                 "not_reversible", "部门");

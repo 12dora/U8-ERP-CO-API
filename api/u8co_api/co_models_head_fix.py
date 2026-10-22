@@ -81,7 +81,7 @@ HEAD_FIX_HELP = op_doc(
             "409 undo_foreign：undo 里的某个 id 不存在或不属于这张发货单",
             "409 not_reversible：原值通不过回滚时的校验（原地址已不存在，原业务员已失效、换了部门或无权限），改了就撤不回，拒绝",
             "409 address_not_found：addr_code 不在发货单客户的收货地址里（清空不检查）",
-            "409 person_invalid：业务员不存在，或在发货单日期无效",
+            "409 person_invalid：业务员不存在，或在发货单日期之前已失效（不看有效期起）",
             "409 person_department_mismatch：业务员所属部门与发货单部门不同",
             "504 outcome_unknown：写后回读不一致，先 load 核对再决定是否重试",
         ),
