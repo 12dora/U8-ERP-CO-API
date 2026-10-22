@@ -18,6 +18,7 @@ namespace U8Co
             map.Add("/u8co/v1/vouchers/close", GuardClose);
             map.Add("/u8co/v1/vouchers/generate", GuardGenerate);
             map.Add(LockPath, GuardLock);
+            map.Add(VoucherHeadFix.Path, VoucherHeadFix.GuardKind);
             return map;
         }
 

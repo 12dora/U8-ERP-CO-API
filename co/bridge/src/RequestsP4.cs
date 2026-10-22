@@ -59,6 +59,9 @@ namespace U8Co
             // 客户字段修改（ArcCusFields）、客户收货地址修改（ArcCusAddr）。
             new string[] { ArcCusFields.Path, "code", "fields", "expect" },
             new string[] { ArcCusAddr.Path, "code", "address", "fields", "expect" },
+            // 客户收货地址新增、删除（ArcCusAddrRows）。
+            new string[] { ArcCusAddrRows.AddPath, "code", "address", "fields" },
+            new string[] { ArcCusAddrRows.DeletePath, "code", "address", "expect" },
             new string[] { ListPath, "type", "filter", "keys_only", "changed_since", "after", "limit" },
             // 单据搜索（VoucherSearchArgs）、单据批量读取（LoadManyReq）、档案批量读取（ArcGetMany）。
             new string[]
@@ -186,13 +189,10 @@ namespace U8Co
             {
                 return "archive_" + OpOf(path);
             }
-            if (path == ListPath)
+            string own = ListOrFixAction(path);
+            if (own != null)
             {
-                return "list";
-            }
-            if (path == StockPath)
-            {
-                return "stock_current";
+                return own;
             }
             // 应收 / 应付制单、取消制单：arap_voucher / arap_voucher_delete。
             if (IsArapVoucher(path))
@@ -214,6 +214,20 @@ namespace U8Co
             // 期初记账：opening_post（OpeningAction，RequestsOpening.cs）；月末结账：period_close（PeriodAction，RequestsPeriod.cs）；
             // 存货核算：ia_post / ia_period_end（IaAction，RequestsIa.cs）。
             return IsWriteoff(path) ? WriteoffAction(path) : OpeningAction(path);
+        }
+
+        // 单据列表 list、现存量 stock_current、历史发货单表头修正 head_fix 的审计 action；其他路由返回 null。
+        static string ListOrFixAction(string path)
+        {
+            if (path == ListPath)
+            {
+                return "list";
+            }
+            if (path == StockPath)
+            {
+                return "stock_current";
+            }
+            return path == VoucherHeadFix.Path ? VoucherHeadFix.Op : null;
         }
 
         static void ApplyP4(Dictionary<string, object> body, WorkItem item, string path)
@@ -316,6 +330,12 @@ namespace U8Co
         // ApplyRest 的后段（控制圈复杂度拆出）：只读的元数据路由、批量读取，其余按类型校验。
         static void ApplyReads(Dictionary<string, object> body, WorkItem item, string path)
         {
+            // 历史发货单表头修正：fields / expect 在登录前校验（VoucherHeadFix.Parse），登录子系统取发货单的 SA。
+            if (path == VoucherHeadFix.Path)
+            {
+                VoucherHeadFix.Parse(body);
+                return;
+            }
             // 期间损益结转、自定义转账：登录前校验、测试账套名单，登录子系统 GL（ApplyGlTransfer，RequestsGlTransfer.cs）。
             if (ApplyGlTransfer(body, item, path))
             {

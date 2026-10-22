@@ -354,6 +354,20 @@ U8 的退回先 `Ap_Proc_CancelNo`（`CL` / `AR`，处理号 `CLAR` 补零到 17
 
 无来源销售出库（仅当账套未启用销售管理时）走 `USERPCO.VoucherCO` 的 `Insert("32", …)`，同其他出库单：表头 `cvouchtype=32`、`cbustype=普通销售`、`csource=库存`、`brdflag=0`、`vt_id=87`，表体不写 `iDLsID`。账套已启用销售管理（`AccInformation` 的 `SA` / `dSaleStartDate` 非空）或库存选项 `ST.bSAcreat`（销售出库单由销售系统生成）打开时桥拒绝。修改销售出库单时桥一律不允许换仓库（不依赖 `ST.bCanModifySaleoutWh`）。
 
+### 已审核发货单的表头修正（`vouchers/head_fix`）
+
+- 为什么需要：U8 对已审核、并且已有下游销售出库单或销售发票的发货单不让改收货地址和业务员（客户端界面如此，`vouchers/update` 也只改未审核、没有下游的发货单）。历史数据里这两项填错或漏填时，U8 自己没有办法改，所以另开受控 SQL 路由，只动这两个描述列，不走 `EditMore` / `SaleEditMore`，也不碰金额、数量、日期、部门、单据状态、审核人和总账。
+- 只修正已审核的发货单：未审核的（`cVerifier` 为空）409 `not_audited`，先于其它检查、预演也一样；未审核的发货单 U8 本来就允许改，用 `vouchers/update`。
+- 涉及的表和列：发货单表头 `DispatchList.caddcode`、`cPersonCode`；下游销售出库单表头 `rdrecord32.caddcode`、`cPersonCode`（经 `rdrecords32.iDLsID` = `DispatchLists.iDLsID` 找到）；下游销售发票表头 `SaleBillVouch.caddcode`、`cPersonCode`（经 `SaleBillVouchs.iDLsID` 找到）；业务员还冗余在往来明细 `Ar_Detail.cPerson` 里，一张发票的明细行是 `cVouchType` = 发票的 `cVouchType`、`cVouchID` = 发票号 `cSBVCode` 的那些行（发票行本身，以及 `9M`、`9N`、`BZ`、`9J` 等调整行）；同一发票的收款、核销行 `cVouchID` 是别的单据号，不属于它，不碰。`DispatchList` 与 `SaleBillVouch` 上的触发器只对审核、复核列起反应，改这两列不会联动其它表。
+- 只在值「一致」时才改下游（保证回滚时每一行都能恰好改回去）：出库单当且仅当它的所有行都来自这张发货单、并且表头当前值等于发货单的旧值才更新；发票当且仅当没有外来行（来源是别的单据或没有来源，`iDLsID` 为 NULL 的行也算）、表头当前值等于发货单旧值、并且它的其它来源发货单都已经是新值才更新。几张发货单合开一张发票时，逐张修正这几张发货单，改最后一张时发票才跟着变，之前一直保持原样；被跳过的行在响应里写明 `shared`（有别的来源或别的发货单还没改）、`differs`（当前值与旧值不同）或 `already_new`（当前值已经是新值，不更新也不是错误）。判断按字段分开，一行可以只更新其中一个字段。往来明细只在发票被更新、并且改的是业务员时同步，且只改 `cPerson` 等于旧值的行。
+- NULL 与空串：下游表里的 NULL 与 `''` 比较时视为相同；清空（`addr_code` 为空串）写 NULL，不写空串，这样原来为 NULL 的地址补填后可以清回 NULL。值的归一化：比较时去首尾空白、不分大小写（U8 编码查找不分大小写），写入档案里的规范写法；库里原来带多余空白或大小写不同的值，改过再改回后是规范写法，不是原来的字节。
+- 业务员为空的发货单不允许改业务员（409 `person_empty`）：改了之后回滚要把业务员写回空，而 `person_code` 不能为空，无法回滚。
+- 业务员须属于发货单部门（`Person.cDepCode` = `DispatchList.cDepCode`），因为路由从不改部门，部门与业务员不一致会让部门维度的统计互相矛盾；业务员在发货单日期必须有效（`dPValidDate`、`dPInValidDate`，列为空按有效）。收货地址须是这张发货单客户的 `CusDeliverAdd` 里的编码。
+- 不碰：销售订单 `SO_SOMain`（订单上的业务员、地址是下单时的值）、各 `…History` 表、总账凭证 `GL_accvouch`、应收汇总 `Ar_Sum`、应收应付结算单据 `Ap_CloseBill*`、送货地址文本 `cShipAddress`，以及调用方自己的系统（例如 CRM）里按这些列做的数据。修改人、修改日期也不写：这不是一次业务修改，而是对历史数据的订正；`ufts` 行版本随更新自然变化。
+- 并发与回读：行锁 `UPDLOCK, ROWLOCK`；单据锁与 `vouchers/update` 修改发货单相同（`DocLocks`），免得与生单、审核、弃审并发；写后在同一事务内回读，与请求不符回滚返回 504。
+- 回滚靠 `undo`：正向响应记下实际写了哪些行（出库单、发票的表头主键，`Ar_Detail` 的 `Auto_ID`），反向调用（`fields` 与 `expect` 对调）把它原样带回，下游只恢复这些行，每行当前必须等于 `expect`，不再判断 shared / differs。只靠重新判断不能保证恰好改回：合并发票的另一张发货单已经是新值时，正向会更新发票，而反向的判断会因为其它来源发货单还不是旧值把它跳过；出库单本来就是新值（`already_new`）时，反向的判断会把它当作可改的行改走。`Ar_Detail` 只会是被更新发票自己的行，`Auto_ID` 逐个记录。
+- 权限与锁：功能权限「发货单变更」`SA03020113`；数据权限按发货单表头的客户、部门、原业务员，以及销售类型（`cSTCode`，与读取发货单的规则一致），新业务员另按人员权限。红字发货单（`bReturnFlag=1`）同时取 `sale_return:<id>` 单据锁。收货地址存在性检查带 `UPDLOCK, HOLDLOCK, ROWLOCK`。
+
 ## 7. 采购
 
 登录 `PU`。先初始化 `Info_PU.ClsS_Infor`，再 `VoucherCO_PU.Init`。
@@ -684,6 +698,8 @@ U8 API 的行为（已在测试账套实测）。桥的实现在 `BomCom`、`Bom
 - `default:true` 把本行 `bDefault` 置 1、同客户其它行置 0，同一事务。不改客户档案的修改人和修改日期（U8 界面改地址也不改）。
 - 改地址编码的引用规则：旧编码出现在单据里时，改编码会让单据上的地址编码悬空，所以桥拒绝（409 `address_in_use`）。检查范围不写死表名，运行时从 `INFORMATION_SCHEMA.COLUMNS` 找所有带 `cAddCode` 列（不分大小写）的基表，`CusDeliverAdd` 自己除外；表有客户列（`cCusCode`，不分大小写）时按「客户 + 旧编码」查，没有时只按旧编码查（保守，宁可多拒）。生产库实测带这一列的表包括：`DispatchList`、`SO_SOMain`、`SaleBillVouch`、`rdrecord32`、`RdRecord09`（均另有 `…History`）、`SA_QuoMain`、`SA_ReturnsApplyMain`、`SA_SettleVouch`、`HY_DZ_BorrowOutChange`、`KC_BoxUp`、`Customer`、`Customer_ContraRef`、`AA_ApplyCustomers`、`AA_ApplyCustomersDeliverAdd`、`customer_import`。表名、列名只取自 `INFORMATION_SCHEMA`，加方括号引用，值走参数。新编码已被同一客户的另一行占用时 409 `address_code_taken`。
 - 功能权限客户档案编辑 `AS011`；记录级客户权限同档案读取。锁键 `arc:customer:<编码>`、`arc:write`。写入分类 `(archives, customer_fields)`、`(archives, customer_address)`，放行 `archives/update` 不连带放行。命令行 `arc-customer-fields`、`arc-customer-address`。
+- 新增与删除：`archives/customer_address_add` 往 `CusDeliverAdd` `INSERT` 一行，只写 `cAddCode`、`cDeliverAdd`、`cDeliverUnit`、`bDefault`，行 GUID `cCusAddressGUID` 一律写 `NEWID()`，`id` 自增，`cEnglishAdd*`、`cLinkPerson` 等其余列留 NULL；`default:true` 时同一事务把同客户其它行 `bDefault` 清 0。表上没有「同客户地址编码唯一」「地址名称唯一」的约束，编码不重复是桥在行锁内检查的（同编码且名称、收货单位、默认标志都相同视为重放，`changed:false`，否则 409 `address_code_taken`）；同客户另一行已用同样的名称时 409 `address_name_taken`，是桥自己的约定，免得出现分不清的重名地址。
+- `archives/customer_address_delete` 删一行，`expect`（名称、收货单位、默认标志，NULL 按空串）是唯一的并发判据；删之前做和改编码相同的引用检查（任何带 `cAddCode` 列的表引用了该客户的这个编码就 409 `address_in_use`），默认地址且客户还有其它地址时 409 `address_is_default`（先把默认移走），只剩一行时可以删。两条路由都不改客户档案的修改人和修改日期，写入分类 `(archives, customer_address_add)`、`(archives, customer_address_delete)`，锁键与权限同 `customer_address`；新增写错了用删除回滚。
 
 ### 原因码
 

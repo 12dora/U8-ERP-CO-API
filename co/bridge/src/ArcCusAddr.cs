@@ -131,7 +131,7 @@ namespace U8Co
             return ArcCustomerRow.Text(expect, key).Trim();
         }
 
-        static Dictionary<string, object> Obj(object value, string label)
+        internal static Dictionary<string, object> Obj(object value, string label)
         {
             if (value == null)
             {
@@ -145,7 +145,7 @@ namespace U8Co
             return map;
         }
 
-        static bool Flag(object value, string label)
+        internal static bool Flag(object value, string label)
         {
             if (!(value is bool))
             {
@@ -155,7 +155,7 @@ namespace U8Co
         }
 
         // 地址名称、收货单位：字符串，去两端空格，"" 表示清空。
-        static string Clean(string text, string label)
+        internal static string Clean(string text, string label)
         {
             if (text == null)
             {

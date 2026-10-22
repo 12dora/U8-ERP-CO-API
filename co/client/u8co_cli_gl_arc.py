@@ -8,6 +8,8 @@ from typing import Any
 from co.client.u8co_cli import _add_auth, _file_parts, _json_object
 from co.client.u8co_client import KIND_NAMES, U8Call, U8CoClient
 from co.client.u8co_kinds import NOTE_KINDS  # 票据列表
+from co.client.u8co_cli_head_fix import HANDLERS as HEAD_FIX_HANDLERS  # 历史发货单表头修正
+from co.client.u8co_cli_head_fix import add_commands as add_head_fix_commands
 from co.client.u8co_cli_lock import HANDLERS as LOCK_HANDLERS  # 锁定、解锁
 from co.client.u8co_cli_lock import add_commands as add_lock_commands
 from co.client.u8co_cli_openings import HANDLERS as OPENINGS_HANDLERS  # 期初记账
@@ -21,7 +23,7 @@ from co.client.u8co_cli_gl_reverse import add_commands as add_gl_reverse_command
 from co.client.u8co_cli_gl_transfer import HANDLERS as GL_TRANSFER_HANDLERS  # 期间损益结转、自定义转账
 from co.client.u8co_cli_gl_transfer import add_commands as add_gl_transfer_commands
 from co.client.u8co_idem import add_key_arg, key_kwargs  # 幂等键
-from co.client.u8co_arc_cus import CustomerAddressEdit  # 客户主数据专用写入
+from co.client.u8co_arc_cus import CustomerAddressAdd, CustomerAddressDelete, CustomerAddressEdit  # 客户主数据专用写入
 from co.client.u8co_gl_arc import (
     BOOL_FILTERS,
     DELETE_ARCHIVES,
@@ -49,6 +51,7 @@ def add_commands(sub: Any) -> None:
     _arc_commands(sub)
     _list_commands(sub)
     add_lock_commands(sub)
+    add_head_fix_commands(sub)
     add_openings_commands(sub)
     add_periods_commands(sub)
     add_ia_commands(sub)
@@ -116,7 +119,7 @@ def _arc_commands(sub: Any) -> None:
     person.add_argument("--code", required=True)
     person.add_argument("--person", required=True)
     person.add_argument("--expect", default=None)
-    # 客户字段、收货地址：--file 是 {"fields": {...}, "expect": {...}}，expect 可选（改地址的 name / unit / default 时必填）。
+    # 客户字段、收货地址（改）：--file 是 {"fields": {...}, "expect": {...}}，expect 可选（改地址的 name / unit / default 时必填）。
     cus_fields = sub.add_parser("arc-customer-fields")
     _add_auth(cus_fields)
     cus_fields.add_argument("--code", required=True)
@@ -126,6 +129,13 @@ def _arc_commands(sub: Any) -> None:
     address.add_argument("--code", required=True)
     address.add_argument("--address", required=True)
     address.add_argument("--file", required=True)
+    # 新增 / 删除收货地址：--file 分别是 {"fields": {...}}、{"expect": {...}}。
+    for name in ("arc-customer-address-add", "arc-customer-address-delete"):
+        rows = sub.add_parser(name)
+        _add_auth(rows)
+        rows.add_argument("--code", required=True)
+        rows.add_argument("--address", required=True)
+        rows.add_argument("--file", required=True)
 
 
 def _list_commands(sub: Any) -> None:
@@ -251,6 +261,23 @@ def _cmd_arc_cus_address(client: U8CoClient, call: U8Call, parsed: argparse.Name
     return client.arc_customer_address(call, CustomerAddressEdit(parsed.code, parsed.address, fields, expect))
 
 
+def _rows_file(path: str, key: str) -> Any:
+    data = _json_object(path)
+    if set(data) != {key}:
+        raise SystemExit(f"文件只能包含 {key}")
+    return data[key]
+
+
+def _cmd_arc_cus_address_add(client: U8CoClient, call: U8Call, parsed: argparse.Namespace) -> dict[str, Any]:
+    fields = _rows_file(parsed.file, "fields")
+    return client.arc_customer_address_add(call, CustomerAddressAdd(parsed.code, parsed.address, fields))
+
+
+def _cmd_arc_cus_address_delete(client: U8CoClient, call: U8Call, parsed: argparse.Namespace) -> dict[str, Any]:
+    expect = _rows_file(parsed.file, "expect")
+    return client.arc_customer_address_delete(call, CustomerAddressDelete(parsed.code, parsed.address, expect))
+
+
 def _cmd_arc_list(client: U8CoClient, call: U8Call, parsed: argparse.Namespace) -> dict[str, Any]:
     query = ArcQuery(
         parsed.archive,
@@ -295,12 +322,15 @@ HANDLERS = {
     "arc-customer-person": _cmd_arc_person,
     "arc-customer-fields": _cmd_arc_cus_fields,
     "arc-customer-address": _cmd_arc_cus_address,
+    "arc-customer-address-add": _cmd_arc_cus_address_add,
+    "arc-customer-address-delete": _cmd_arc_cus_address_delete,
     "arc-list": _cmd_arc_list,
     "list": _cmd_list,
     "stock": _cmd_stock,
 }
 HANDLERS.update({f"gl-{op}": _cmd_gl_key for op in GL_OPS})
 HANDLERS.update(LOCK_HANDLERS)
+HANDLERS.update(HEAD_FIX_HANDLERS)
 HANDLERS.update(OPENINGS_HANDLERS)
 HANDLERS.update(PERIODS_HANDLERS)
 HANDLERS.update(IA_HANDLERS)

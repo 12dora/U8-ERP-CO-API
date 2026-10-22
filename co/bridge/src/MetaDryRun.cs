@@ -18,6 +18,9 @@ namespace U8Co
             "gl/transfer/pnl", "gl/transfer/custom",
             "archives/create", "archives/update", "archives/delete",
             "archives/customer_person", "archives/customer_fields", "archives/customer_address",
+            "archives/customer_address_add", "archives/customer_address_delete",
+            // 历史发货单表头修正（VoucherHeadFix）。
+            "vouchers/head_fix",
             "arap/writeoff", "arap/writeoff/cancel", "arap/writeoff/auto", "arap/voucher", "arap/voucher/delete", "arap/merge",
             "openings/post", "openings/arap", "periods/close", "ia/post", "ia/period_end",
             // 取消应收冲应付 / 应付冲应收 / 并账（ArapProcCancel）。

@@ -99,6 +99,7 @@
 | POST | `vouchers/delete` | 写 | 删除 |
 | POST | `vouchers/close` | 写 | 关闭、打开 |
 | POST | `vouchers/lock` | 写 | 销售订单锁定、解锁（§10；采购订单不支持） |
+| POST | `vouchers/head_fix` | 写 | 历史发货单表头修正：只改已审核发货单的收货地址编码、业务员，按规则同步下游销售出库单、销售发票和应收明细的业务员（§8；只读账套上须有只读例外） |
 | POST | `vouchers/generate` | 写 | 参照生单 |
 | POST | `notes/get` | 读 | 读一张应收 / 应付票据及其处理记录（§16） |
 | POST | `notes/create` | 写 | 票据登记，同时生成收款单；应付票据（生成付款单）是第二级（§16） |
@@ -136,6 +137,8 @@
 | POST | `archives/customer_person` | 写 | 修改客户专管业务员（只改 `cCusPPerson`，条件满足时一并改分管部门和 `Customer_Auth`；§15） |
 | POST | `archives/customer_fields` | 写 | 修改客户简称、地区分类、停用日期（只改 `cCusAbbName`、`cDCCode`、`dEndDate`；§15） |
 | POST | `archives/customer_address` | 写 | 修改客户已有收货地址的编码、名称、收货单位、默认标志（`CusDeliverAdd`；§15） |
+| POST | `archives/customer_address_add` | 写 | 给客户新增一个收货地址（`CusDeliverAdd`；§15） |
+| POST | `archives/customer_address_delete` | 写 | 删除客户的一个收货地址，`expect` 为并发核对；用于回滚新增（§15） |
 | POST | `archives/get_many` | 读 | 一次按编码读同一档案的 1 到 20 条（§28） |
 | POST | `archives/resolve` | 读 | 按名称、简称、助记码查编码，一次最多 20 项（§24） |
 | POST | `idempotency/get` | 读 | 按幂等键查第一次请求的结果（§20） |
@@ -709,6 +712,68 @@ U8 单据卡片上的「附件」登记在通用附件表 `VoucherAccessories`�
 - 收款单、付款单改到别的月份时，桥同时改表头会计期间 `iPeriod` 并在提交前核对。
 - UFAPBO 以 `SaveVouch(…, IsAdd=false)` 保存，在事务里；提交前核对仍没有往来明细、表头金额等于表体合计。
 - 成功响应同新增（`state` 带 `gl_voucher`、`settled`、`amount`、`unsettled_amount`）。
+
+### 历史发货单表头修正 `vouchers/head_fix`
+
+U8 客户端不让改「已审核、并且已有销售出库单或销售发票」的发货单的收货地址和业务员（`vouchers/update` 同样会被拒绝，见 `u8-notes.md`）。本路由专门修正历史数据里的这两个描述列：受控 SQL，不走单据修改，不走 `EditMore` / `SaleEditMore`。**只改描述列**：不改金额、数量、日期、部门、单据状态、审核人，不动总账。
+
+| 字段 | 说明 |
+| --- | --- |
+| `type` | 目前只收 `dispatch`（发货单，蓝字红字都可），其它值 400 |
+| `id` | 发货单主键（`DispatchList.DLID`） |
+| `fields` | 至少一项，键只收 `addr_code`（`caddcode`，0 到 30 个字符）、`person_code`（`cPersonCode`，1 到 20 个字符），其它键 400（消息带键名）。值首尾不能有空白，不含控制字符。`addr_code` 写空串表示清空为 NULL，用来回滚「原来为空、后来补填」的编码；`person_code` 不能为空 |
+| `expect` | 必填，`fields` 里每一项都要给出表头**当前**值，空串表示当前为 NULL 或空；多出的键 400。不符 409 `state_mismatch`，消息列出字段、期望值、实际值 |
+| `undo` | 可选，**回滚用**：必须是正向响应里的 `undo` **原样**（不能增删改，形状见下）。带了就是回滚模式，下游只恢复它列出的行。键须在 `fields` 里，表只收 `rdrecord32`、`SaleBillVouch`（`person_code` 另收 `Ar_Detail`），其它键、表 400；每个列表最多 500 个主键。回滚调用在审计日志里有标记 |
+| `dry_run` | `true` 时事务里跑完全部检查后回滚，不写库（`validate`）；请求值全都已是当前值时也返回正常的预演响应（`changed:false`，`before` / `after` / `downstream`） |
+
+校验（先 400，再按下面顺序）：发货单不存在 404 `not_found`；发货单**未审核** 409 `not_audited`（先于其余检查，预演也一样；本路由只修正已审核的发货单，未审核的发货单用 `vouchers/update` 改）；`expect` 与当前值不符 409 `state_mismatch`；要改业务员、而表头当前业务员为空，409 `person_empty`（改了之后无法回滚，因为回滚要把业务员写回空，而 `person_code` 不能为空）；然后检查新值：`addr_code` 非空时须在该发货单客户（`cCusCode`）的收货地址（`CusDeliverAdd`）里，否则 409 `address_not_found`（清空不检查）；`person_code` 须在 `Person` 里、在发货单日期有效（`dPValidDate` 不晚于单据日期，`dPInValidDate` 为空或不早于单据日期；两列为空按有效），否则 409 `person_invalid`；其所属部门（`Person.cDepCode`）须等于发货单部门（`cDepCode`），否则 409 `person_department_mismatch`；最后检查原值能不能撤回：要改的那一项原值本身写不回去时 409 `not_reversible`（原收货地址非空、却不在该客户的收货地址档案里；原业务员不存在、在发货日期无效、部门不是发货单部门，或不在操作员的数据权限内），因为回滚会被地址 / 业务员校验或数据权限拒绝。收货地址是否存在的检查带 `UPDLOCK, HOLDLOCK`，校验到写入之间地址不会被删。本路由从不改部门。请求值全部已等于表头当前值时成功返回 `changed:false`，不写库。
+
+同一事务内的写入顺序：
+
+1. 发货单表头 `DispatchList` 按 `DLID` 更新 `caddcode` / `cPersonCode`（行上 `UPDLOCK, ROWLOCK`）。送货地址文本 `cShipAddress`、修改人、日期、审核人一概不动（`DispatchList` 与 `SaleBillVouch` 上的触发器只对审核 / 复核列起反应）。
+2. 下游销售出库单：从这张发货单的行（`DispatchLists.iDLsID`）找到的每张 `rdrecord32` 表头。出库单里有任何一行不是这张发货单供货的（来源是别的发货单或没有来源），跳过（`reason=shared`）；出库单当前值已经等于**新值**，跳过（`reason=already_new`，不是错误，也不更新）；当前值不等于发货单的**旧值**，跳过（`reason=differs`，响应带它的当前值）；否则更新 `caddcode` / `cPersonCode`。判断按字段分开：一行里可以一个字段更新、另一个字段跳过，响应的 `fields` 列出实际更新的字段，`skipped_fields` 给出跳过的字段和原因。
+3. 下游销售发票：同样找到每张 `SaleBillVouch`，取它全部来源发货单（行上 `iDLsID` 为 NULL 的算外来行）。**同时满足**才更新：没有外来行；发票当前值等于发货单旧值；发票的其它来源发货单都已经是新值（改完之后它的所有发货单一致）。发票本身已是新值记 `already_new`，其余不满足记 `shared` 或 `differs`。发票的来源发货单多到查询放不下时报 `too_many`，不会静默截断。更新发票表头后，改业务员时再更新这张发票自己的往来明细：`Ar_Detail` 中 `cVouchType` 等于发票的 `cVouchType`、`cVouchID` 等于发票号（`cSBVCode`）、`cPerson` 等于旧值的行改成新值（覆盖发票行本身和 `9M`、`9N`、`BZ`、`9J` 等调整行）；收款单、核销行是别的单据，永远不碰。
+4. 永远不碰：销售订单（`SO_SOMain`）、各 `…History` 表、总账凭证（`GL_accvouch`）、应收汇总（`Ar_Sum`）、应收应付结算单据（`Ap_CloseBill*`）、`cShipAddress`、调用方自己的系统（例如 CRM）里的数据。
+
+**值的归一化**：比较时去首尾空白、不分大小写，NULL 与空串视为相同；写入的是档案里的规范写法（收货地址、业务员编码取档案里存的那一种），`addr_code` 清空写 NULL。所以库里原来带多余空白或大小写不同的值，经正向加反向调用后会变成规范写法，这是文档化的行为；而「恰好改回被改的那几行」靠 `undo`，不靠重新判断。同一单据锁（`DocLocks`）与 `vouchers/update` 修改发货单相同（红字发货单另加 `sale_return:<id>` 单据锁）；写后在同一事务内回读，与请求不符 504 `outcome_unknown`（回滚，先 `vouchers/load` 核对再决定是否重试）。
+
+响应：
+
+```json
+{"ok":true,"type":"dispatch","id":1000000001,"code":"FH…","changed":true,
+ "before":{"addr_code":"01","person_code":"P900001"},
+ "after":{"addr_code":"02","person_code":"P900002"},
+ "downstream":[
+  {"table":"rdrecord32","id":900000002,"code":"XS…","action":"updated","fields":["addr_code","person_code"]},
+  {"table":"SaleBillVouch","id":900000003,"code":"SO…","action":"skipped","reason":"shared","value":{"addr_code":"01"}},
+  {"table":"Ar_Detail","invoice":"SO…","rows":4,"action":"updated"}],
+ "undo":{"addr_code":{"rdrecord32":[900000002]},
+         "person_code":{"rdrecord32":[900000002],"Ar_Detail":[501,502,503,504]}}}
+```
+
+`changed` 为 `true` 表示发货单表头改了；`before` / `after` 只含请求里带的键。`downstream` 逐条记录下游单据的处理结果（`updated` / `skipped` 与原因 `shared`、`differs`、`already_new`）。`undo` 记录**实际写了哪些行**：字段 → 表 → 主键（出库单、发票是表头主键，`Ar_Detail` 是 `Auto_ID`），只列真的更新了的字段和表，没有下游被改时为 `{}`。往来明细只会是被更新发票自己的行（`cVouchType`、`cVouchID` 等于该发票），调用方可以对照 `cProcStyle`、`cCancelNo` 核对。调用方必须存档 `undo` 作回滚依据。
+
+**回滚**：把 `fields` 与 `expect` 对调，并把正向响应的 `undo` 原样放进请求的 `undo`，再调一次。带 `undo` 时发货单表头照常（核对 `expect`、写、回读），下游**只恢复 `undo` 列出的行和字段**，不再做 shared / differs / already_new 判断，也不碰任何别的行。`undo` 里每一行当前必须等于本次请求 `expect` 里该字段的值（NULL 与空串相同、不分大小写），否则 409 `state_mismatch`，消息写表名和主键，整笔回滚；列出的行必须属于这张发货单（出库单、发票经明细行的 `iDLsID` 关联到它；`Ar_Detail` 行必须是这张发货单某张发票自己的行；不存在的主键也算），否则 409 `undo_foreign`。正向时某个 `undo` 列表会超过 500 个主键则 409 `too_many`，不会只处理一部分（之后无法完整回滚）。`undo` 必须是正向响应里的原样，不能增删改；回滚调用在审计日志里有标记。响应的 `downstream` 列出实际恢复了什么，响应的 `undo` 是再次回滚用的（行与正向相同）。**不带 `undo` 的反向调用只是再做一次发现，不保证恰好改回**：例如合并发票的另一张发货单已经是新值时，正向更新了发票，不带 `undo` 的反向调用会因为「其它来源发货单还不是旧值」而跳过它，发票留在新值上；出库单本来就是新值（`already_new`）时，不带 `undo` 的反向调用也可能把它当作可改的行改走。只有带 `undo` 才保证每一行恰好回到原值。
+
+回归测试在测试账套上核对五类样本：只有一张出库单和一张发票、都只由它供货；发票合并多张发货单（发票被跳过，回滚时把被跳过的发票列进 `undo` 得 409）；合并发票的另一张发货单已是新值（发票被更新，带 `undo` 的反向调用恢复）；出库单已是新值（记 `already_new`，反向调用不碰它）；地址原本是 NULL（补填后用 `addr_code` 空串清回，NULL 严格还原）。每次反向调用都带正向的 `undo`，之后发货单、出库单、发票、往来明细每一列（行版本列除外；目标列按上面的归一化比较）与起始快照一致；被改的往来明细行与 `undo` 里的 `Auto_ID` 逐个对上，且都是发票自己的行。
+
+```json
+{"acc":"801","operator":"op001","type":"dispatch","id":1000000001,
+ "fields":{"addr_code":"02","person_code":"P900002"},
+ "expect":{"addr_code":"01","person_code":"P900001"}}
+```
+
+回滚请求（字段与 expect 对调，`undo` 取自正向响应）：
+
+```json
+{"acc":"801","operator":"op001","type":"dispatch","id":1000000001,
+ "fields":{"addr_code":"01","person_code":"P900001"},
+ "expect":{"addr_code":"02","person_code":"P900002"},
+ "undo":{"addr_code":{"rdrecord32":[900000002]},
+         "person_code":{"rdrecord32":[900000002],"Ar_Detail":[501,502,503,504]}}}
+```
+
+写入分类 `(dispatch, head_fix)`，规则键 `write:voucher:dispatch:head_fix`，功能权限「发货单变更」`SA03020113`（数据权限按发货单表头的客户、部门、原业务员、销售类型（`cSTCode`，与发货单读取的规则一致），新业务员另按人员权限）；写入策略放行 `vouchers/update` 不连带放行本路由。只读账套上须配只读例外 `{"type":"vouchers","op":"head_fix"}`（路径必须恰好是 `vouchers/head_fix`），`vouchers/update` 等其它单据写入仍 403。客户端 `voucher_head_fix(call, HeadFix(kind, fields, expect), idempotency_key=None)`（`call.doc_id` 是发货单 id）；命令行 `voucher-head-fix --type dispatch --id N --addr-code X --person-code Y --expect-addr-code A --expect-person-code B`（给了哪个字段就要同时给它的 `--expect-…`，空串表示当前为空；`--addr-code ""` 清空地址），可加 `--dry-run`、`--idempotency-key`。
 
 ## 9. 删除 `vouchers/delete`
 
@@ -1582,6 +1647,8 @@ U8 的已知缺陷：记账组件回写记账标志时按（期间、类别序�
 | `archives/customer_person` | `code`、`person`，可选 `expect` | `{"ok":true,"code","before","after","dept_before","dept_after","dept_note"}` |
 | `archives/customer_fields` | `code`、`fields`，可选 `expect` | `{"ok":true,"code","changed","before","after"}` |
 | `archives/customer_address` | `code`、`address`、`fields`、`expect` | `{"ok":true,"code","address","new_address","changed","before","after"}` |
+| `archives/customer_address_add` | `code`、`address`、`fields` | `{"ok":true,"code","address","changed","before","after"}` |
+| `archives/customer_address_delete` | `code`、`address`、`expect` | 同上 |
 
 九类可写档案的 `fields` 键是 U8 EAI 的标签名（不分大小写，发送时换成 U8 对照表的写法），值是字符串、数字或布尔，`null` 表示不发送。未知标签 400「未知字段 x」；`code`、建档/变更人和日期、统计类标签（例如客户的应收余额、最后交易日）400「不能设置字段 x」。
 
@@ -1592,7 +1659,7 @@ U8 的已知缺陷：记账组件回写记账标志时按（期间、类别序�
 - 选择器标志（整行才有，`keys_only` 不给；列值为空按 `false`）：`warehouse` 的 `bin_managed`（启用货位管理）；`position` 的 `leaf`（末级货位，`class_code` 是所属仓库）；`inventory` 的 `batch_managed`（批次管理）、`shelf_life_managed`（保质期管理）。这些键不影响事件服务的档案指纹（只看名称、分类、停用状态和停用日期）。
 - 新增必须有 `name`；存货新增必须带 `template`（已有存货编码，桥按它铺满其余标签），其他档案可选。编码已存在 409「档案编码已存在」。客户、供应商要给税号类必填项，缺了由 U8 报错。
 - 修改至少一个字段，不能改编码。桥发整条记录（当前值打底，再用 `fields` 覆盖），因为 U8 修改时按档案设置检查全部必输项。
-- 只读账套上的档案写入一律 403 `account_read_only`。配置了 `U8CO_READONLY_EXCEPTIONS` 时，仅当账套、操作员、路由 `archives/<op>` 命中例外（`type=archives`、`op` 为 `customer_person`、`customer_fields`、`customer_address`、`create`、`delete`）才穿过只读闸门（仍受写入策略约束）；`create`、`delete` 另须请求体的 `archive` 在例外的 `archives` 列表里（目前只能是 `district_class`，新增和删除成对开放，新增错了可以删掉）。审计字段 `read_only_exception` 为 true，成功时 `outcome` 也记 `read_only_exception`。`archives/update`、其它档案的新增和删除、其它操作员或其它账套、不匹配的带键重发都不放行。预演（`dry_run`）同样必须是这条路由。例如只读账套上 `archives/create` 的 `district_class`：例外 `{"op":"create","archives":["district_class"]}` 配上之后，同一账套同一操作员新增地区分类照常走 EAI，新增 `customer` 仍 403。客户端 `arc_update` 与 `arc_create` 一样可带 `idempotency_key`。
+- 只读账套上的档案写入一律 403 `account_read_only`。配置了 `U8CO_READONLY_EXCEPTIONS` 时，仅当账套、操作员、路由 `archives/<op>` 命中例外（`type=archives`、`op` 为 `customer_person`、`customer_fields`、`customer_address`、`customer_address_add`、`customer_address_delete`、`create`、`delete`）才穿过只读闸门（仍受写入策略约束）；另有 `type=vouchers`、`op=head_fix` 一种，只放行路由 `vouchers/head_fix`（§8），`vouchers/update` 等其它单据写入仍 403；`create`、`delete` 另须请求体的 `archive` 在例外的 `archives` 列表里（目前只能是 `district_class`，新增和删除成对开放，新增错了可以删掉）。审计字段 `read_only_exception` 为 true，成功时 `outcome` 也记 `read_only_exception`。`archives/update`、其它档案的新增和删除、其它操作员或其它账套、不匹配的带键重发都不放行。预演（`dry_run`）同样必须是这条路由。例如只读账套上 `archives/create` 的 `district_class`：例外 `{"op":"create","archives":["district_class"]}` 配上之后，同一账套同一操作员新增地区分类照常走 EAI，新增 `customer` 仍 403。客户端 `arc_update` 与 `arc_create` 一样可带 `idempotency_key`。
 - 删除：已被单据使用的档案由 U8 拒绝，409 `u8_rejected`。
 
 ### 客户专管业务员 `archives/customer_person`
@@ -1670,6 +1737,54 @@ U8 的已知缺陷：记账组件回写记账标志时按（期间、类别序�
 写入分类 `(archives, customer_address)`，规则键 `write:archive:customer:customer_address`；功能权限、记录级权限、锁键同 `archives/customer_fields`。客户端 `arc_customer_address(call, CustomerAddressEdit(code, address, fields, expect), idempotency_key=None)`；命令行 `arc-customer-address --code C --address A --file edit.json`，文件格式同上。
 
 错误：404 `not_found` 客户不存在；404 `address_not_found` 该客户没有这个地址编码；400 键、长度或缺少 `expect`；409 `state_mismatch`；409 `address_code_taken`；409 `address_in_use`；504 `outcome_unknown`。
+
+### 新增收货地址 `archives/customer_address_add`
+
+给客户新增一行 `CusDeliverAdd`（U8 客户端能做、`archives/customer_address` 只能改已有行）。受控 SQL，不走 EAI。事务内先锁住该客户的全部地址行（`UPDLOCK, HOLDLOCK, ROWLOCK`），校验后 `INSERT`，写后回读该客户全部地址行，不符回滚并返回 504。新行只写 `cAddCode`、`cDeliverAdd`、`cDeliverUnit`、`bDefault` 并生成行 GUID（`cCusAddressGUID` 取 `NEWID()`，`id` 自增），英文地址、联系人等其余列留 NULL。不改客户档案的修改人和修改日期。
+
+| 字段 | 说明 |
+| --- | --- |
+| `code` | 客户编码 |
+| `address` | 新地址编码（`cAddCode`），1 到 30 个字符，首尾不能有空白 |
+| `fields` | 对象，键只收 `name`、`unit`、`default`，其它键 400 |
+
+| `fields` 键 | 列 | 规则 |
+| --- | --- | --- |
+| `name` | `cDeliverAdd` | 必填，1 到 255 个字符，不能全是空白，不含控制字符 |
+| `unit` | `cDeliverUnit` | 可省略，最长 255；空串按空，写 NULL |
+| `default` | `bDefault` | 缺省 `false`；`true`：本行设为默认，同客户其余地址取消默认（同一事务） |
+
+重放：该客户已有这个编码，且名称、收货单位、默认标志与请求一致时，成功返回 `changed:false`，不写库。同编码但任何一项不同 409 `address_code_taken`；另一个地址已经用了同一个名称 409 `address_name_taken`（避免出现无法区分的重名地址）。响应 `{"ok":true,"code":C,"address":A,"changed":true,"before":[行],"after":[行]}`，行是 `{"code","name","unit","default"}`，`before` / `after` 是该客户的全部地址行，可直接留作新增前后的存档。预演是 `validate`：事务里跑完全部检查后回滚。
+
+```json
+{"acc":"801","operator":"op001","code":"C900001","address":"02",
+ "fields":{"name":"示例车间二","unit":"张三","default":false}}
+```
+
+写入分类 `(archives, customer_address_add)`，规则键 `write:archive:customer:customer_address_add`；功能权限、记录级权限、锁键同 `archives/customer_address`。回滚用 `archives/customer_address_delete`。客户端 `arc_customer_address_add(call, CustomerAddressAdd(code, address, fields), idempotency_key=None)`；命令行 `arc-customer-address-add --code C --address A --file add.json`（文件 `{"fields":{...}}`），可选 `--dry-run`、`--idempotency-key`。
+
+错误：404 `not_found` 客户不存在；400 键、长度或缺少 `name`；409 `address_code_taken`；409 `address_name_taken`；504 `outcome_unknown` 写后回读不一致，先 `archives/get_many` 或读该客户的地址行核对再决定是否重试。
+
+### 删除收货地址 `archives/customer_address_delete`
+
+删除客户的一行 `CusDeliverAdd`，用来回滚 `archives/customer_address_add`，或清理多余的地址。受控 SQL，不走 EAI。`CusDeliverAdd` 没有行版本，**`expect` 是并发核对的依据，三项必填**。事务内先锁住该客户的全部地址行，核对后 `DELETE`，写后回读，不符回滚并返回 504。不改客户档案的修改人和修改日期。
+
+| 字段 | 说明 |
+| --- | --- |
+| `code` | 客户编码 |
+| `address` | 要删除的地址编码（`cAddCode`），1 到 30 个字符 |
+| `expect` | 必填，键恰为 `name`、`unit`、`default`，是这一行当前的名称、收货单位（NULL 按空串）、默认标志，缺项或多键 400。不符 409 `state_mismatch`，消息列出字段 |
+
+拒绝条件（按顺序）：该客户没有这个地址 404 `address_not_found`；`expect` 与当前值不符 409 `state_mismatch`；这一行是默认地址、且客户还有其它地址 409 `address_is_default`（调用方要先用 `archives/customer_address` 把默认移到别的地址；只剩这一行时允许删除）；任何带 `cAddCode` / `caddcode` 列的表引用了（该客户，该编码）409 `address_in_use`（检查方式与 `archives/customer_address` 改编码前的引用检查完全相同；既是默认又被引用的地址先报 `address_is_default`）。响应 `{"ok":true,"code":C,"address":A,"changed":true,"before":[行],"after":[行]}`，`before` / `after` 是该客户的全部地址行，可直接留作删除前后的存档。预演是 `validate`：事务里跑完全部检查后回滚。
+
+```json
+{"acc":"801","operator":"op001","code":"C900001","address":"02",
+ "expect":{"name":"示例车间二","unit":"张三","default":false}}
+```
+
+写入分类 `(archives, customer_address_delete)`，规则键 `write:archive:customer:customer_address_delete`；功能权限、记录级权限、锁键同 `archives/customer_address`。客户端 `arc_customer_address_delete(call, CustomerAddressDelete(code, address, expect), idempotency_key=None)`；命令行 `arc-customer-address-delete --code C --address A --file drop.json`（文件 `{"expect":{...}}`），可选 `--dry-run`、`--idempotency-key`。
+
+错误：404 `not_found` 客户不存在；404 `address_not_found`；400 缺少或多出 `expect` 的键；409 `state_mismatch`；409 `address_in_use`；409 `address_is_default`；504 `outcome_unknown`。
 
 经 EAI 的写操作由 U8 自己提交。U8 拒绝时 409 `u8_rejected`，`message` 是 U8 原文；原文含「不可为空」时后面加「（U8 档案设置为必输）」，调用方要在 `fields` 里给出该字段。U8 说成功但回读对不上，或应答无法识别，504 `outcome_unknown`。EAI 对照文件读不到或格式不对 503 `u8_unavailable`。
 
@@ -3325,7 +3440,8 @@ API：`GET /v1/co/meta`（读权限）。桥：`POST /u8co/v1/meta`，照常 HMA
 | `gl/vouchers/*` | `void`、`unvoid`、`verify`、`unverify`、`sign`、`unsign`、`delete`、`unpost` | `create`、`update`、`post`、`reverse` |
 | `gl/transfer/pnl`、`gl/transfer/custom` | — | 全部：停在凭证导入之前，分录在 `detail.transfer` |
 | `archives/create`、`update`、`delete` | 项目（`project`）、客户和供应商银行账户（`customer_bank`、`vendor_bank`）的新增、修改、删除；币种、凭证类别、汇率、供应商联系人（`currency`、`voucher_sign`、`exchange_rate`、`vendor_contact`）的修改、删除 | 其余走 EAI 的档案（含原因码 `reason`）；币种、凭证类别、汇率、供应商联系人的新增；客户联系人（`customer_contact`） |
-| `archives/customer_person`、`customer_fields`、`customer_address` | — | 全部（SQL，不走 EAI） |
+| `archives/customer_person`、`customer_fields`、`customer_address`、`customer_address_add`、`customer_address_delete` | — | 全部（SQL，不走 EAI） |
+| `vouchers/head_fix` | — | 全部（SQL，不走单据修改） |
 | `workflow/*` 写操作 | — | `submit`、`withdraw`、`approve`、`disagree`、`return`、`abandon`、`resubmit` |
 | `arap/*` | `writeoff`、`writeoff/cancel`、`voucher/delete` | `voucher`：桥算完分录、停在凭证导入之前，计划的凭证在 `detail` 里 |
 | `openings/post` | `post`、`unpost` | — |

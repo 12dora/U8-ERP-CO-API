@@ -129,6 +129,10 @@ _WRITES = (
     ("/v1/co/vouchers/create", _auth(type="sale_order", head={"a": "b"}, lines=[{"a": 1}])),
     ("/v1/co/vouchers/delete", _auth(type="sale_order", id=1)),
     ("/v1/co/vouchers/update", _auth(type="sale_order", id=1, head={"cMemo": "a"})),
+    (
+        "/v1/co/vouchers/head_fix",
+        _auth(type="dispatch", id=1, fields={"addr_code": "02"}, expect={"addr_code": "01"}),
+    ),
     ("/v1/co/vouchers/close", _auth(type="sale_order", id=1, action="close")),
     ("/v1/co/vouchers/generate", _auth(type="sale_out", id=1)),
     ("/v1/co/vouchers/lock", _auth(type="sale_order", id=1, action="lock")),
@@ -171,6 +175,11 @@ _WRITES = (
     (
         "/v1/co/archives/customer_address",
         _auth(code="C900001", address="1", fields={"name": "示例车间"}, expect={"name": "3车间"}),
+    ),
+    ("/v1/co/archives/customer_address_add", _auth(code="C900001", address="2", fields={"name": "示例车间二"})),
+    (
+        "/v1/co/archives/customer_address_delete",
+        _auth(code="C900001", address="2", expect={"name": "示例车间二", "unit": "", "default": False}),
     ),
 )
 

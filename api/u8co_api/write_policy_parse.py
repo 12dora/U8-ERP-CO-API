@@ -16,7 +16,7 @@ from decimal import Decimal, InvalidOperation
 OP_NAMES = (
     "create", "update", "delete", "verify", "unverify", "close", "open", "generate", "lock", "unlock",
     "workflow", "writeoff", "voucher", "post", "process", "other", "customer_person",
-    "customer_fields", "customer_address",
+    "customer_fields", "customer_address", "customer_address_add", "customer_address_delete", "head_fix",
 )  # fmt: skip
 
 _TOP_KEYS = frozenset(

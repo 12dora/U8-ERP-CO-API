@@ -46,7 +46,6 @@ def test_defaults() -> None:
     assert cfg.redis.allow_nondurable_redis is False
     assert cfg.publisher.kind == "redis"
     assert cfg.health.listen == "127.0.0.1:8090"
-    assert cfg.accounts[0].restored_by_tests is False
 
 
 def test_unknown_keys_rejected_at_every_level() -> None:
@@ -75,7 +74,6 @@ def test_unknown_keys_rejected_at_every_level() -> None:
         {"empty_scan_confirm_max": 1.5},
         {"poll_interval_seconds": 1},
         {"backfill_events": "no"},
-        {"accounts": [{"acc": "999", "operator_file": "/x", "restored_by_tests": "yes"}]},
         {"bridge": {"base_url": "http://192.0.2.10/u8co", "secret_file": "/x"}},
         {"publisher": {"kind": "kafka"}},
         {"redis": {"url": "http://192.0.2.10"}},
@@ -85,12 +83,6 @@ def test_unknown_keys_rejected_at_every_level() -> None:
 def test_bad_values(changes: dict) -> None:
     with pytest.raises(ConfigError):
         from_dict(_with(**changes), env={})
-
-
-def test_restored_by_tests_is_read() -> None:
-    data = _with()
-    data["accounts"][0]["restored_by_tests"] = True
-    assert from_dict(data, env={}).accounts[0].restored_by_tests is True
 
 
 def test_env_overrides_paths_only() -> None:

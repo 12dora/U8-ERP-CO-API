@@ -9,7 +9,8 @@ namespace U8Co
     // 403 account_read_only，含预演与幂等重放；写入策略文件、测试账套名单都不能放行。
     // readOnlyExceptions 匹配的写入放行，审计 policy 记 read_only_exception；不匹配的仍拒绝。匹配 = 账套、操作员
     // （不分大小写）、写入分类 (archives, op) 都对上，路径恰为 archives/<op>；op=create / delete 另要求请求体
-    // archive 在规则的 archives 里（目前只有 district_class）。登录前在 WriteClassGate.Pre（账套名单之后、解密之前，先于写入策略）
+    // archive 在规则的 archives 里（目前只有 district_class）。type=vouchers 的规则只放行 op=head_fix：
+    // 路径恰为 vouchers/head_fix 且请求体 type 为 dispatch，vouchers/update 等其它单据路由仍拒绝。登录前在 WriteClassGate.Pre（账套名单之后、解密之前，先于写入策略）
     // 查，入队后在 WriteClassGate.Post（登录 U8 之前）再查一次。
     internal static class ReadOnlyGate
     {
@@ -124,8 +125,23 @@ namespace U8Co
             {
                 return false;
             }
+            return RouteMatch(rule, ask);
+        }
+
+        // 路由部分：type=vouchers 的规则只认路径恰为 vouchers/head_fix、单据类型 dispatch；
+        // type=archives 的规则认路径 archives/<op>，op=create / delete 另看 archives。
+        static bool RouteMatch(ReadOnlyExceptionRule rule, Ask ask)
+        {
+            if (!string.Equals(rule.Op, ask.Op, StringComparison.Ordinal))
+            {
+                return false;
+            }
+            if (string.Equals(rule.Type, ConfigRulesReadOnly.TypeVouchers, StringComparison.Ordinal))
+            {
+                return rule.Archives == null && string.Equals(ask.Path, VoucherHeadFix.Path, StringComparison.Ordinal)
+                    && string.Equals(ask.Type, VoucherHeadFix.Kind, StringComparison.Ordinal);
+            }
             if (!string.Equals(rule.Type, ask.Type, StringComparison.Ordinal)
-                || !string.Equals(rule.Op, ask.Op, StringComparison.Ordinal)
                 || !string.Equals(ask.Path, Requests.ArcRoot + rule.Op, StringComparison.Ordinal))
             {
                 return false;

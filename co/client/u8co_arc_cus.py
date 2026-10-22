@@ -1,4 +1,4 @@
-"""客户主数据的专用写入（受控 SQL，不走客户 EAI）：专管业务员、简称 / 地区分类 / 停用日期、收货地址。混入 U8CoClient。
+"""客户主数据的专用写入（受控 SQL，不走客户 EAI）：专管业务员、简称 / 地区分类 / 停用日期、收货地址（改、增、删）。混入 U8CoClient。
 
 EAI 的客户修改会清空开户银行与银行账号、改写最后收款日期，U8 也没有收货地址组件，所以三个操作都只改
 请求里列出的列。fields 与 expect 的写法同 API（docs/api-reference.md「客户主数据专用写入」）；
@@ -23,6 +23,8 @@ ADDRESS_FIELD_LIMIT = {"code": 30, "name": 255, "unit": 255}
 ADDRESS_KEYS = (*ADDRESS_FIELD_LIMIT, "default")
 # 改这些键必须在 expect 里给出当前值（地址表没有行版本）。
 ADDRESS_NEEDS_EXPECT = ("name", "unit", "default")
+# 新增可给的键：code 是 address 参数，不放进 fields。
+ADDRESS_ADD_KEYS = ADDRESS_NEEDS_EXPECT
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,24 @@ class CustomerAddressEdit:
     address: str
     fields: dict[str, Any]
     expect: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class CustomerAddressAdd:
+    """新增一个收货地址：address 是新地址编码；fields 必须有 name，可选 unit（空串按空）、default（缺省 false）。"""
+
+    code: str
+    address: str
+    fields: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class CustomerAddressDelete:
+    """删除一个收货地址：expect 必须给全 name、unit、default 的当前值（地址表没有行版本）。"""
+
+    code: str
+    address: str
+    expect: dict[str, Any]
 
 
 class U8CoArcCusMixin:
@@ -85,6 +105,31 @@ class U8CoArcCusMixin:
             body["expect"] = expect
         return self.call("/v1/archives/customer_address", with_key(body, idempotency_key))
 
+    def arc_customer_address_add(
+        self, call: U8Call, add: CustomerAddressAdd, idempotency_key: str | None = None
+    ) -> dict[str, Any]:
+        body = _common(call)
+        body["code"] = _arc_code("customer", add.code, "档案编码 code")
+        body["address"] = _new_address(add.address)
+        fields = _address_values(add.fields, "fields", ADDRESS_ADD_KEYS, nonempty=True)
+        if "name" not in fields or fields["name"].strip() == "":
+            raise ValueError("fields.name 必填，不能为空")
+        body["fields"] = fields
+        return self.call("/v1/archives/customer_address_add", with_key(body, idempotency_key))
+
+    def arc_customer_address_delete(
+        self, call: U8Call, drop: CustomerAddressDelete, idempotency_key: str | None = None
+    ) -> dict[str, Any]:
+        body = _common(call)
+        body["code"] = _arc_code("customer", drop.code, "档案编码 code")
+        body["address"] = _text(drop.address, "address", ADDRESS_FIELD_LIMIT["code"])
+        expect = _address_values(drop.expect, "expect", ADDRESS_NEEDS_EXPECT, nonempty=True)
+        missing = [key for key in ADDRESS_NEEDS_EXPECT if key not in expect]
+        if missing:
+            raise ValueError(f"expect 必须给出 {'、'.join(missing)} 的当前值（地址表没有行版本）")
+        body["expect"] = expect
+        return self.call("/v1/archives/customer_address_delete", with_key(body, idempotency_key))
+
 
 def _object(values: object, label: str, allowed: tuple[str, ...], nonempty: bool = False) -> dict[str, Any]:
     if not isinstance(values, dict):
@@ -126,6 +171,13 @@ def _customer_text(key: str, text: str, where: str) -> None:
         raise ValueError(f"{where} 不能为空")
     if key == "district" and text != text.strip():
         raise ValueError(f"{where} 首尾不能有空白")
+
+
+def _new_address(value: object) -> str:
+    text = _text(value, "address", ADDRESS_FIELD_LIMIT["code"])
+    if text != text.strip():
+        raise ValueError("address 首尾不能有空白")
+    return text
 
 
 def _address_values(values: object, label: str, allowed: tuple[str, ...], nonempty: bool = False) -> dict[str, Any]:

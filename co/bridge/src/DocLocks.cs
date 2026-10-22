@@ -108,8 +108,12 @@ namespace U8Co
         // 采购结算单删除也另锁 "new:purchase_settle"：与参照发票结算串行（删除回退发票的结算日期）。
         static string[] IdKeys(WorkItem item, string kind)
         {
-            if (item.Path == "/u8co/v1/vouchers/delete" && (QmSpec.Handles(item.Type) || QmRejSpec.Handles(item.Type)
-                || QmOthSpec.Handles(item.Type) || PuSettleReq.Handles(item.Type)))
+            // 历史发货单表头修正：发货单与退货单两把键都锁。
+            if (item.Path == VoucherHeadFix.Path)
+            {
+                return VoucherHeadFix.LockKeys(item.Id);
+            }
+            if (item.Path == "/u8co/v1/vouchers/delete" && DeleteLocksNew(item.Type))
             {
                 return new string[] { Key(kind, item.Id), "new:" + kind };
             }
@@ -120,6 +124,12 @@ namespace U8Co
                 return new string[] { Key(kind, item.Id), "note:" + flag, "arap:writeoff:" + flag };
             }
             return new string[] { Key(kind, item.Id) };
+        }
+
+        // 质量单据、采购结算单的删除另锁 "new:<kind>"。
+        static bool DeleteLocksNew(VoucherKind type)
+        {
+            return QmSpec.Handles(type) || QmRejSpec.Handles(type) || QmOthSpec.Handles(type) || PuSettleReq.Handles(type);
         }
 
         // 不按单据类型分的路由；返回 null 表示不是这类路由。

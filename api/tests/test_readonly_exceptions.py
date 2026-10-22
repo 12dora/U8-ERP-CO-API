@@ -1,5 +1,7 @@
 """只读例外（U8CO_READONLY_EXCEPTIONS）：解析失败让进程起不来；路由、账套、操作员（create 另看 archive）命中才穿过闸门。
-op 为 customer_person、customer_fields、customer_address、create、delete（后两者须列 archives，目前只有 district_class）。假桥，不访问网络。
+type=archives：op 为 customer_person、customer_fields、customer_address、customer_address_add、customer_address_delete、
+create、delete（后两者须列 archives，目前只有 district_class）；type=vouchers：op 只能是 head_fix（见
+test_readonly_exceptions_vouchers）。假桥，不访问网络。
 """
 
 from __future__ import annotations
@@ -21,6 +23,16 @@ _CREATE = "/v1/co/archives/create"
 _DELETE = "/v1/co/archives/delete"
 _FIELDS = "/v1/co/archives/customer_fields"
 _ADDRESS = "/v1/co/archives/customer_address"
+_ADDRESS_ADD = "/v1/co/archives/customer_address_add"
+_ADDRESS_DELETE = "/v1/co/archives/customer_address_delete"
+_CUSTOMER_OPS = (
+    "customer_person",
+    "customer_fields",
+    "customer_address",
+    "customer_address_add",
+    "customer_address_delete",
+)
+_ARCHIVES_OPS = "、".join((*_CUSTOMER_OPS, "create", "delete"))
 _VOUCHER = "/v1/co/vouchers/create"
 _VOUCHER_UPDATE = "/v1/co/vouchers/update"
 _KEY = "replay-non-matching"
@@ -114,27 +126,31 @@ def test_account_must_be_read_only() -> None:
 @pytest.mark.parametrize(
     ("over", "text"),
     (
-        ({"type": "vouchers"}, "只能是 archives"),
-        ({"op": "update"}, "只能是 customer_person、customer_fields、customer_address、create、delete"),
-        ({"op": "list"}, "只能是 customer_person、customer_fields、customer_address、create、delete"),
-        ({"op": "get"}, "只能是 customer_person、customer_fields、customer_address、create、delete"),
+        ({"type": "vouchers"}, "type=vouchers 时只能是 head_fix"),
+        ({"type": "gl"}, "type 只能是 archives、vouchers"),
+        ({"type": "Archives"}, "type 只能是 archives、vouchers"),
+        ({"type": None}, "type 只能是 archives、vouchers"),
+        ({"op": "update"}, f"type=archives 时只能是 {_ARCHIVES_OPS}"),
+        ({"op": "list"}, f"type=archives 时只能是 {_ARCHIVES_OPS}"),
+        ({"op": "get"}, f"type=archives 时只能是 {_ARCHIVES_OPS}"),
+        ({"op": "head_fix"}, f"type=archives 时只能是 {_ARCHIVES_OPS}"),
     ),
 )
 def test_type_and_op_must_be_the_opened_pair(over: dict, text: str) -> None:
     _exits(_raw(**over), _RO, text)
 
 
-@pytest.mark.parametrize("op", ("customer_person", "customer_fields", "customer_address"))
+@pytest.mark.parametrize("op", _CUSTOMER_OPS)
 def test_customer_ops_parse_without_archives(op: str) -> None:
     (item,) = _rules(op=op)
     assert (item.type, item.op, item.archives) == ("archives", op, None)
     assert item.summary() == {**_SUMMARY, "op": op}
 
 
-@pytest.mark.parametrize("op", ("customer_person", "customer_fields", "customer_address"))
+@pytest.mark.parametrize("op", _CUSTOMER_OPS)
 def test_customer_ops_reject_archives(op: str) -> None:
-    _exits(_raw(op=op, archives=["district_class"]), _RO, "archives 只能用于 op=create 或 delete")
-    _exits(_raw(op=op, archives=None), _RO, "archives 只能用于 op=create 或 delete")
+    _exits(_raw(op=op, archives=["district_class"]), _RO, "archives 只能用于 type=archives 的 op=create 或 delete")
+    _exits(_raw(op=op, archives=None), _RO, "archives 只能用于 type=archives 的 op=create 或 delete")
 
 
 @pytest.mark.parametrize("op", ("create", "delete"))
@@ -183,6 +199,8 @@ def test_load_settings_reads_create_and_customer_rules(monkeypatch) -> None:
     rules = [
         {**_ITEM, "op": "customer_fields"},
         {**_ITEM, "op": "customer_address"},
+        {**_ITEM, "op": "customer_address_add"},
+        {**_ITEM, "op": "customer_address_delete"},
         {**_ITEM, "op": "create", "archives": ["district_class"]},
         {**_ITEM, "op": "delete", "archives": ["district_class"]},
     ]
@@ -191,6 +209,8 @@ def test_load_settings_reads_create_and_customer_rules(monkeypatch) -> None:
     assert [(item.op, item.archives) for item in loaded] == [
         ("customer_fields", None),
         ("customer_address", None),
+        ("customer_address_add", None),
+        ("customer_address_delete", None),
         ("create", ("district_class",)),
         ("delete", ("district_class",)),
     ]

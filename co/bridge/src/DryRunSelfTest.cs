@@ -93,6 +93,10 @@ namespace U8Co
             Mode("arc customer_person", "validate", "archives/customer_person", "", "archive_customer_person", "");
             Mode("arc customer_fields", "validate", "archives/customer_fields", "", "archive_customer_fields", "");
             Mode("arc customer_address", "validate", "archives/customer_address", "", "archive_customer_address", "");
+            Mode("arc customer_address_add", "validate", "archives/customer_address_add", "", "archive_customer_address_add", "");
+            Mode("arc customer_address_delete", "validate", "archives/customer_address_delete", "", "archive_customer_address_delete", "");
+            Mode("voucher head_fix", "validate", "vouchers/head_fix", "dispatch", "head_fix", "");
+            Mode("voucher head_fix return", "refuse", "vouchers/head_fix", "sale_return", "head_fix", "");
             Mode("wf approve", "validate", "workflow/approve", "sale_order", "approve", "");
             Mode("writeoff", "rollback", "arap/writeoff", "", "writeoff", "");
             Mode("arap voucher", "validate", "arap/voucher", "ar_bill", "arap_voucher", "");
@@ -227,10 +231,20 @@ namespace U8Co
             Expect("meta person", (string)routes["archives/customer_person"] == "validate");
             Expect("meta fields", (string)routes["archives/customer_fields"] == "validate");
             Expect("meta address", (string)routes["archives/customer_address"] == "validate");
+            CheckMetaRows(routes);
             Expect("meta gl", (string)routes["gl/vouchers/create"] == "validate" && (string)routes["arap/writeoff/auto"] == "plan");
             Expect("meta refs", (string)MetaRefs.FieldRefs()["cowhcode"] == "warehouse"
                 && (string)MetaRefs.FieldRefs()["inv_code"] == "inventory" && !MetaRefs.FieldRefs().ContainsKey("cdwcode")
                 && (string)MetaRefs.GlFieldRefs()["supplier"] == "vendor");
+        }
+
+        // 客户收货地址新增、删除，历史发货单表头修正（只认 dispatch）的 meta 预演模式。
+        static void CheckMetaRows(Dictionary<string, object> routes)
+        {
+            Expect("meta address rows", (string)routes["archives/customer_address_add"] == "validate"
+                && (string)routes["archives/customer_address_delete"] == "validate");
+            Dictionary<string, object> fix = routes["vouchers/head_fix"] as Dictionary<string, object>;
+            Expect("meta head_fix", fix != null && (string)fix["dispatch"] == "validate" && (string)fix["*"] == "refuse");
         }
 
         static void Mode(string name, string want, string route, string type, string action, string source)

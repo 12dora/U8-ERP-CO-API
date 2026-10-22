@@ -25,6 +25,8 @@ namespace U8Co
             HashSet<string> set = new HashSet<string>(StringComparer.Ordinal);
             // 单据：审核 / 弃审（action）、新增、修改、删除、关闭 / 打开、生单、锁定 / 解锁（Requests.LockPath）。
             AddOps(set, VoucherRoot, new string[] { "verify", "create", "update", "delete", "close", "generate", "lock" });
+            // 历史发货单表头修正（VoucherHeadFix）：单据锁同修改发货单（"dispatch:<id>"）。
+            set.Add(VoucherHeadFix.Path);
             // 审批流：提交、撤销、同意、不同意、退回、弃审、重新提交（state / history / tasks 是读）。
             AddOps(set, WorkflowRoot, new string[] { "submit", "withdraw", "approve", "disagree", "return", "abandon", "resubmit" });
             // 总账凭证：load / list / attachments 是读；post（记账）先登记；unpost（取消记账，测试账套）。

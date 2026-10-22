@@ -311,6 +311,7 @@ uv run --no-project --python 3.12 --with cryptography python -m co.client.u8co_c
 | `close` | `--type` `--id` `--action close\|open`，可选 `--line-ids`（逗号分隔的行主键）。类型为 `sale_order`、`purchase_order`、`purchase_requisition`（只能整单）、`production_order`、`arrival` |
 | `generate` | `--type` `--id` `--file`，可选 `--source-type`。`--type` 是目标单据，`--id` 是来源单据 |
 | `lock` | `--type` `--id` `--action lock\|unlock`。类型只能是 `sale_order` |
+| `voucher-head-fix` | `--type dispatch` `--id`，以及 `--addr-code` / `--person-code`（至少一个），给了哪个就要同时给对应的 `--expect-addr-code` / `--expect-person-code`（当前值，空串表示当前为空；`--addr-code ""` 清空地址）。修正已审核发货单的收货地址编码和业务员，并按规则同步下游出库单、发票和应收明细的业务员；回滚是字段与 expect 对调、并带上正向响应的 `undo`（见接口参考「历史发货单表头修正」）。写命令，可加 `--dry-run`、`--idempotency-key` |
 | `openings-post` | `--module pu\|ia`，可选 `--unpost`。期初记账或取消（`openings/post`）；存货核算的登录日期须在其启用年度。复现写入 |
 | `openings-arap` | `--side ar\|ap --action create\|delete\|verify\|unverify`。`create` 加 `--partner`、`--amount`（负数为反方向余额）、`--account`，可选 `--department`、`--person`、`--digest`、`--currency`、`--exch-rate`；其余动作加 `--id`。应收应付期初单据（`openings/arap`）。复现写入 |
 | `periods-close` | `--fiscal-year Y --period P`，加 `--module pu\|sa\|st\|ia\|ar\|ap\|gl`（可选 `--reopen` 取消结账）或 `--through`（各已启用模块逐月结到该期）。月末结账（`periods/close`）。复现写入 |
@@ -329,6 +330,8 @@ uv run --no-project --python 3.12 --with cryptography python -m co.client.u8co_c
 | `arc-customer-person` | `--code` `--person`，可选 `--expect`。只改客户专管业务员；条件满足时一并改分管部门并同步 `Customer_Auth`。写命令，可加 `--dry-run`、`--idempotency-key` |
 | `arc-customer-fields` | `--code` `--file`，文件 `{"fields":{"abbrname","district","end_date"},"expect":{...}}`（`expect` 可选，建议带上）。只改客户简称、地区分类、停用日期。写命令，可加 `--dry-run`、`--idempotency-key` |
 | `arc-customer-address` | `--code` `--address` `--file`，文件 `{"fields":{"code","name","unit","default"},"expect":{...}}`（改 `name` / `unit` / `default` 时 `expect` 必填）。只改客户已有收货地址。写命令，可加 `--dry-run`、`--idempotency-key` |
+| `arc-customer-address-add` | `--code` `--address` `--file`，文件 `{"fields":{"name","unit","default"}}`（`name` 必填）。给客户新增一个收货地址；同编码内容一致的重放不写库。写命令，可加 `--dry-run`、`--idempotency-key` |
+| `arc-customer-address-delete` | `--code` `--address` `--file`，文件 `{"expect":{"name","unit","default"}}`（三项必填）。删除客户的一个收货地址（用于回滚新增）；被单据引用、或是默认地址且还有其它地址时被拒。写命令，可加 `--dry-run`、`--idempotency-key` |
 | `arc-list` | `--archive`，可选 `--code-prefix` `--name-like` `--changed-since` `--after` `--limit`（最多 500）；`project` 另可 `--project-class`；`exchange_rate` 另可 `--currency`（币种名称）、`--fiscal-year`（省略时取登录日期的年份）；`fa_card` 另可 `--type-code` `--dept-code` `--include-disposed` |
 | `list` | `--type`，可选 `--filter KEY=VALUE`（可重复；`verified`、`closed`、`red` 取 true/false）`--keys-only` `--changed-since` `--after` `--limit`（最多 500） |
 | `stock` | 可选 `--wh` `--inv` `--batch` `--after` `--limit`（最多 500） |
@@ -386,6 +389,7 @@ doc = client.load_voucher(call, "sale_order")
 | `update_voucher(call, VoucherEdit)` | 修改 |
 | `close_voucher(call, kind, action, line_ids)` | 关闭、打开 |
 | `lock_voucher(call, kind, action)` | 销售订单锁定、解锁 |
+| `voucher_head_fix(call, HeadFix(kind, fields, expect))` | 历史发货单表头修正（`call.doc_id` 是发货单 id；`fields` 键 `addr_code`、`person_code`，`expect` 给当前值；回滚时带正向响应的 `undo`） |
 | `generate_voucher(call, VoucherGen)` | 参照生单 |
 | `post_openings(call, module="pu", action="post")` | 期初记账（`action="unpost"` 取消） |
 | `openings_arap(call, side, action, doc_id=None, **create)` | 应收（`side="ar"`）/ 应付（`"ap"`）期初单据：`action="create"` 时以关键字给出 `partner`、`amount`、`account`（可选 `department`、`person`、`digest`、`currency`、`exch_rate`）；`delete`、`verify`、`unverify` 只给 `doc_id`。字段组合不对时本地抛出 `ValueError` |

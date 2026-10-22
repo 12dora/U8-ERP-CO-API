@@ -6,7 +6,9 @@ using System.Web.Script.Serialization;
 namespace U8Co
 {
     // --selftest 的只读例外泛化部分（ReadOnlyGate 的另一半，由 ReadOnlyGateSelfTest 调用）：
-    // 三条客户专用路由 customer_person / customer_fields / customer_address 各自只放行自己的路径；
+    // 客户专用路由（ArcCustomerOps.Ops：customer_person / customer_fields / customer_address / customer_address_add /
+    // customer_address_delete）各自只放行自己的路径；type=vouchers 的规则只放行 op=head_fix（路径恰为 vouchers/head_fix、
+    // 请求体 type=dispatch），archives 键不能用在它和客户专用路由上；
     // op=create / delete（ConfigRulesReadOnly.ArchiveOps）必须带 archives（每项须在 EligibleArchives 里，目前只有
     // district_class），只放行 archives/<op> 且请求体 archive 在规则里；archives 用在其它 op、未知档案类型启动即报错。
     // update、其它档案的 create / delete 在只读账套上仍 403。不连库、不建 COM、不登录。
@@ -23,6 +25,9 @@ namespace U8Co
             CheckEmptyArchives();
             CheckPost();
             CheckHealth();
+            CheckVoucherConfig();
+            CheckVoucherGate();
+            CheckVoucherPost();
         }
 
         static void CheckConfig()
@@ -188,7 +193,8 @@ namespace U8Co
                         withArchives++;
                     }
                 }
-                ReadOnlyGateSelfTest.Expect("roex2 summaries", list.Length == 5 && withArchives == 2);
+                ReadOnlyGateSelfTest.Expect("roex2 summaries",
+                    list.Length == ArcCustomerOps.Ops.Length + 2 && withArchives == 2);
             }
             finally
             {
@@ -196,7 +202,149 @@ namespace U8Co
             }
         }
 
-        // 配置：五条规则（三条客户专用路由 + create / delete 各限 district_class），都是 801 + svc01。
+        // type=vouchers：只允许 head_fix，不能带 archives；type 只能是 archives 或 vouchers；archives 的 op 不能是 head_fix。
+        static void CheckVoucherConfig()
+        {
+            string[] ro = new string[] { Listed };
+            ReadOnlyExceptionRule[] rules = Parse(VoucherRule(VoucherHeadFix.Op, null), ro);
+            ReadOnlyGateSelfTest.Expect("roex3 parse head_fix", rules.Length == 1 && rules[0].Type == "vouchers"
+                && rules[0].Op == VoucherHeadFix.Op && rules[0].Archives == null);
+            ExpectError("roex3 archives on head_fix", VoucherRule(VoucherHeadFix.Op, new object[] { ArcKindRwMore.District }),
+                ro, "只能用于");
+            ExpectError("roex3 op update", VoucherRule("update", null), ro, VoucherHeadFix.Op);
+            ExpectError("roex3 op archives op", VoucherRule(ArcCusAddr.Op, null), ro, VoucherHeadFix.Op);
+            ExpectError("roex3 op create", VoucherRule("create", null), ro, VoucherHeadFix.Op);
+            Dictionary<string, object> badType = VoucherRule(VoucherHeadFix.Op, null);
+            badType["type"] = "voucher";
+            ExpectError("roex3 unknown type", badType, ro, "目前只允许");
+            ExpectError("roex3 archives type head_fix", RuleOf(VoucherHeadFix.Op, null), ro, "customer_fields");
+            for (int i = 0; i < ArcCustomerOps.Ops.Length; i++)
+            {
+                ExpectError("roex3 archives on " + ArcCustomerOps.Ops[i],
+                    RuleOf(ArcCustomerOps.Ops[i], new object[] { ArcKindRwMore.District }), ro, "只能用于");
+            }
+        }
+
+        static void CheckVoucherGate()
+        {
+            BridgeConfig cfg = VoucherCfg();
+            ExpectAdmitBody("roex3 admit head_fix", cfg, VoucherHeadFix.Path, VBody(Listed, "svc01", "dispatch"));
+            ExpectRefusedBody("roex3 sale_return", cfg, VoucherHeadFix.Path, VBody(Listed, "svc01", "sale_return"));
+            ExpectRefusedBody("roex3 no type", cfg, VoucherHeadFix.Path, VBody(Listed, "svc01", null));
+            ExpectRefusedBody("roex3 update stays", cfg, "/u8co/v1/vouchers/update", VBody(Listed, "svc01", "dispatch"));
+            ExpectRefusedBody("roex3 delete stays", cfg, "/u8co/v1/vouchers/delete", VBody(Listed, "svc01", "dispatch"));
+            ExpectRefusedBody("roex3 other operator", cfg, VoucherHeadFix.Path, VBody(Listed, "op001", "dispatch"));
+            ExpectRefusedBody("roex3 other account", cfg, VoucherHeadFix.Path, VBody(ReadOnlyGateSelfTest.ExtraAcc, "svc01", "dispatch"));
+            // 只有 archives 规则时 head_fix 仍拒绝；只有 vouchers 规则时客户专用路由和 archives/create 仍拒绝。
+            ExpectRefusedBody("roex3 needs own rule", Cfg(), VoucherHeadFix.Path, VBody(Listed, "svc01", "dispatch"));
+            ExpectRefused("roex3 archives not opened", cfg, Requests.ArcRoot + ArcCusFields.Op, "svc01", null);
+            ExpectRefused("roex3 create not opened", cfg, CreatePath, "svc01", ArcKindRwMore.District);
+        }
+
+        static void CheckVoucherPost()
+        {
+            BridgeConfig cfg = VoucherCfg();
+            WorkItem ok = VItem(cfg, VoucherHeadFix.Path, "dispatch");
+            WriteClassGate.Post(ok);
+            ReadOnlyGateSelfTest.Expect("roex3 post head_fix", ok.Policy == ReadOnlyGate.ExceptionCode);
+            string[] bad = new string[] { "sale_return", "sale_order" };
+            for (int i = 0; i < bad.Length; i++)
+            {
+                WorkItem item = VItem(cfg, VoucherHeadFix.Path, bad[i]);
+                string code = null;
+                try
+                {
+                    WriteClassGate.Post(item);
+                }
+                catch (BridgeException ex)
+                {
+                    code = ex.Code;
+                }
+                ReadOnlyGateSelfTest.Expect("roex3 post " + bad[i], code == ReadOnlyGate.Code && item.Policy == ReadOnlyGate.Code);
+            }
+            WorkItem update = VItem(cfg, "/u8co/v1/vouchers/update", "dispatch");
+            string refused = null;
+            try
+            {
+                WriteClassGate.Post(update);
+            }
+            catch (BridgeException ex)
+            {
+                refused = ex.Code;
+            }
+            ReadOnlyGateSelfTest.Expect("roex3 post update", refused == ReadOnlyGate.Code);
+            try
+            {
+                ReadOnlyGate.Configure(cfg);
+                string json = ReadOnlyGate.HealthFragment();
+                ReadOnlyGateSelfTest.Expect("roex3 health", json.IndexOf("\"type\":\"vouchers\"", StringComparison.Ordinal) >= 0
+                    && json.IndexOf("\"op\":\"head_fix\"", StringComparison.Ordinal) >= 0);
+            }
+            finally
+            {
+                ReadOnlyGate.Configure(null);
+            }
+        }
+
+        static Dictionary<string, object> VoucherRule(string op, object archives)
+        {
+            Dictionary<string, object> rule = RuleOf(op, archives);
+            rule["type"] = "vouchers";
+            return rule;
+        }
+
+        static BridgeConfig VoucherCfg()
+        {
+            BridgeConfig cfg = ReadOnlyGateSelfTest.CfgEx();
+            ReadOnlyExceptionRule rule = new ReadOnlyExceptionRule();
+            rule.Accounts = new string[] { Listed };
+            rule.Operators = new string[] { "svc01" };
+            rule.Type = "vouchers";
+            rule.Op = VoucherHeadFix.Op;
+            cfg.ReadOnlyExceptions = new ReadOnlyExceptionRule[] { rule };
+            return cfg;
+        }
+
+        static void ExpectAdmitBody(string name, BridgeConfig cfg, string path, byte[] body)
+        {
+            AuditDraft draft = new AuditDraft();
+            string code = ReadOnlyGateSelfTest.CodeWith(cfg, path, body, draft);
+            ReadOnlyGateSelfTest.Expect(name, code == "bad_request" && draft.Policy == ReadOnlyGate.ExceptionCode);
+        }
+
+        static void ExpectRefusedBody(string name, BridgeConfig cfg, string path, byte[] body)
+        {
+            AuditDraft draft = new AuditDraft();
+            string code = ReadOnlyGateSelfTest.CodeWith(cfg, path, body, draft);
+            ReadOnlyGateSelfTest.Expect(name, code == ReadOnlyGate.Code && draft.Policy == ReadOnlyGate.Code);
+        }
+
+        // 单据路由的请求体（只有该路由允许的键）；口令同样故意解不开。
+        static byte[] VBody(string acc, string user, string type)
+        {
+            Dictionary<string, object> body = new Dictionary<string, object>();
+            body["acc"] = acc;
+            body["year"] = "2026";
+            body["operator"] = user;
+            body["date"] = "2026-01-15";
+            body["password_enc"] = "not-a-ciphertext";
+            body["id"] = 7;
+            if (type != null)
+            {
+                body["type"] = type;
+            }
+            return Encoding.UTF8.GetBytes(new JavaScriptSerializer().Serialize(body));
+        }
+
+        static WorkItem VItem(BridgeConfig cfg, string path, string type)
+        {
+            WorkItem item = Item(cfg, path, null);
+            item.Body["type"] = type;
+            item.Body["id"] = 7;
+            return item;
+        }
+
+        // 配置：客户专用路由各一条，加 create / delete 各限 district_class，都是 801 + svc01。
         static BridgeConfig Cfg()
         {
             List<string> ops = new List<string>(ArcCustomerOps.Ops);

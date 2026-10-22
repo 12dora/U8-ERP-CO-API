@@ -194,6 +194,8 @@ namespace U8Co
             AddAll(map, QmWriteRules());
             // 客户、供应商的银行账户和联系人（PermRegistryPartner.cs）。
             AddAll(map, PartnerRules());
+            // 历史发货单表头修正（PermRegistryHeadFix.cs）。
+            AddAll(map, HeadFixRules());
             // 采购发票应付审核、销售发票应收审核及弃审（PermRegistryArap.cs）。
             AddAll(map, ArapAuditRules());
             // 应收 / 应付核销（PermRegistryWriteoff.cs）。

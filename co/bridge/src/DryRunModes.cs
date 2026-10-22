@@ -37,6 +37,8 @@ namespace U8Co
             AddVouchers(list);
             AddGl(list);
             AddArchives(list);
+            // 历史发货单表头修正：受控 SQL，全部检查与下游计划在事务里做完，写入之前停下并回滚（validate）；只认 dispatch。
+            Add(list, "vouchers/head_fix", "dispatch", Any, Any, Validate);
             AddMany(list, WorkflowRoutes, Any, Any, Validate);
             Add(list, "arap/writeoff", Any, Any, Any, Rollback);
             Add(list, "arap/writeoff/cancel", Any, Any, Any, Rollback);

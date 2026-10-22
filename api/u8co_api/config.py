@@ -3,8 +3,9 @@
 桥地址和密钥没有缺省值。缺任何一项时服务照常启动，/v1/co 返回 503 unavailable。
 账套白名单缺省为空，此时每个业务调用都返回 403 account_not_allowed。
 U8CO_READONLY_ACCOUNTS 列出只开放读取的账套（必须都在 U8CO_ACCOUNTS 里），这些账套的写路由一律 403 account_read_only。
-U8CO_READONLY_EXCEPTIONS 是 JSON 数组，按账套、操作员精确放行只读账套上的 archives/customer_person、customer_fields、customer_address，
-以及 archives/create、archives/delete 的 district_class（见 readonly_exceptions）。
+U8CO_READONLY_EXCEPTIONS 是 JSON 数组，按账套、操作员精确放行只读账套上的 archives/customer_person、customer_fields、
+customer_address、customer_address_add、customer_address_delete，archives/create、archives/delete 的 district_class，
+以及 vouchers/head_fix（见 readonly_exceptions）。
 可选的 U8CO_BRIDGE_ROUTES_FILE 让指定账套走另一个桥；这个文件有任何问题进程都起不来。
 """
 
@@ -292,7 +293,7 @@ class Settings:
     accounts: tuple[str, ...] = ()
     # 只开放读取的账套（U8CO_READONLY_ACCOUNTS，U8CO_ACCOUNTS 的子集）。写路由在访问桥和写入策略之前 403。
     read_only_accounts: tuple[str, ...] = ()
-    # 只读例外（U8CO_READONLY_EXCEPTIONS）：命中的客户主数据写入、district_class 新增、删除穿过只读闸门，其余仍 403。
+    # 只读例外（U8CO_READONLY_EXCEPTIONS）：命中的客户主数据写入、district_class 新增 / 删除、vouchers/head_fix 穿过只读闸门，其余仍 403。
     read_only_exceptions: tuple[ReadOnlyException, ...] = ()
     timezone: str = DEFAULT_TIMEZONE
     user_header: str = DEFAULT_USER_HEADER

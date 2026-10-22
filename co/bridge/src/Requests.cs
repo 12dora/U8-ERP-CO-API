@@ -25,6 +25,8 @@ namespace U8Co
             new string[] { "/u8co/v1/vouchers/delete", "type", "id" },
             new string[] { "/u8co/v1/vouchers/close", "type", "id", "action", "line_ids" },
             new string[] { "/u8co/v1/vouchers/generate", "type", "id", "source_type", "head", "lines" },
+            // 历史发货单表头修正（VoucherHeadFix）。
+            VoucherHeadFix.Spec,
             new string[] { "/u8co/v1/workflow/state", "type", "id" },
             new string[] { "/u8co/v1/workflow/history", "type", "id" },
             new string[] { "/u8co/v1/workflow/tasks", "type" },

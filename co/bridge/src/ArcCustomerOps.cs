@@ -4,11 +4,14 @@ using System.Collections.Generic;
 namespace U8Co
 {
     // 客户档案的受控 SQL 专用路由 archives/<op>：customer_person（ArcPerson）、customer_fields（ArcCusFields）、
-    // customer_address（ArcCusAddr）。op 即路径末段、写入分类的 op、规则键的最后一段。
+    // customer_address（ArcCusAddr）、customer_address_add / customer_address_delete（ArcCusAddrRows）。op 即路径末段、写入分类的 op、规则键的最后一段。
     // 新增一条：加进 Ops，并在 Check、Run 各补一个分支；写闸门、写入分类、预演模式、锁键、只读例外都从 Ops 派生。
     internal static class ArcCustomerOps
     {
-        internal static readonly string[] Ops = new string[] { ArcPerson.Op, ArcCusFields.Op, ArcCusAddr.Op };
+        internal static readonly string[] Ops = new string[]
+        {
+            ArcPerson.Op, ArcCusFields.Op, ArcCusAddr.Op, ArcCusAddrRows.AddOp, ArcCusAddrRows.DeleteOp
+        };
 
         // archives/<op> 的全部 op：通用的 get、list、create、update、delete 加专用路由（Dispatch 的路由表用）。
         public static string[] AllOps()
@@ -45,6 +48,10 @@ namespace U8Co
             {
                 ArcCusAddr.Parse(body);
             }
+            else if (ArcCusAddrRows.Is(op))
+            {
+                ArcCusAddrRows.Check(op, body);
+            }
             else
             {
                 throw Unknown(op);
@@ -64,6 +71,10 @@ namespace U8Co
             if (op == ArcCusAddr.Op)
             {
                 return ArcCusAddr.Run(ctx, op);
+            }
+            if (ArcCusAddrRows.Is(op))
+            {
+                return ArcCusAddrRows.Run(ctx, op);
             }
             throw Unknown(op);
         }

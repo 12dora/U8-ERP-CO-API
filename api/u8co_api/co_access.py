@@ -25,6 +25,7 @@ ACCESS = {
     "co:vouchers/create": WRITE,
     "co:vouchers/delete": WRITE,
     "co:vouchers/update": WRITE,
+    "co:vouchers/head_fix": WRITE,
     "co:vouchers/close": WRITE,
     "co:vouchers/generate": WRITE,
     "co:vouchers/lock": WRITE,
@@ -96,6 +97,8 @@ ACCESS = {
     "co:archives/customer_person": WRITE,
     "co:archives/customer_fields": WRITE,
     "co:archives/customer_address": WRITE,
+    "co:archives/customer_address_add": WRITE,
+    "co:archives/customer_address_delete": WRITE,
     # 只读报表。
     "co:reports/close_status": READ,
     "co:reports/gl_balance": READ,

@@ -12,6 +12,13 @@ from u8co_api.co_models_arc import (
     ArcWriteOut,
 )
 from u8co_api.co_models_arc_cusaddr import CUSTOMER_ADDRESS_HELP, ArcCustomerAddressIn, ArcCustomerAddressOut
+from u8co_api.co_models_arc_cusaddr_rows import (
+    CUSTOMER_ADDRESS_ADD_HELP,
+    CUSTOMER_ADDRESS_DELETE_HELP,
+    ArcCustomerAddressAddIn,
+    ArcCustomerAddressDeleteIn,
+    ArcCustomerAddressRowsOut,
+)
 from u8co_api.co_models_arc_cusfields import CUSTOMER_FIELDS_HELP, ArcCustomerFieldsIn, ArcCustomerFieldsOut
 from u8co_api.co_models_arc_pperson import CUSTOMER_PERSON_HELP, ArcCustomerPersonIn, ArcCustomerPersonOut
 from u8co_api.co_models_gl import (
@@ -309,6 +316,18 @@ _ARC_ROUTES = (
         (ArcCustomerAddressIn, ArcCustomerAddressOut),
         "修改客户收货地址",
         CUSTOMER_ADDRESS_HELP,
+    ),
+    _customer(
+        "customer_address_add",
+        (ArcCustomerAddressAddIn, ArcCustomerAddressRowsOut),
+        "新增客户收货地址",
+        CUSTOMER_ADDRESS_ADD_HELP,
+    ),
+    _customer(
+        "customer_address_delete",
+        (ArcCustomerAddressDeleteIn, ArcCustomerAddressRowsOut),
+        "删除客户收货地址",
+        CUSTOMER_ADDRESS_DELETE_HELP,
     ),
 )
 

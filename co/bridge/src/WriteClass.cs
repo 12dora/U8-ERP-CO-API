@@ -41,6 +41,8 @@ namespace U8Co
             Add(map, V + "close", "", "close=close,open=open");
             Add(map, V + "generate", "", "generate");
             Add(map, Requests.LockPath, "", "lock=lock,unlock=unlock");
+            // 历史发货单表头修正（VoucherHeadFix）：type 取请求体的单据类型，op 单列 head_fix，放行 update 不连带放行。
+            Add(map, VoucherHeadFix.Path, "", VoucherHeadFix.Op);
             // 审批流：七个操作都记 workflow，type 是单据类型。
             string[] wf = new string[] { "submit", "withdraw", "approve", "disagree", "return", "abandon", "resubmit" };
             for (int i = 0; i < wf.Length; i++)

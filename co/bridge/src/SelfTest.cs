@@ -152,6 +152,10 @@ namespace U8Co
             // 客户字段修改 archives/customer_fields（ArcCusFieldsSelfTest）、客户收货地址 archives/customer_address（ArcCusAddrSelfTest）。
             ArcCusFieldsSelfTest.Run();
             ArcCusAddrSelfTest.Run();
+            // 客户收货地址新增、删除 archives/customer_address_add / customer_address_delete（ArcCusAddrRowsSelfTest）。
+            ArcCusAddrRowsSelfTest.Run();
+            // 历史发货单表头修正 vouchers/head_fix（VoucherHeadFixSelfTest）。
+            VoucherHeadFixSelfTest.Run();
             // 第二级写入路由矩阵：每条路由经 Requests.ForPath 的开关、测试账套、只读账套顺序（TestAccountRouteSelfTest）。
             TestAccountRouteSelfTest.Run();
             // 写入策略（WritePolicySelfTest）。

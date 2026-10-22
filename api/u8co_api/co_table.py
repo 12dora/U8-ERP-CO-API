@@ -23,6 +23,7 @@ from u8co_api.co_models_edit import (
     CoGenerateOut,
     CoUpdateIn,
 )
+from u8co_api.co_models_head_fix import HEAD_FIX_HELP, VoucherHeadFixIn, VoucherHeadFixOut
 from u8co_api.co_models_lock import LOCK_HELP, LOCK_SUMMARY, CoLockIn, CoLockOut
 from u8co_api.co_models_update_out import CoUpdateOut
 from u8co_api.co_models_wf import (
@@ -176,6 +177,18 @@ ROUTES = (
         "coVoucherUpdate",
         "co:vouchers/update",
         TAG_EDIT,
+    ),
+    CoRoute(
+        "/v1/co/vouchers/head_fix",
+        "/v1/vouchers/head_fix",
+        VoucherHeadFixIn,
+        VoucherHeadFixOut,
+        "修正历史发货单表头",
+        HEAD_FIX_HELP,
+        "coVoucherHeadFix",
+        "co:vouchers/head_fix",
+        TAG_EDIT,
+        keep_null=True,
     ),
     CoRoute(
         "/v1/co/vouchers/close",

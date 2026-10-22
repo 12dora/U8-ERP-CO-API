@@ -73,20 +73,17 @@ def type_row(st: TypeStatus, now: datetime) -> dict[str, Any]:
     }
 
 
-def _recent_resets(rows: list[dict[str, Any]], now: datetime) -> list[dict[str, Any]]:
-    """24 小时内发生过水位倒退（库被还原等）的类型行；更早的只在 types 里留记录。"""
-    return [
-        row
-        for row in rows
-        if (age := _age(row["watermark_reset_at"], now)) is not None and age <= _RESET_ALERT_SECONDS
-    ]
-
-
-def _reset_text(row: Mapping[str, Any], tail: str) -> str:
-    return (
-        f"{row['account']}/{row['type']} 在 {row['watermark_reset_at']} 发现水位倒退"
-        f"（{row['watermark_reset']}），已整轮重新对比；{tail}"
-    )
+def _reset_problems(rows: list[dict[str, Any]], now: datetime) -> list[str]:
+    """水位倒退（库被还原等）后 24 小时内报不健康，提醒人工核对；之后只在 types 里留记录。"""
+    found: list[str] = []
+    for row in rows:
+        age = _age(row["watermark_reset_at"], now)
+        if age is not None and age <= _RESET_ALERT_SECONDS:
+            found.append(
+                f"{row['account']}/{row['type']} 在 {row['watermark_reset_at']} 发现水位倒退"
+                f"（{row['watermark_reset']}），已整轮重新对比；请确认数据库是否被还原"
+            )
+    return found
 
 
 class Monitor:
@@ -112,8 +109,6 @@ class Monitor:
         self._started = self._now()
         # 含附加数据源的类型行（ar_process、gl_voucher、archive:customer……），同样看延迟、扫描、水位倒退。
         self._pairs = set(cfg.pairs())
-        # 会被回归测试还原的账套：水位倒退只记警告（见 AccountConf.restored_by_tests）。
-        self._test_accounts = frozenset(account.acc for account in cfg.accounts if account.restored_by_tests)
 
     def stale_after(self) -> float:
         return max(_STALE_MIN_SECONDS, self._cfg.poll_interval_seconds * _STALE_POLLS)
@@ -131,7 +126,7 @@ class Monitor:
         return {
             "ok": not problems,
             "problems": problems,
-            "warnings": self._warnings(rows, now),
+            "warnings": self._warnings(rows),
             "now": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "outbox_size": size,
             "outbox_high_water": self._cfg.outbox_high_water,
@@ -145,11 +140,7 @@ class Monitor:
         problems.extend(
             f"{row['account']}/{row['type']} 删除扫描失败：{row['scan_error']}" for row in rows if row["scan_error"]
         )
-        problems.extend(
-            _reset_text(row, "请确认数据库是否被还原")
-            for row in _recent_resets(rows, now)
-            if row["account"] not in self._test_accounts
-        )
+        problems.extend(_reset_problems(rows, now))
         if (now - self._started).total_seconds() >= self.stale_after():
             problems.extend(self._stale(rows))
         return problems
@@ -168,15 +159,10 @@ class Monitor:
                 found.append(f"{name} 超过 {scan_limit:.0f} 秒没有完成删除扫描")
         return found
 
-    def _warnings(self, rows: list[dict[str, Any]], now: datetime) -> list[str]:
+    def _warnings(self, rows: list[dict[str, Any]]) -> list[str]:
         found: list[str] = []
         for note in self._notes:
             found.extend(note())
-        found.extend(
-            _reset_text(row, "测试账套按快照还原属预期")
-            for row in _recent_resets(rows, now)
-            if row["account"] in self._test_accounts
-        )
         return found
 
 

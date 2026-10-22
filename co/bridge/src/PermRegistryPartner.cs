@@ -26,6 +26,8 @@ namespace U8Co
                 WriteRule("customer", ArcPerson.Op, "客户专管业务员修改", A("AS011"), cus),
                 WriteRule("customer", ArcCusFields.Op, "客户字段修改", A("AS011"), cus),
                 WriteRule("customer", ArcCusAddr.Op, "客户收货地址修改", A("AS011"), cus),
+                WriteRule("customer", ArcCusAddrRows.AddOp, "客户收货地址新增", A("AS011"), cus),
+                WriteRule("customer", ArcCusAddrRows.DeleteOp, "客户收货地址删除", A("AS011"), cus),
                 WriteRule(ArcPartner.CustomerBank, "create", "客户银行账户新增", A("AS011"), cus),
                 WriteRule(ArcPartner.CustomerBank, "update", "客户银行账户修改", A("AS011"), cus),
                 WriteRule(ArcPartner.CustomerBank, "delete", "客户银行账户删除", A("AS011"), cus),

@@ -48,9 +48,15 @@ namespace U8Co
 
         public static string Message(List<string> tables)
         {
+            return Message(tables, "改编码");
+        }
+
+        // action 是被拒的动作（「改编码」「删除」），拼成「收货地址已被单据引用，不能<action>：表名…」。
+        public static string Message(List<string> tables, string action)
+        {
             List<string> shown = tables.Count > ShowMax ? tables.GetRange(0, ShowMax) : tables;
             string more = tables.Count > ShowMax ? " 等 " + tables.Count + " 张表" : "";
-            return "收货地址已被单据引用，不能改编码：" + string.Join("、", shown.ToArray()) + more;
+            return "收货地址已被单据引用，不能" + action + "：" + string.Join("、", shown.ToArray()) + more;
         }
 
         // 元数据行（sch, tbl, col, typ）按表归并：要有文本类型的 cAddCode 列；客户列只在它是文本列时才用来过滤。

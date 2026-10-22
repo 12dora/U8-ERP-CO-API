@@ -224,6 +224,21 @@ class PackageDataTests(unittest.TestCase):
         for route in ("archives/customer_fields", "archives/customer_address"):
             self.assertIn(route, route_names("write"))
 
+    def test_routes_contain_customer_address_add_and_delete_as_write(self):
+        routes = {r["route"]: r for r in load_routes()}
+        self.assertEqual(routes["archives/customer_address_add"]["access"], "write")
+        self.assertEqual(routes["archives/customer_address_add"]["summary"], "新增客户收货地址")
+        self.assertEqual(routes["archives/customer_address_delete"]["access"], "write")
+        self.assertEqual(routes["archives/customer_address_delete"]["summary"], "删除客户收货地址")
+        for route in ("archives/customer_address_add", "archives/customer_address_delete"):
+            self.assertIn(route, route_names("write"))
+
+    def test_routes_contain_vouchers_head_fix_as_write(self):
+        routes = {r["route"]: r for r in load_routes()}
+        self.assertEqual(routes["vouchers/head_fix"]["access"], "write")
+        self.assertEqual(routes["vouchers/head_fix"]["summary"], "修正历史发货单表头")
+        self.assertIn("vouchers/head_fix", route_names("write"))
+
     def test_routes_contain_ia_post_and_period_end_as_write(self):
         routes = {r["route"]: r for r in load_routes()}
         self.assertEqual(routes["ia/post"]["access"], "write")

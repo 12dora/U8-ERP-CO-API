@@ -6,12 +6,18 @@ using System.Globalization;
 namespace U8Co
 {
     // config.json 的 readOnlyExceptions：只读账套上允许穿过闸门的精确写入。账套必须同时在
-    // readOnlyAccounts 里；目前只开放 type=archives，op 是客户专用路由（ArcCustomerOps.Ops：customer_person、
-    // customer_fields、customer_address）或 create、delete。op=create / delete 必须另写 archives（非空列表，
-    // 每项须在 EligibleArchives 里，目前只有 district_class；delete 用于回滚刚新增的档案）；其余 op 不能写 archives。operators 比较不区分大小写，
+    // readOnlyAccounts 里；type 是 archives 或 vouchers。archives 的 op 是客户专用路由（ArcCustomerOps.Ops：customer_person、
+    // customer_fields、customer_address、customer_address_add、customer_address_delete）或 create、delete。
+    // op=create / delete 必须另写 archives（非空列表，每项须在 EligibleArchives 里，目前只有 district_class；
+    // delete 用于回滚刚新增的档案）；其余 op 不能写 archives。vouchers 只允许 op=head_fix（历史发货单表头修正，
+    // 路径恰为 vouchers/head_fix），vouchers/update 等其它单据路由不能开放。operators 比较不区分大小写，
     // 且不能含双引号、反斜杠或控制字符（健康检查 JSON 仍会转义）。
     internal static class ConfigRulesReadOnly
     {
+        internal const string TypeArchives = "archives";
+        internal const string TypeVouchers = "vouchers";
+        // type=vouchers 允许的 op（目前只有历史发货单表头修正）。
+        internal static readonly string[] VoucherOps = new string[] { VoucherHeadFix.Op };
         // 带 archives 的 op：请求体 archive 必须在规则的 archives 里。
         internal static readonly string[] ArchiveOps = new string[] { "create", "delete" };
         // 允许走只读例外新增 / 删除的档案类型（官方 EAI 组件写入的末端档案）。
@@ -63,8 +69,8 @@ namespace U8Co
             ReadOnlyExceptionRule rule = new ReadOnlyExceptionRule();
             rule.Accounts = ExceptionCodes(obj, at, readOnly);
             rule.Operators = ExceptionOperators(obj, at);
-            rule.Type = TypeOp(obj, "type", at, "archives");
-            rule.Op = OpOf(obj, at);
+            rule.Type = TypeOf(obj, at);
+            rule.Op = OpOf(obj, at, rule.Type);
             rule.Archives = ArchivesOf(obj, at, rule.Op);
             return rule;
         }
@@ -115,10 +121,30 @@ namespace U8Co
             return list;
         }
 
-        // op：客户专用路由或 create。
-        static string OpOf(Dictionary<string, object> obj, string at)
+        // type：archives 或 vouchers。
+        static string TypeOf(Dictionary<string, object> obj, string at)
+        {
+            string text = NeedText(obj, "type", at);
+            if (text != TypeArchives && text != TypeVouchers)
+            {
+                throw new InvalidOperationException(at + ".type 目前只允许 " + TypeArchives + ", " + TypeVouchers + "：" + text);
+            }
+            return text;
+        }
+
+        // op：archives 是客户专用路由或 create / delete；vouchers 只有 head_fix。
+        static string OpOf(Dictionary<string, object> obj, string at, string type)
         {
             string text = NeedText(obj, "op", at);
+            if (type == TypeVouchers)
+            {
+                if (Array.IndexOf(VoucherOps, text) < 0)
+                {
+                    throw new InvalidOperationException(at + ".op 在 type=vouchers 下目前只允许 "
+                        + string.Join(", ", VoucherOps) + "：" + text);
+                }
+                return text;
+            }
             if (Array.IndexOf(ArchiveOps, text) < 0 && !ArcCustomerOps.Is(text))
             {
                 List<string> allowed = new List<string>(ArcCustomerOps.Ops);
@@ -150,16 +176,6 @@ namespace U8Co
                 }
             }
             return list;
-        }
-
-        static string TypeOp(Dictionary<string, object> obj, string key, string at, string allowed)
-        {
-            string text = NeedText(obj, key, at);
-            if (!string.Equals(text, allowed, StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException(at + "." + key + " 目前只允许 " + allowed + "：" + text);
-            }
-            return text;
         }
 
         static string NeedText(Dictionary<string, object> map, string key, string at)

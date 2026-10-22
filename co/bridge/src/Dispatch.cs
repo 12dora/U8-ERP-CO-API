@@ -85,6 +85,8 @@ namespace U8Co
             map.Add("/u8co/v1/vouchers/delete", Delete);
             map.Add("/u8co/v1/vouchers/close", Close);
             map.Add("/u8co/v1/vouchers/generate", Generate);
+            // 历史发货单表头修正（VoucherHeadFix）：不经 EditMore / SaleEdit，受控 SQL。
+            map.Add(VoucherHeadFix.Path, VoucherHeadFix.Run);
             // 销售订单 / 采购订单锁定、解锁（VoucherLock）。
             map.Add(Requests.LockPath, VoucherLock.Run);
             map.Add("/u8co/v1/workflow/state", Workflow.State);

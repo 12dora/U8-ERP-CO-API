@@ -7,8 +7,8 @@ namespace U8Co
     // 预演到此回滚，否则逐行 UPDATE（默认地址翻转同事务），回读整客户核对。该表没有 rowversion，锁加 expect 就是并发条件。
     internal static class ArcCusAddrSql
     {
-        const string CustomerSql = "SELECT cCusCode AS code FROM Customer WHERE cCusCode=?";
-        const string RowsSql = "SELECT id AS id, LTRIM(RTRIM(ISNULL(cAddCode,''))) AS code,"
+        internal const string CustomerSql = "SELECT cCusCode AS code FROM Customer WHERE cCusCode=?";
+        internal const string RowsSql = "SELECT id AS id, LTRIM(RTRIM(ISNULL(cAddCode,''))) AS code,"
             + " LTRIM(RTRIM(ISNULL(cDeliverAdd,''))) AS name,"
             + " LTRIM(RTRIM(ISNULL(cDeliverUnit,''))) AS unit,"
             + " CONVERT(int, ISNULL(bDefault,0)) AS dflt"
@@ -58,7 +58,7 @@ namespace U8Co
             }
         }
 
-        static List<ArcCusAddrRow> Load(object conn, string customer)
+        internal static List<ArcCusAddrRow> Load(object conn, string customer)
         {
             List<Dictionary<string, object>> raw = Rows.Query(conn, RowsSql, new object[] { customer }, RowsMax);
             if (raw.Count >= RowsMax)

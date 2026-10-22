@@ -22,7 +22,8 @@ WRITE_COMMANDS = (
     "create", "update", "delete", "verify", "close", "generate", "lock",
     "wf-submit", "wf-withdraw", "wf-resubmit", "wf-approve", "wf-disagree", "wf-return", "wf-abandon",
     "gl-create", "gl-update", "arc-create", "arc-update", "arc-delete", "arc-customer-person",
-    "arc-customer-fields", "arc-customer-address",
+    "arc-customer-fields", "arc-customer-address", "arc-customer-address-add", "arc-customer-address-delete",
+    "voucher-head-fix",  # 历史发货单表头修正
     "openings-post", "periods-close",
     "ia-post", "ia-period-end", "openings-arap",
     "gl-reverse",  # 红字冲销

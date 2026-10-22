@@ -19,13 +19,14 @@ def _ops(root: str, ops: str) -> set[str]:
 
 # 桥的写路由（同 co/bridge/src/WriteGate.cs 的 Writes，去掉 /u8co 前缀）。写预演（u8co_assist.dry_fields）和幂等键共用这一份。
 WRITE_ROUTES = frozenset(
-    _ops("/v1/vouchers/", "verify create update delete close generate lock")
+    _ops("/v1/vouchers/", "verify create update delete close generate lock head_fix")
     | _ops("/v1/workflow/", "submit withdraw approve disagree return abandon resubmit")
     | _ops("/v1/gl/vouchers/", "create update void unvoid verify unverify sign unsign delete post")
     | {"/v1/gl/vouchers/reverse"}  # 红字冲销
     | {"/v1/gl/vouchers/unpost"}  # 取消记账（测试账套）
     | {"/v1/gl/transfer/pnl", "/v1/gl/transfer/custom"}  # 期间损益结转、自定义转账（测试账套）
-    | _ops("/v1/archives/", "create update delete customer_person customer_fields customer_address")
+    | _ops("/v1/archives/", "create update delete customer_person customer_fields customer_address "
+        "customer_address_add customer_address_delete")
     | _ops("/v1/arap/", "writeoff writeoff/cancel writeoff/auto voucher voucher/delete")
     # 应收应付处理：转账、并账、红票对冲、取消处理、处理制单、汇兑损益及取消。
     | _ops("/v1/arap/", "transfer merge red_offset process/cancel process/voucher exchange_gain exchange_gain/cancel")
