@@ -17,8 +17,8 @@ from co.client.u8co_idem import WRITE_ROUTES
 
 _CODE = "C900001"
 _ROUTE = "/u8co/v1/archives/customer_fields"
-_FIELDS = {"abbrname": "示例简称", "district": "33", "end_date": "2026-10-20"}
-_EXPECT = {"abbrname": "示例客户有限公司", "district": "", "end_date": ""}
+_FIELDS = {"abbrname": "示例简称", "district": "33", "end_date": "2026-10-20", "sa_protocol": "A001"}
+_EXPECT = {"abbrname": "示例客户有限公司", "district": "", "end_date": "", "sa_protocol": ""}
 
 
 class ArcCustomerFieldsTests(unittest.TestCase):
@@ -54,6 +54,14 @@ class ArcCustomerFieldsTests(unittest.TestCase):
         _path, sent = self._send(lambda client: client.arc_customer_fields(_call(), _CODE, fields))
         self.assertEqual(sent["fields"], fields)
 
+    def test_sa_protocol_alone_and_clearing_pass_the_local_check(self) -> None:
+        for fields, expect in (({"sa_protocol": "A001"}, {"sa_protocol": ""}), ({"sa_protocol": ""}, {"sa_protocol": "A001"})):
+            _path, sent = self._send(
+                lambda client, f=fields, e=expect: client.arc_customer_fields(_call(), _CODE, dict(f), expect=dict(e))
+            )
+            self.assertEqual(sent["fields"], fields)
+            self.assertEqual(sent["expect"], expect)
+
     def test_dry_and_keyed_clients(self) -> None:
         _path, sent = self._send(lambda client: client.dry().arc_customer_fields(_call(), _CODE, dict(_FIELDS)))
         self.assertIs(sent["dry_run"], True)
@@ -77,6 +85,17 @@ class ArcCustomerFieldsTests(unittest.TestCase):
             (lambda: client.arc_customer_fields(call, _CODE, {"district": "1" * 13}), "district"),
             (lambda: client.arc_customer_fields(call, _CODE, {"district": " 33"}), "district"),
             (lambda: client.arc_customer_fields(call, _CODE, {"district": 33}), "district"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"sa_protocol": "A" * 21}), "sa_protocol"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"sa_protocol": " A001"}), "sa_protocol"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"sa_protocol": "A001 "}), "sa_protocol"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"sa_protocol": "A\n001"}), "sa_protocol"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"sa_protocol": 1}), "sa_protocol"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"sa_protocol": "A001"}, expect={"sa_protocol": "A" * 21}), "expect"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"sa_protocol": "A001"}, expect={"sa_protocol": " A001"}), "expect.sa_protocol"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"sa_protocol": "A001"}, expect={"sa_protocol": "A001 "}), "expect.sa_protocol"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"sa_protocol": "A001"}, expect={"sa_protocol": "A\n001"}), "expect.sa_protocol"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"district": "33"}, expect={"district": "33 "}), "expect.district"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"district": "33"}, expect={"district": "3\t3"}), "expect.district"),
             (lambda: client.arc_customer_fields(call, _CODE, {"end_date": "2026/10/20"}), "end_date"),
             (lambda: client.arc_customer_fields(call, _CODE, {"end_date": "2026-02-30"}), "end_date"),
             (lambda: client.arc_customer_fields(call, _CODE, {"end_date": None}), "end_date"),

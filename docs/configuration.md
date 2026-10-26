@@ -479,7 +479,7 @@ API 和桥配置同一份策略。API 一侧在调桥之前即拒绝，省一次
 
 ### 只读例外
 
-正式账套保持只读（`readOnlyAccounts` / `U8CO_READONLY_ACCOUNTS`），只放行已经核对过的客户主数据整理（专管业务员、简称 / 地区分类 / 停用日期、收货地址的修改、新增和删除）、地区分类的新增和删除、以及历史发货单表头修正（`vouchers/head_fix`）时，配只读例外，不要把账套从只读名单里拿掉。
+正式账套保持只读（`readOnlyAccounts` / `U8CO_READONLY_ACCOUNTS`），只放行已经核对过的客户主数据整理（专管业务员、简称 / 地区分类 / 停用日期 / 销售默认收付款协议、收货地址的修改、新增和删除）、地区分类的新增和删除、以及历史发货单表头修正（`vouchers/head_fix`）时，配只读例外，不要把账套从只读名单里拿掉。
 
 API 环境变量 `U8CO_READONLY_EXCEPTIONS` 与桥 `config.json` 的 `readOnlyExceptions` 使用同一份 JSON 数组：
 

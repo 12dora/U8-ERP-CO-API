@@ -16,8 +16,8 @@ from u8co_api.errors import ApiError
 _PATH = "/v1/co/archives/customer_fields"
 _BRIDGE = "/v1/archives/customer_fields"
 _CODE = "C900001"
-_FIELDS = {"abbrname": "示例简称", "district": "33", "end_date": "2026-10-20"}
-_EXPECT = {"abbrname": "示例客户有限公司", "district": "", "end_date": ""}
+_FIELDS = {"abbrname": "示例简称", "district": "33", "end_date": "2026-10-20", "sa_protocol": "A001"}
+_EXPECT = {"abbrname": "示例客户有限公司", "district": "", "end_date": "", "sa_protocol": ""}
 
 
 class _FieldsBridge(FakeBridge):
@@ -25,7 +25,7 @@ class _FieldsBridge(FakeBridge):
         self.calls.append((path, dict(payload)))
         if self.error is not None:
             raise self.error
-        before = {"abbrname": "示例客户有限公司", "district": "", "end_date": ""}
+        before = dict(_EXPECT)
         if payload.get("dry_run") is True:
             return {"ok": True, "dry_run": True, "mode": "validate", "code": payload["code"], "before": before}
         return {
@@ -75,6 +75,17 @@ def test_clearing_values_are_accepted() -> None:
     assert fake.calls[-1][1]["fields"] == fields
 
 
+def test_sa_protocol_alone_and_clearing_are_forwarded() -> None:
+    for fields, expect in (({"sa_protocol": "A001"}, {"sa_protocol": ""}), ({"sa_protocol": ""}, {"sa_protocol": "A001"})):
+        fake = _FieldsBridge()
+        ok = _client(fake).post(_PATH, json=_body(fields=fields, expect=expect))
+        assert ok.status_code == 200, ok.text
+        _path, sent = fake.calls[-1]
+        assert sent["fields"] == fields
+        assert sent["expect"] == expect
+        assert set(ok.json()["before"]) == {"abbrname", "district", "end_date", "sa_protocol"}
+
+
 def test_customer_fields_sends_exact_sealed_keys() -> None:
     with _Up() as server:
         client = _wired(server.base_url)
@@ -98,6 +109,12 @@ _REJECTS = (
     _body(fields={"district": "1" * 13}),
     _body(fields={"district": " 33"}),
     _body(fields={"district": 33}),
+    _body(fields={"sa_protocol": "A" * 21}),
+    _body(fields={"sa_protocol": " A001"}),
+    _body(fields={"sa_protocol": "A001 "}),
+    _body(fields={"sa_protocol": "A\n001"}),
+    _body(fields={"sa_protocol": 1}),
+    _body(fields={"sa_protocol": None}),
     _body(fields={"end_date": "2026-13-01"}),
     _body(fields={"end_date": "2026-02-30"}),
     _body(fields={"end_date": "2026/10/20"}),
@@ -107,6 +124,12 @@ _REJECTS = (
     _body(expect={"district": ""}, fields={"abbrname": "x"}),
     _body(expect={"abbrname": "x" * 61}),
     _body(expect={"end_date": "2026/10/20"}),
+    _body(fields={"sa_protocol": "A001"}, expect={"sa_protocol": "A" * 21}),
+    _body(fields={"sa_protocol": "A001"}, expect={"sa_protocol": " A001"}),
+    _body(fields={"sa_protocol": "A001"}, expect={"sa_protocol": "A001 "}),
+    _body(fields={"sa_protocol": "A001"}, expect={"sa_protocol": "A\n001"}),
+    _body(fields={"district": "33"}, expect={"district": "33 "}),
+    _body(fields={"district": "33"}, expect={"district": "3\t3"}),
     _body(expect={"abbrname": None}),
     _body(expect=[]),
     _body(code=""),
@@ -143,6 +166,7 @@ def test_audit_names_the_customer(capsys) -> None:
         (404, "not_found"),
         (409, "state_mismatch"),
         (409, "district_invalid"),
+        (409, "sa_protocol_invalid"),
         (400, "bad_request"),
         (504, "outcome_unknown"),
     ),
@@ -168,10 +192,10 @@ def test_dry_run_is_forwarded_as_validate() -> None:
 
 def test_openapi_lists_the_write() -> None:
     operation = _spec()["paths"][_PATH]["post"]
-    assert operation["summary"] == "修改客户简称、地区分类、停用日期"
+    assert operation["summary"] == "修改客户简称、地区分类、停用日期、销售默认收付款协议"
     assert operation["operationId"] == "coArchiveCustomerFields"
     assert operation["tags"] == ["基础档案"]
     description = operation["description"]
     assert "权限：写" in description
-    for word in ("cCusAbbName", "cDCCode", "dEndDate", "AS011", "customer_fields", "district_invalid", "expect"):
+    for word in ("cCusAbbName", "cDCCode", "dEndDate", "cCusSAProtocol", "AS011", "customer_fields", "district_invalid", "sa_protocol_invalid", "expect"):
         assert word in description

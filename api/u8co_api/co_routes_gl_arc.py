@@ -308,7 +308,7 @@ _ARC_ROUTES = (
     _customer(
         "customer_fields",
         (ArcCustomerFieldsIn, ArcCustomerFieldsOut),
-        "修改客户简称、地区分类、停用日期",
+        "修改客户简称、地区分类、停用日期、销售默认收付款协议",
         CUSTOMER_FIELDS_HELP,
     ),
     _customer(

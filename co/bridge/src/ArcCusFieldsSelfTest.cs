@@ -11,8 +11,10 @@ namespace U8Co
         {
             CheckParse();
             CheckParseRejects();
+            CheckProtocolParse();
             CheckGate();
             CheckSet();
+            CheckStopped();
             CheckBodies();
             CheckSql();
             CheckRoute();
@@ -72,6 +74,30 @@ namespace U8Co
             Rejected("expect null value", Body("C900001", Fields("district", "33"), nullValue), "expect.district");
         }
 
+        // 收付款协议（sa_protocol）：自己的 1–20 上限（不走地区分类的 12），空串清空，前后空格 / 控制字符 / 非字符串 400。
+        static void CheckProtocolParse()
+        {
+            ArcCusFieldsAsk ask = ArcCusFields.Parse(Body("C900001", Fields("sa_protocol", "A001"), Fields("sa_protocol", "")));
+            Expect("parse protocol", ask.Fields.Count == 1 && ask.Fields["sa_protocol"] == "A001" && ask.Expect["sa_protocol"] == "");
+            Expect("parse protocol clear", ArcCusFields.Parse(
+                Body("C900001", Fields("sa_protocol", ""), Fields("sa_protocol", "A001"))).Fields["sa_protocol"] == "");
+            Expect("parse max protocol", ArcCusFields.Parse(
+                Body("C900001", Fields("sa_protocol", new string('A', 20)), null)).Fields["sa_protocol"].Length == 20);
+            Expect("parse protocol over district max", ArcCusFields.Parse(
+                Body("C900001", Fields("sa_protocol", new string('A', 13)), null)).Fields["sa_protocol"].Length == 13);
+            Rejected("protocol long", Body("C900001", Fields("sa_protocol", new string('A', 21)), null), "fields.sa_protocol");
+            Rejected("protocol lead space", Body("C900001", Fields("sa_protocol", " A001"), null), "fields.sa_protocol");
+            Rejected("protocol trail space", Body("C900001", Fields("sa_protocol", "A001 "), null), "fields.sa_protocol");
+            Rejected("protocol blank", Body("C900001", Fields("sa_protocol", "  "), null), "fields.sa_protocol");
+            Rejected("protocol control", Body("C900001", Fields("sa_protocol", "A0\t01"), null), "fields.sa_protocol");
+            Rejected("expect protocol long", Body("C900001", Fields("sa_protocol", "A001"),
+                Fields("sa_protocol", new string('A', 21))), "expect.sa_protocol");
+            Dictionary<string, object> number = Fields();
+            number["sa_protocol"] = 1;
+            Rejected("protocol not string", Body("C900001", number, null), "fields.sa_protocol");
+            Rejected("protocol key case", Body("C900001", Fields("SA_PROTOCOL", "A001"), null), "fields.SA_PROTOCOL");
+        }
+
         static void CheckGate()
         {
             Dictionary<string, string> cur = Cur("示例客户有限公司", "", "");
@@ -89,6 +115,9 @@ namespace U8Co
             ArcCusFieldsSql.Gate(Ask(Fields("district", "33"), Fields("district", "a1")), Cur("x", "A1", ""));
             Expect("gate district ignores case", Mismatch(Ask(Fields("district", "33"), Fields("district", "b1")), Cur("x", "A1", "")) != null);
             Expect("gate case sensitive", Mismatch(Ask(Fields("abbrname", "y"), Fields("abbrname", "X")), Cur("x", "", "")) != null);
+            ArcCusFieldsSql.Gate(Ask(Fields("sa_protocol", "A002"), Fields("sa_protocol", "a001")), Cur("x", "", "", "A001"));
+            message = Mismatch(Ask(Fields("sa_protocol", "A002"), Fields("sa_protocol", "")), Cur("x", "", "", "A001"));
+            Expect("gate protocol named", message != null && message.IndexOf("sa_protocol 当前是A001", StringComparison.Ordinal) >= 0);
         }
 
         static void CheckSet()
@@ -103,6 +132,50 @@ namespace U8Co
                 == "dEndDate=CONVERT(datetime, CONVERT(date, ?, 23))" && args.Count == 1 && (string)args[0] == "2026-10-20");
             args.Clear();
             Expect("set date clear", ArcCusFieldsSql.SetOf("end_date", "", args) == "dEndDate=NULL" && args.Count == 0);
+            CheckSetProtocol();
+        }
+
+        static void CheckSetProtocol()
+        {
+            List<object> args = new List<object>();
+            // 闸门：sa_protocol 必须映射到 cCusSAProtocol，绝不能落到 dEndDate。
+            Expect("set protocol", ArcCusFieldsSql.SetOf("sa_protocol", "A001", args) == "cCusSAProtocol=?"
+                && args.Count == 1 && (string)args[0] == "A001");
+            args.Clear();
+            Expect("set protocol clear", ArcCusFieldsSql.SetOf("sa_protocol", "", args) == "cCusSAProtocol=NULL" && args.Count == 0);
+            for (int i = 0; i < ArcCusFields.Keys.Length; i++)
+            {
+                string key = ArcCusFields.Keys[i];
+                string set = ArcCusFieldsSql.SetOf(key, "", args);
+                Expect("set mapped " + key, set.EndsWith("=NULL", StringComparison.Ordinal)
+                    && (key == "end_date") == set.StartsWith("dEndDate", StringComparison.Ordinal));
+            }
+            Expect("set unknown", SetRejects("name") && SetRejects("Sa_Protocol") && args.Count == 0);
+        }
+
+        static bool SetRejects(string key)
+        {
+            try
+            {
+                ArcCusFieldsSql.SetOf(key, "x", new List<object>());
+            }
+            catch (BridgeException ex)
+            {
+                return ex.Status == 500;
+            }
+            return false;
+        }
+
+        // 协议停用：dEDate 非空且不晚于登录日期；登录日期未知或无停用日期不拦。
+        static void CheckStopped()
+        {
+            Expect("stopped same day", ArcCusFieldsSql.Stopped("2026-10-20", "2026-10-20"));
+            Expect("stopped before", ArcCusFieldsSql.Stopped("2026-10-19", "2026-10-20"));
+            Expect("stopped later", !ArcCusFieldsSql.Stopped("2026-10-21", "2026-10-20"));
+            Expect("stopped none", !ArcCusFieldsSql.Stopped("", "2026-10-20"));
+            Expect("stopped no date", !ArcCusFieldsSql.Stopped("2026-10-19", "") && !ArcCusFieldsSql.Stopped("2026-10-19", null));
+            Expect("protocol sql", ArcCusFieldsSql.ProtocolSql.IndexOf("FROM AA_Agreement WHERE cCode=?", StringComparison.Ordinal) > 0
+                && ArcCusFieldsSql.ProtocolSql.IndexOf("dEDate", StringComparison.Ordinal) > 0);
         }
 
         static void CheckBodies()
@@ -121,11 +194,21 @@ namespace U8Co
             Dictionary<string, object> after = View(body, "after");
             Dictionary<string, object> before = View(body, "before");
             Expect("ok changed", (bool)body["changed"] && (string)body["code"] == "C900001");
-            Expect("ok after", (string)after["district"] == "33" && (string)after["abbrname"] == "示例简称" && after.Count == 3);
-            Expect("ok before", (string)before["district"] == "" && before.Count == 3);
+            Expect("ok after", (string)after["district"] == "33" && (string)after["abbrname"] == "示例简称" && after.Count == 4
+                && (string)after["sa_protocol"] == "");
+            Expect("ok before", (string)before["district"] == "" && before.Count == 4 && before.ContainsKey("sa_protocol"));
+            CheckOkProtocol();
             body = ArcCusFields.OkBody(ask, Cur("示例简称", "33", ""), false);
             Expect("ok unchanged", !(bool)body["changed"] && (string)View(body, "after")["district"] == "33"
                 && (string)View(body, "after")["end_date"] == "");
+        }
+
+        static void CheckOkProtocol()
+        {
+            Dictionary<string, object> body = ArcCusFields.OkBody(ArcCusFields.Parse(Body("C900001", Fields("sa_protocol", ""), null)),
+                Cur("示例简称", "", "", "A001"), true);
+            Expect("ok protocol cleared", (string)View(body, "after")["sa_protocol"] == ""
+                && (string)View(body, "before")["sa_protocol"] == "A001" && View(body, "after").Count == 4);
         }
 
         static void CheckDry(ArcCusFieldsAsk ask, Dictionary<string, string> cur)
@@ -155,6 +238,14 @@ namespace U8Co
                 == "UPDATE Customer SET cCusPPerson=?, cCusDepart=?, cModifyPerson=?,"
                 + " dModifyDate=CONVERT(datetime, CONVERT(date, ?, 23))"
                 + " WHERE cCusCode=? AND pubufts=CONVERT(binary(8), CONVERT(bigint, ?))");
+            for (int i = 0; i < ArcCusFields.Keys.Length; i++)
+            {
+                Expect("lock alias " + ArcCusFields.Keys[i],
+                    ArcCusFieldsSql.LockSql.IndexOf(" AS " + ArcCusFields.Keys[i] + ",", StringComparison.Ordinal) > 0);
+            }
+            Expect("lock alias sa_protocol column", ArcCusFieldsSql.LockSql.IndexOf(
+                "LTRIM(RTRIM(ISNULL(cCusSAProtocol,''))) AS sa_protocol,", StringComparison.Ordinal) > 0
+                && ArcCusFields.Keys.Length == 4);
             Expect("same", ArcCustomerRow.Same(" A ", "a") && !ArcCustomerRow.Same("a", "b"));
             Expect("concurrent", ArcCustomerRow.Concurrent("C900001").Status == 409);
             Expect("unknown", ArcCustomerRow.Unknown("C900001", "字段").Status == 504);
@@ -202,10 +293,16 @@ namespace U8Co
 
         static Dictionary<string, string> Cur(string abbr, string district, string end)
         {
+            return Cur(abbr, district, end, "");
+        }
+
+        static Dictionary<string, string> Cur(string abbr, string district, string end, string protocol)
+        {
             Dictionary<string, string> cur = new Dictionary<string, string>(StringComparer.Ordinal);
             cur["abbrname"] = abbr;
             cur["district"] = district;
             cur["end_date"] = end;
+            cur["sa_protocol"] = protocol;
             return cur;
         }
 

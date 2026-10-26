@@ -5,8 +5,8 @@ using System.Globalization;
 namespace U8Co
 {
     // 客户档案字段修改（archives/customer_fields）：受控 SQL 只改 Customer 的简称 cCusAbbName、地区分类 cDCCode、
-    // 停用日期 dEndDate 三列（ArcCusFieldsSql）。不走 EAI：客户 diffedit 会清银行账号、改最近收款日、补助记码，
-    // 并拒无所属行业的客户。fields 里只写要改的键，expect 核对当前值（空串表示当前为空）。
+    // 停用日期 dEndDate、销售默认收付款协议 cCusSAProtocol 四列（ArcCusFieldsSql）。
+    // 不走 EAI：客户 diffedit 会清银行账号、改最近收款日、补助记码，并拒无所属行业的客户。fields 里只写要改的键，expect 核对当前值（空串表示当前为空）。
     internal static class ArcCusFields
     {
         public const string Op = "customer_fields";
@@ -15,10 +15,12 @@ namespace U8Co
         internal const string Abbr = "abbrname";
         internal const string District = "district";
         internal const string EndDate = "end_date";
+        internal const string SaProtocol = "sa_protocol";
         // 固定顺序：校验、SQL、响应都按它。
-        internal static readonly string[] Keys = new string[] { Abbr, District, EndDate };
+        internal static readonly string[] Keys = new string[] { Abbr, District, EndDate, SaProtocol };
         const int AbbrMax = 60;
         const int DistrictMax = 12;
+        const int ProtocolMax = 20;  // Customer.cCusSAProtocol 列宽
         const string DateFormat = "yyyy-MM-dd";
 
         public static ArcCusFieldsAsk Parse(Dictionary<string, object> body)
@@ -112,7 +114,15 @@ namespace U8Co
             {
                 return Abbreviation(text, path, expect);
             }
-            return DistrictCode(text, path);
+            if (key == District)
+            {
+                return DistrictCode(text, path);
+            }
+            if (key == SaProtocol)
+            {
+                return ProtocolCode(text, path);
+            }
+            throw new BridgeException(500, "internal", "客户字段没有校验规则：" + key);
         }
 
         // 简称：前后空格去掉后 1–60 个字符（库列 NOT NULL）。expect 允许空串（对不上而已）。
@@ -133,9 +143,20 @@ namespace U8Co
         // 地区分类编码：空串清空；非空 1–12 个字符、前后没有空格。是否存在、是否末级在事务里查。
         static string DistrictCode(string text, string path)
         {
-            if (text.Length > DistrictMax)
+            return PlainCode(text, path, DistrictMax);
+        }
+
+        // 收付款协议编码（AA_Agreement.cCode）：空串清空；非空 1–20 个字符、前后没有空格。是否存在、是否停用在事务里查。
+        static string ProtocolCode(string text, string path)
+        {
+            return PlainCode(text, path, ProtocolMax);
+        }
+
+        static string PlainCode(string text, string path, int max)
+        {
+            if (text.Length > max)
             {
-                throw ArcReq.Bad(path + " 长度不能超过 " + DistrictMax.ToString(CultureInfo.InvariantCulture), path);
+                throw ArcReq.Bad(path + " 长度不能超过 " + max.ToString(CultureInfo.InvariantCulture), path);
             }
             if (text.Trim().Length != text.Length)
             {
@@ -197,7 +218,7 @@ namespace U8Co
             return false;
         }
 
-        // 响应里的三键对象（固定顺序，空值是空串）。
+        // 响应里的四键对象（固定顺序，空值是空串）。
         internal static Dictionary<string, object> View(Dictionary<string, string> values)
         {
             Dictionary<string, object> view = new Dictionary<string, object>();

@@ -135,7 +135,7 @@
 | POST | `archives/get`、`archives/list` | 读 | 基础档案读取、列表 |
 | POST | `archives/create`、`update`、`delete` | 写 | 基础档案写操作 |
 | POST | `archives/customer_person` | 写 | 修改客户专管业务员（只改 `cCusPPerson`，条件满足时一并改分管部门和 `Customer_Auth`；§15） |
-| POST | `archives/customer_fields` | 写 | 修改客户简称、地区分类、停用日期（只改 `cCusAbbName`、`cDCCode`、`dEndDate`；§15） |
+| POST | `archives/customer_fields` | 写 | 修改客户简称、地区分类、停用日期、销售默认收付款协议（只改 `cCusAbbName`、`cDCCode`、`dEndDate`、`cCusSAProtocol`；§15） |
 | POST | `archives/customer_address` | 写 | 修改客户已有收货地址的编码、名称、收货单位、默认标志（`CusDeliverAdd`；§15） |
 | POST | `archives/customer_address_add` | 写 | 给客户新增一个收货地址（`CusDeliverAdd`；§15） |
 | POST | `archives/customer_address_delete` | 写 | 删除客户的一个收货地址，`expect` 为并发核对；用于回滚新增（§15） |
@@ -1678,14 +1678,14 @@ U8 的已知缺陷：记账组件回写记账标志时按（期间、类别序�
 
 错误：404 `not_found` 客户不存在；409 `state_mismatch` 为 `expect` 与当前值不符或并发修改；409 `u8_rejected` 业务员不存在；504 `outcome_unknown` 写后回读不一致，先 `archives/get` 核对再决定是否重试。
 
-### 客户简称、地区分类、停用日期 `archives/customer_fields`
+### 客户简称、地区分类、停用日期、销售默认收付款协议 `archives/customer_fields`
 
-只改客户档案的三列，不走客户 EAI（EAI 的客户修改会清空开户银行与银行账号、改写最后收款日期、补助记码，并拒绝未填所属行业的客户；实测见 `docs/u8-notes.md`）。一个事务内 `UPDLOCK` 读出当前行，核对 `expect`，只 `UPDATE` 请求里列出的列，加修改人（操作员姓名）和修改日期，乐观锁 `pubufts`，写后同事务回读，不符回滚并返回 504。
+只改客户档案的四列，不走客户 EAI（EAI 的客户修改会清空开户银行与银行账号、改写最后收款日期、补助记码，并拒绝未填所属行业的客户；实测见 `docs/u8-notes.md`）。一个事务内 `UPDLOCK` 读出当前行，核对 `expect`，只 `UPDATE` 请求里列出的列，加修改人（操作员姓名）和修改日期，乐观锁 `pubufts`，写后同事务回读，不符回滚并返回 504。
 
 | 字段 | 说明 |
 | --- | --- |
 | `code` | 客户编码，校验同 `archives/update` 的 `code` |
-| `fields` | 对象，至少一项，键只收下表三个，其它键 400 |
+| `fields` | 对象，至少一项，键只收下表四个，其它键 400 |
 | `expect` | 可选，强烈建议带上。调用方认为的当前值，键须在 `fields` 里；空串表示当前为空；日期按 `yyyy-MM-dd` 比较。不符 409 `state_mismatch`，消息列出字段 |
 
 | `fields` 键 | 列 | 规则 |
@@ -1693,18 +1693,19 @@ U8 的已知缺陷：记账组件回写记账标志时按（期间、类别序�
 | `abbrname` | `Customer.cCusAbbName`（nvarchar(60) NOT NULL） | 去掉首尾空白后不能为空，最长 60，不含控制字符 |
 | `district` | `Customer.cDCCode`（nvarchar(12)） | 空串清空；否则须在 `DistrictClass` 中且 `bDCEnd=1`（末级），不然 409 `district_invalid`「地区分类不存在或不是末级」 |
 | `end_date` | `Customer.dEndDate` | 空串清空；否则 `yyyy-MM-dd`，不能早于客户建档日期（`dCusCreateDatetime` 的日期），否则 400 |
+| `sa_protocol` | `Customer.cCusSAProtocol`（nvarchar(20)，销售默认收付款协议） | 空串清空；否则最长 20，不含控制字符，首尾不能有空白（400）。须是收付款协议档案 `AA_Agreement` 里的 `cCode`（不分大小写，写入库里存的编码），不存在 409 `sa_protocol_invalid`「收付款协议不存在：编码」；已停用（停用日期 `dEDate` 非空且不晚于登录日期）409 `sa_protocol_invalid`「收付款协议已停用：编码」。请求值已等于当前值时不检查。协议档案没有销售 / 采购标志，不按侧别过滤；`expect.sa_protocol` 不分大小写比较 |
 
-请求值全部已等于当前值时成功返回 `changed:false`，不 `UPDATE`、不改审计列。响应 `{"ok":true,"code":C,"changed":true,"before":{"abbrname","district","end_date"},"after":{...}}`，三个键总在，空值是空串。预演是 `validate`：事务里跑完全部检查后回滚，不写库。
+请求值全部已等于当前值时成功返回 `changed:false`，不 `UPDATE`、不改审计列。响应 `{"ok":true,"code":C,"changed":true,"before":{"abbrname","district","end_date","sa_protocol"},"after":{...}}`，四个键总在（即使本次只改简称），空值是空串。预演是 `validate`：事务里跑完全部检查后回滚，不写库。
 
 ```json
 {"acc":"801","operator":"op001","code":"C900001",
- "fields":{"abbrname":"示例简称","district":"33","end_date":"2026-10-20"},
- "expect":{"abbrname":"示例客户有限公司","district":"","end_date":""}}
+ "fields":{"abbrname":"示例简称","district":"33","end_date":"2026-10-20","sa_protocol":"A001"},
+ "expect":{"abbrname":"示例客户有限公司","district":"","end_date":"","sa_protocol":""}}
 ```
 
 写入分类 `(archives, customer_fields)`，规则键 `write:archive:customer:customer_fields`；写入策略放行 `archives/update` 不连带放行。功能权限：客户档案编辑 `AS011`；记录级客户权限同档案读取。锁键 `arc:customer:<编码>`、`arc:write`。客户端 `arc_customer_fields(call, code, fields, expect=None, idempotency_key=None)`；命令行 `arc-customer-fields --code C --file edit.json`（文件内容 `{"fields":{...},"expect":{...}}`，`expect` 可选），可选 `--dry-run`、`--idempotency-key`。
 
-错误：404 `not_found` 客户不存在；400 键、长度、日期格式或停用日期早于建档日期；409 `state_mismatch` 为 `expect` 与当前值不符或并发修改；409 `district_invalid`；504 `outcome_unknown` 写后回读不一致，先 `archives/get` 核对再决定是否重试。
+错误：404 `not_found` 客户不存在；400 键、长度、日期格式或停用日期早于建档日期；409 `state_mismatch` 为 `expect` 与当前值不符或并发修改；409 `district_invalid`；409 `sa_protocol_invalid`（收付款协议不存在或已停用）；504 `outcome_unknown` 写后回读不一致，先 `archives/get` 核对再决定是否重试。**升级顺序：先桥，后 API**（旧桥遇 `sa_protocol` 回 400「未知字段」）。
 
 ### 客户收货地址 `archives/customer_address`
 

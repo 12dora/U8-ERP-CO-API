@@ -4,15 +4,23 @@ using System.Collections.Generic;
 namespace U8Co
 {
     // 客户字段修改的受控 SQL：一个事务里 UPDLOCK, ROWLOCK 读 Customer，核对 expect、地区分类（须存在且末级）、
-    // 停用日期（不早于建档日期），预演到此回滚；真写时只改有变化的列（加 cModifyPerson、dModifyDate），
-    // 以 pubufts 作乐观锁，回读核对。
+    // 停用日期（不早于建档日期）、收付款协议（须在 AA_Agreement 且未停用），预演到此回滚；
+    // 真写时只改有变化的列（加 cModifyPerson、dModifyDate），以 pubufts 作乐观锁，回读核对。
     internal static class ArcCusFieldsSql
     {
-        static readonly string LockSql = ArcCustomerRow.LockSql(
+        // 别名必须与 ArcCusFields.Keys 一致：缺别名时 Cell 取到空串，当前值会被悄悄当成空（selftest 逐个核对）。
+        internal static readonly string LockSql = ArcCustomerRow.LockSql(
             "LTRIM(RTRIM(ISNULL(cCusAbbName,''))) AS abbrname, LTRIM(RTRIM(ISNULL(cDCCode,''))) AS district,"
             + " ISNULL(CONVERT(varchar(10), dEndDate, 23),'') AS end_date,"
+            + " LTRIM(RTRIM(ISNULL(cCusSAProtocol,''))) AS sa_protocol,"
             + " ISNULL(CONVERT(varchar(10), dCusCreateDatetime, 23),'') AS created");
         const string DistrictSql = "SELECT LTRIM(RTRIM(cDCCode)) AS code FROM DistrictClass WHERE cDCCode=? AND bDCEnd=1";
+        // 收付款协议档案不分销售 / 采购（表上没有侧别标志）；停用只看 dEDate。
+        internal const string ProtocolSql = "SELECT LTRIM(RTRIM(cCode)) AS code,"
+            + " ISNULL(CONVERT(varchar(10), dEDate, 23),'') AS ended FROM AA_Agreement WHERE cCode=?";
+
+        // 键 → Customer 列名。只认这张表，没登记的键不拼 SQL（防止落到别的列）。
+        static readonly Dictionary<string, string> Columns = ColumnMap();
 
         public static ApiResult Run(WorkContext ctx, ArcCusFieldsAsk ask)
         {
@@ -25,7 +33,7 @@ namespace U8Co
             Dictionary<string, object> row = ArcCustomerRow.Need(conn, LockSql, ask.Code);
             Dictionary<string, string> cur = Current(row);
             Gate(ask, cur);
-            Resolve(conn, ask, cur, ArcCustomerRow.Cell(row, "created"));
+            Resolve(conn, ask, cur, ArcCustomerRow.Cell(row, "created"), ctx.Item.Date);
             if (DryRun.Active)
             {
                 DryRun.StopWith(ctx, ArcCusFields.DryBody(ask, cur));
@@ -73,21 +81,36 @@ namespace U8Co
             }
         }
 
-        // 地区分类编码在库里不分大小写，其余字段逐字比较。
+        // 地区分类、收付款协议编码在库里不分大小写，其余字段逐字比较。
         static StringComparison ExpectCompare(string key)
         {
-            return key == ArcCusFields.District ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            return key == ArcCusFields.District || key == ArcCusFields.SaProtocol
+                ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         }
 
-        // 只校验真正要改的键：已经等于目标的不重复查（比如旧数据的地区分类不是末级，原样保留不该拦）。
-        // 地区分类按库的比较规则（不分大小写）判断是否有变化，并把请求值换成库里存的写法，避免写出大小写不同的编码。
-        static void Resolve(object conn, ArcCusFieldsAsk ask, Dictionary<string, string> cur, string created)
+        // 只校验真正要改的键：已经等于目标的不重复查（比如旧数据的地区分类不是末级、协议已停用，原样保留不该拦）。
+        // 地区分类、收付款协议按库的比较规则（不分大小写）判断是否有变化，并把请求值换成库里存的写法，
+        // 避免写出大小写不同的编码。date 是登录日期，判断协议是否已停用。
+        static void Resolve(
+            object conn, ArcCusFieldsAsk ask, Dictionary<string, string> cur, string created, string date)
         {
             string district;
             if (ask.Fields.TryGetValue(ArcCusFields.District, out district))
             {
                 ask.Fields[ArcCusFields.District] = StoredDistrict(conn, district, cur[ArcCusFields.District]);
             }
+            string protocol;
+            if (ask.Fields.TryGetValue(ArcCusFields.SaProtocol, out protocol))
+            {
+                ask.Fields[ArcCusFields.SaProtocol] =
+                    StoredProtocol(conn, protocol, cur[ArcCusFields.SaProtocol], date);
+            }
+            CheckEndDate(ask, cur, created);
+        }
+
+        // 停用日期不能早于建档日期（与当前值相同、清空、建档日期未知时不查）。
+        static void CheckEndDate(ArcCusFieldsAsk ask, Dictionary<string, string> cur, string created)
+        {
             string end;
             if (ask.Fields.TryGetValue(ArcCusFields.EndDate, out end) && end.Length > 0 && created.Length > 0
                 && !string.Equals(end, cur[ArcCusFields.EndDate], StringComparison.Ordinal)
@@ -116,6 +139,37 @@ namespace U8Co
             return ArcCustomerRow.Cell(row, "code");
         }
 
+        // 请求的收付款协议对应的写入值：清空或与当前值只差大小写时保持当前值（不查存在 / 停用）；
+        // 否则必须在 AA_Agreement 里且未停用，返回档案里存的编码。
+        static string StoredProtocol(object conn, string wanted, string current, string date)
+        {
+            if (string.Equals(wanted, current, StringComparison.OrdinalIgnoreCase))
+            {
+                return current;
+            }
+            if (wanted.Length == 0)
+            {
+                return wanted;
+            }
+            Dictionary<string, object> row = Rows.One(conn, ProtocolSql, new object[] { wanted });
+            if (row == null)
+            {
+                throw new BridgeException(409, "sa_protocol_invalid", "收付款协议不存在：" + wanted);
+            }
+            if (Stopped(ArcCustomerRow.Cell(row, "ended"), date))
+            {
+                throw new BridgeException(409, "sa_protocol_invalid", "收付款协议已停用：" + wanted);
+            }
+            return ArcCustomerRow.Cell(row, "code");
+        }
+
+        // 停用日期非空且不晚于登录日期即为已停用（与业务员 dPInValidDate 同口径）；登录日期未知时不拦。
+        internal static bool Stopped(string ended, string date)
+        {
+            return date != null && date.Length > 0 && ended != null && ended.Length > 0
+                && string.CompareOrdinal(ended, date) <= 0;
+        }
+
         static void Write(object conn, WorkContext ctx, ArcCusFieldsAsk ask, Dictionary<string, string> cur, string ts)
         {
             List<string> sets = new List<string>();
@@ -132,11 +186,14 @@ namespace U8Co
             ArcCustomerRow.Update(conn, ctx, string.Join(", ", sets.ToArray()), args.ToArray(), ask.Code, ts);
         }
 
-        // 列名只来自固定表；空值清空写 NULL，其余值走参数。
+        // 列名只来自固定表 Columns；表外的键是内部错误。空值清空写 NULL，其余值走参数。
         internal static string SetOf(string key, string value, List<object> args)
         {
-            string column = key == ArcCusFields.Abbr ? "cCusAbbName"
-                : key == ArcCusFields.District ? "cDCCode" : "dEndDate";
+            string column;
+            if (key == null || !Columns.TryGetValue(key, out column))
+            {
+                throw new BridgeException(500, "internal", "客户字段没有对应的列：" + key);
+            }
             if (value.Length == 0)
             {
                 return column + "=NULL";
@@ -144,6 +201,16 @@ namespace U8Co
             args.Add(value);
             return key == ArcCusFields.EndDate
                 ? column + "=CONVERT(datetime, CONVERT(date, ?, 23))" : column + "=?";
+        }
+
+        static Dictionary<string, string> ColumnMap()
+        {
+            Dictionary<string, string> map = new Dictionary<string, string>(StringComparer.Ordinal);
+            map[ArcCusFields.Abbr] = "cCusAbbName";
+            map[ArcCusFields.District] = "cDCCode";
+            map[ArcCusFields.EndDate] = "dEndDate";
+            map[ArcCusFields.SaProtocol] = "cCusSAProtocol";
+            return map;
         }
 
         // 回读：每个请求的键都等于目标才算成功；否则 pubufts 没变说明 UPDATE 没命中（别人改过，409），变了则结果未知（504）。
