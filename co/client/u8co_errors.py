@@ -63,7 +63,12 @@ class U8CoNotFound(U8CoError):
 
 
 class U8CoStateMismatch(U8CoError):
-    pass
+    @property
+    def current(self) -> dict | None:
+        """409 state_mismatch 时桥在 detail.current 给的当前值（customer_fields 为请求 fields 各键、customer_person 为
+        person，空为空串）；并发修改等没有时为 None。"""
+        found = (self.detail or {}).get("current")
+        return found if isinstance(found, dict) else None
 
 
 class U8CoRejected(U8CoError):

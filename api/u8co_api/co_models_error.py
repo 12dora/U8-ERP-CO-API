@@ -20,7 +20,7 @@ class ErrorDetail(BaseModel):
         "outcome_unknown、write_not_allowed、operator_not_allowed、write_limit 等其余为 false）"
     )
     field: str | None = Field(
-        None, description="出错的请求字段路径，点分、下标从 0 起，如 lines.0.cinvcode。只用于 400，未知时省略"
+        None, description="出错的请求字段路径，点分、下标从 0 起，如 lines.0.cinvcode。只用于 400 和 409（桥给了时），未知时省略"
     )
     hint: str | None = Field(None, description="简短的中文修正提示。401、500 和没有提示时省略")
     detail: dict[str, Any] | None = Field(

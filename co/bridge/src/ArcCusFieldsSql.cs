@@ -4,8 +4,9 @@ using System.Collections.Generic;
 namespace U8Co
 {
     // 客户字段修改的受控 SQL：一个事务里 UPDLOCK, ROWLOCK 读 Customer，核对 expect、地区分类（须存在且末级）、
-    // 停用日期（不早于建档日期）、收付款协议（须在 AA_Agreement 且未停用），预演到此回滚；
+    // 停用日期（不早于建档日期）、收付款协议（须在 AA_Agreement 且未停用）、简称不与其他客户重复，预演到此回滚；
     // 真写时只改有变化的列（加 cModifyPerson、dModifyDate），以 pubufts 作乐观锁，回读核对。
+    // 名称、税号不唯一，不查重；改名不回写历史单据上的名称副本，也不重算助记码。
     internal static class ArcCusFieldsSql
     {
         // 别名必须与 ArcCusFields.Keys 一致：缺别名时 Cell 取到空串，当前值会被悄悄当成空（selftest 逐个核对）。
@@ -13,7 +14,11 @@ namespace U8Co
             "LTRIM(RTRIM(ISNULL(cCusAbbName,''))) AS abbrname, LTRIM(RTRIM(ISNULL(cDCCode,''))) AS district,"
             + " ISNULL(CONVERT(varchar(10), dEndDate, 23),'') AS end_date,"
             + " LTRIM(RTRIM(ISNULL(cCusSAProtocol,''))) AS sa_protocol,"
+            + " LTRIM(RTRIM(ISNULL(cCusName,''))) AS name, LTRIM(RTRIM(ISNULL(cCusRegCode,''))) AS tax_no,"
             + " ISNULL(CONVERT(varchar(10), dCusCreateDatetime, 23),'') AS created");
+        // 简称在 Customer 上有唯一索引：按库的排序规则（不分大小写）找别的客户是否已用。
+        internal const string AbbrTakenSql = "SELECT TOP 1 LTRIM(RTRIM(cCusCode)) AS code FROM Customer"
+            + " WHERE cCusAbbName=? AND cCusCode<>?";
         const string DistrictSql = "SELECT LTRIM(RTRIM(cDCCode)) AS code FROM DistrictClass WHERE cDCCode=? AND bDCEnd=1";
         // 收付款协议档案不分销售 / 采购（表上没有侧别标志）；停用只看 dEDate。
         internal const string ProtocolSql = "SELECT LTRIM(RTRIM(cCode)) AS code,"
@@ -22,10 +27,42 @@ namespace U8Co
         // 键 → Customer 列名。只认这张表，没登记的键不拼 SQL（防止落到别的列）。
         static readonly Dictionary<string, string> Columns = ColumnMap();
 
+        // 预查之后仍撞上简称唯一索引（2627 / 2601，并发写入）按 409 abbrname_taken，不当 500。
+        // 只有请求改了简称才这样映射（Customer 上只有简称这一个可能撞上的唯一索引）；没改简称的重复键原样上抛。
+        // 预演（DryRunDone）原样上抛。
         public static ApiResult Run(WorkContext ctx, ArcCusFieldsAsk ask)
         {
-            return ArcCustomerRow.Transact(ctx, "customer_fields " + ask.Code,
-                delegate(object conn) { return Apply(conn, ctx, ask); });
+            try
+            {
+                return ArcCustomerRow.Transact(ctx, "customer_fields " + ask.Code,
+                    delegate(object conn) { return Apply(conn, ctx, ask); });
+            }
+            catch (DryRunDone)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                if (AbbrCollision(ask, ex))
+                {
+                    throw AbbrTaken(ask);
+                }
+                throw;
+            }
+        }
+
+        // 重复键且请求 fields 里有简称：才按 abbrname_taken。
+        internal static bool AbbrCollision(ArcCusFieldsAsk ask, Exception ex)
+        {
+            return ask != null && ask.Fields != null && ask.Fields.ContainsKey(ArcCusFields.Abbr) && ArcGl.DuplicateKey(ex);
+        }
+
+        internal static BridgeException AbbrTaken(ArcCusFieldsAsk ask)
+        {
+            string abbr;
+            ask.Fields.TryGetValue(ArcCusFields.Abbr, out abbr);
+            return new BridgeException(409, "abbrname_taken", "简称已被其他客户使用：" + (abbr ?? ""),
+                FieldPath.Join("fields", ArcCusFields.Abbr));
         }
 
         static ApiResult Apply(object conn, WorkContext ctx, ArcCusFieldsAsk ask)
@@ -58,7 +95,7 @@ namespace U8Co
             return cur;
         }
 
-        // expect 里每个键的当前值都要对上；不符的键一并列出。
+        // expect 里每个键的当前值都要对上；不符的键一并列在消息里，detail.current 给 fields 各键的当前值。
         internal static void Gate(ArcCusFieldsAsk ask, Dictionary<string, string> cur)
         {
             if (ask.Expect == null)
@@ -77,7 +114,8 @@ namespace U8Co
             }
             if (bad.Count > 0)
             {
-                throw new BridgeException(409, "state_mismatch", "与 expect 不符：" + string.Join("；", bad.ToArray()));
+                throw ArcCustomerRow.Mismatch("与 expect 不符：" + string.Join("；", bad.ToArray()),
+                    ArcCusFields.CurrentOf(cur, ask.Fields));
             }
         }
 
@@ -106,6 +144,22 @@ namespace U8Co
                     StoredProtocol(conn, protocol, cur[ArcCusFields.SaProtocol], date);
             }
             CheckEndDate(ask, cur, created);
+            CheckAbbr(conn, ask, cur);
+        }
+
+        // 简称有变化（逐字比较）时查别的客户是否已用；与当前值相同不查。
+        static void CheckAbbr(object conn, ArcCusFieldsAsk ask, Dictionary<string, string> cur)
+        {
+            string abbr;
+            if (!ask.Fields.TryGetValue(ArcCusFields.Abbr, out abbr)
+                || string.Equals(abbr, cur[ArcCusFields.Abbr], StringComparison.Ordinal))
+            {
+                return;
+            }
+            if (Rows.One(conn, AbbrTakenSql, new object[] { abbr, ask.Code }) != null)
+            {
+                throw AbbrTaken(ask);
+            }
         }
 
         // 停用日期不能早于建档日期（与当前值相同、清空、建档日期未知时不查）。
@@ -210,6 +264,8 @@ namespace U8Co
             map[ArcCusFields.District] = "cDCCode";
             map[ArcCusFields.EndDate] = "dEndDate";
             map[ArcCusFields.SaProtocol] = "cCusSAProtocol";
+            map[ArcCusFields.Name] = "cCusName";
+            map[ArcCusFields.TaxNo] = "cCusRegCode";
             return map;
         }
 

@@ -109,7 +109,8 @@ def to_api_error(status: int, body: dict | None) -> ApiError:
     mapped = _status_for(code, status)
     error = _make(mapped, code, _message(body, mapped))
     error.retry_after = _retry_after(code, body)
-    if error.status == 400:
+    if error.status in (400, 409):
+        # 409 也透传桥给的字段路径（如 abbrname_taken 的 fields.abbrname）；桥没给就是 None。
         error.field = _field(body)
     if status not in (401, 500) and error.status not in (401, 500):
         error.hint = _hint(body)

@@ -267,3 +267,57 @@ def test_rule_without_archives_never_covers_create_or_delete(op: str, archives: 
     payload = {"acc": "803", "operator": "svc01", "archive": "district_class"}
     assert rule.covers(payload) is False
     assert allows((rule,), f"co:archives/{op}", payload) is False
+
+
+def _customer_create(**over) -> dict:
+    fields = {"name": "示例客户", "abbrname": "示例客户", "sort_code": "C10", "spec_operator": "EX040001"}
+    body = _login(operator="svc01", archive="customer", code="C900002", fields=fields)
+    body.update(over)
+    return body
+
+
+def test_customer_create_is_admitted_when_listed() -> None:
+    fake = FakeBridge()
+    rules = _rules(op="create", archives=["customer"])
+    client = _gated(fake, read_only_exceptions=rules)
+    assert client.post(_CREATE, json=_customer_create()).status_code == 200
+    assert len(fake.calls) == 1
+    # 只列 customer 时地区分类的新增仍拒绝；操作员不对也拒绝。
+    _refused(client.post(_CREATE, json=_district()))
+    _refused(client.post(_CREATE, json=_customer_create(operator="op001")))
+    assert len(fake.calls) == 1
+
+
+def test_customer_update_and_delete_stay_refused_with_create_open() -> None:
+    fake = FakeBridge()
+    items = [{**_ITEM, "op": "create", "archives": ["district_class", "customer"]}]
+    items.append({**_ITEM, "op": "delete", "archives": ["district_class"]})
+    client = _gated(fake, read_only_exceptions=parse_exceptions(json.dumps(items), _RO))
+    _refused(client.post(_UPDATE, json=_update()))
+    _refused(client.post(_DELETE, json=_login(operator="svc01", archive="customer", code="C900002")))
+    assert fake.calls == []
+    payload = {"acc": "803", "operator": "svc01", "archive": "customer"}
+    rules = parse_exceptions(json.dumps(items), _RO)
+    assert allows(rules, "co:archives/create", payload) is True
+    assert allows(rules, "co:archives/update", payload) is False
+    assert allows(rules, "co:archives/delete", payload) is False
+
+
+def test_forged_customer_delete_rule_never_covers() -> None:
+    # 解析器拒绝 delete + customer；对象被直接构造出来时也不能放行。
+    rule = ReadOnlyException(("803",), ("svc01",), "archives", "delete", ("customer",))
+    payload = {"acc": "803", "operator": "svc01", "archive": "customer"}
+    assert rule.covers(payload) is False
+    assert allows((rule,), "co:archives/delete", payload) is False
+
+
+@pytest.mark.parametrize("archives", (None, ("customer",)))
+def test_forged_customer_update_rule_never_covers(archives: tuple | None) -> None:
+    # 解析器不收 op=update；对象被直接构造出来时也不能放行 archives/update（客户 EAI 修改会清银行账号）。
+    rule = ReadOnlyException(("803",), ("svc01",), "archives", "update", archives)
+    payload = {"acc": "803", "operator": "svc01", "archive": "customer"}
+    assert rule.covers(payload) is False
+    assert allows((rule,), "co:archives/update", payload) is False
+    fake = FakeBridge()
+    _refused(_gated(fake, read_only_exceptions=(rule,)).post(_UPDATE, json=_update()))
+    assert fake.calls == []

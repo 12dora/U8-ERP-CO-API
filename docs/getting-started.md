@@ -328,7 +328,7 @@ uv run --no-project --python 3.12 --with cryptography python -m co.client.u8co_c
 | `arc-get` / `arc-delete` | `--archive` `--code`。档案种类、可写性和复合编码的写法见下文 |
 | `arc-create` / `arc-update` | `--archive` `--code` `--file`。文件为 `{"fields":{EAI 标签: 值}}`，新增可再带 `template`。`arc-update` 不接受 `user_define`、`customer_inventory`（U8 不提供修改，须删除后重建） |
 | `arc-customer-person` | `--code` `--person`，可选 `--expect`。只改客户专管业务员；条件满足时一并改分管部门并同步 `Customer_Auth`。写命令，可加 `--dry-run`、`--idempotency-key` |
-| `arc-customer-fields` | `--code` `--file`，文件 `{"fields":{"abbrname","district","end_date","sa_protocol"},"expect":{...}}`（`expect` 可选，建议带上）。只改客户简称、地区分类、停用日期、销售默认收付款协议。写命令，可加 `--dry-run`、`--idempotency-key` |
+| `arc-customer-fields` | `--code` `--file`，文件 `{"fields":{"abbrname","district","end_date","sa_protocol","name","tax_no"},"expect":{...}}`（`expect` 可选，建议带上）。只改客户名称、简称、税号、地区分类、停用日期、销售默认收付款协议。写命令，可加 `--dry-run`、`--idempotency-key` |
 | `arc-customer-address` | `--code` `--address` `--file`，文件 `{"fields":{"code","name","unit","default"},"expect":{...}}`（改 `name` / `unit` / `default` 时 `expect` 必填）。只改客户已有收货地址。写命令，可加 `--dry-run`、`--idempotency-key` |
 | `arc-customer-address-add` | `--code` `--address` `--file`，文件 `{"fields":{"name","unit","default"}}`（`name` 必填）。给客户新增一个收货地址；同编码内容一致的重放不写库。写命令，可加 `--dry-run`、`--idempotency-key` |
 | `arc-customer-address-delete` | `--code` `--address` `--file`，文件 `{"expect":{"name","unit","default"}}`（三项必填）。删除客户的一个收货地址（用于回滚新增）；被单据引用、或是默认地址且还有其它地址时被拒。写命令，可加 `--dry-run`、`--idempotency-key` |

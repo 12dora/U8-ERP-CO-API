@@ -1,8 +1,11 @@
-"""客户主数据的专用写入（受控 SQL，不走客户 EAI）：专管业务员、简称 / 地区分类 / 停用日期 / 销售默认收付款协议、收货地址（改、增、删）。混入 U8CoClient。
+"""客户主数据的专用写入（受控 SQL，不走客户 EAI）：专管业务员、名称 / 简称 / 税号 / 地区分类 / 停用日期 / 销售默认收付款协议、
+收货地址（改、增、删）。混入 U8CoClient。
 
 EAI 的客户修改会清空开户银行与银行账号、改写最后收款日期，U8 也没有收货地址组件，所以三个操作都只改
 请求里列出的列。fields 与 expect 的写法同 API（docs/api-reference.md「客户主数据专用写入」）；
-这里只做本地预检，细的校验（地区分类是否末级、停用日期不早于建档日期、收付款协议是否存在且未停用、地址编码引用）在桥。
+这里只做本地预检，细的校验（地区分类是否末级、停用日期不早于建档日期、收付款协议是否存在且未停用、简称是否与其他客户重复、
+地址编码引用）在桥。expect 不符时抛 U8CoStateMismatch，其 current 是桥给的当前值（customer_fields 为 fields 各键，
+customer_person 为 {"person": ...}）。
 """
 
 from __future__ import annotations
@@ -16,10 +19,13 @@ from co.client.u8co_idem import with_key
 if TYPE_CHECKING:
     from co.client.u8co_client import U8Call
 
-# 客户字段：键 → 最大长度（Customer.cCusAbbName 60、cDCCode 12、dEndDate 写成 yyyy-MM-dd、cCusSAProtocol 20）。
-CUSTOMER_FIELD_LIMIT = {"abbrname": 60, "district": 12, "end_date": 10, "sa_protocol": 20}
+# 客户字段：键 → 最大长度（Customer.cCusAbbName 60、cDCCode 12、dEndDate 写成 yyyy-MM-dd、cCusSAProtocol 20、
+# cCusName 98、cCusRegCode 50）。
+CUSTOMER_FIELD_LIMIT = {"abbrname": 60, "district": 12, "end_date": 10, "sa_protocol": 20, "name": 98, "tax_no": 50}
 # 写入时首尾不能有空白的键。
 _CUSTOMER_TRIMMED = ("district", "sa_protocol")
+# 写入时去掉首尾空白后不能为空的键（税号写空串清空）。
+_CUSTOMER_REQUIRED = ("abbrname", "name")
 # 收货地址：code → cAddCode（30），name → cDeliverAdd、unit → cDeliverUnit（255），default → bDefault。
 ADDRESS_FIELD_LIMIT = {"code": 30, "name": 255, "unit": 255}
 ADDRESS_KEYS = (*ADDRESS_FIELD_LIMIT, "default")
@@ -172,7 +178,7 @@ def _customer_values(values: object, label: str, allowed: tuple[str, ...], writi
 
 
 def _customer_text(key: str, text: str, where: str) -> None:
-    if key == "abbrname" and text.strip() == "":
+    if key in _CUSTOMER_REQUIRED and text.strip() == "":
         raise ValueError(f"{where} 不能为空")
     if key in _CUSTOMER_TRIMMED and text != text.strip():
         raise ValueError(f"{where} 首尾不能有空白")

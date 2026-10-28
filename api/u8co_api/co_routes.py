@@ -97,7 +97,7 @@ _DESCRIPTION = """\
 | code | 错误码，见下表 |
 | message | 错误说明 |
 | retryable | 总是有；为 true 时可以原样稍后重试 |
-| field | 出错的请求字段路径，只用于 400，如 `lines.0.cinvcode` |
+| field | 出错的请求字段路径，只用于 400 和 409（桥给了时），如 `lines.0.cinvcode` |
 | hint | 简短的修正提示 |
 | detail | 桥给的结构化补充，只用于 4xx，如存货核算记账 409 时的 `uncosted`、`uncosted_total` |
 

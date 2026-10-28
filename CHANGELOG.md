@@ -6,6 +6,10 @@
 
 ### 新增
 
+- 客户名称、税号：`archives/customer_fields` 的 `fields` / `expect` 新增 `name`（`Customer.cCusName`，nvarchar(98)，去首尾空白后不能为空）和 `tax_no`（`Customer.cCusRegCode`，nvarchar(50)，空串清为 NULL），仍走受控 SQL、不走客户 EAI，`expect` 逐字比较，写后回读。两者都不查重；改名称不改历史单据上的客户名称副本，也不重算助记码。`before` / `after` 总含六个键。客户端 `arc_customer_fields` 的本地预检与命令行 `arc-customer-fields` 的文件键同步增加；MCP 路由说明改为「修改客户名称、简称、税号、地区分类、停用日期、销售默认收付款协议」。**升级顺序：先桥，后 API**（只升 API：旧桥回 400「未知字段」）。注意：已有的只读例外 `{"op":"customer_fields"}` 不按键区分，升级后同一条例外也放行改名称、税号；只想开放原来四个键的账套，要在调用方限制，或升级前撤掉该例外。
+- `customer_fields`、`customer_person` 的 409 `state_mismatch`（`expect` 不符）在错误体 `detail.current` 里给结构化的当前值：`customer_fields` 为请求 `fields` 的各键，`customer_person` 为 `{"person": 编码}`，空为空串；消息不变，并发修改仍没有 `detail`。Python 客户端 `U8CoStateMismatch.current`。调用方不必再解析中文消息。
+- 只读例外可开放客户新增：`op=create` 的 `archives` 可列 `customer`（`archives/create` + `archive=customer`，EAI 新增是 INSERT，不经清银行账号的 `diffedit`）。`op=delete` 仍只能列 `district_class`（列 `customer` 进程起不来，直接构造的规则也不放行），`archives/update` 仍不能开放；新增错的客户用 `customer_fields` 写停用日期。开放时写入策略只加 `create`，不加 `update`。新条目只有新版桥和 API 认得：**先升级桥和 API，再写新条目；回滚到旧版前先删除新条目**。
+
 - 客户销售默认收付款协议：`archives/customer_fields` 的 `fields` / `expect` 新增第四个键 `sa_protocol`，对应 `Customer.cCusSAProtocol`（nvarchar(20)），仍走受控 SQL、不走客户 EAI。空串清为 NULL；非空必须是收付款协议档案 `AA_Agreement` 里的 `cCode`（不分大小写，写入库里存的编码），不存在或已停用（`dEDate` 非空且不晚于登录日期）409 `sa_protocol_invalid`；请求值已等于当前值时不检查。`expect.sa_protocol` 不分大小写比较。`before` / `after` 总含 `abbrname`、`district`、`end_date`、`sa_protocol` 四个键。协议档案没有销售 / 采购标志，所以不按侧别过滤，也不写 `cCusExProtocol` 等其它协议列。客户端 `arc_customer_fields` 与命令行 `arc-customer-fields` 的文件键同步增加。**升级顺序：先桥，后 API**（只升 API：旧桥回 400「未知字段」；只升桥：旧 API 仍拒绝第四个键）。
 - 销售发票 `vouchers/search` 的 `code_like` 同时匹配账套配置的数电/金税发票号列；销售发票、应收应付单可按 `settled` 筛核销状态，列表/搜索行另有 `tax_invoice_no`（仅发票；无权看该列时为 null）、`amount`、`open_amount`、`settled`。销售发票的 `amount`、`open_amount`、`settled` 只含操作员有存货 / 仓库记录权限的明细行，无权看任何明细行或金额字段时为 null；无权看金额字段时按 `settled` 筛选 403「无权按核销状态筛选：缺少金额字段权限」。应收应付单的 `open_amount`、`settled` 只受记录权限约束（U8 无字段权限对象，不会遮蔽，按 `settled` 筛选也不会 403）。按被字段权限拒绝的表头自定义项筛选时 403「无权按表头自定义项 defineN 搜索」，返回的 `defines.defineN` 一并遮蔽。账龄分析与经营管理往来账期每项另有 `max_overdue_days`、`oldest_overdue_date`（无单据号；`oldest_overdue_date` 在 `basis=due` 时为到期日、`basis=document` 时为单据日期；应收应付都只看核销后净余额大于 0 的原单，按往来单位、原单类型、原单号分开合计；others/totals 取成员最大值及该成员的日期）。**升级顺序：先升级桥二进制，再在 `config.json` 写下 `taxInvoiceNoFields`；回滚到旧桥前先删除该键（旧桥遇未知键会拒绝启动，值为 `{}` 也不行）。先桥，后 API**。
 - 客户专管业务员 `archives/customer_person`：只改 `Customer.cCusPPerson`（当前专管业务员对应部门与客户分管部门一致、或分管部门为空时一并改 `cCusDepart`），不走客户 EAI。新部门须在 `Department` 中、末级且未停用，否则不改分管部门，响应 `dept_note`；分管部门实际改动时同步 `Customer_Auth`（`Privilege_Type=0` 的部门维度，`autoId` 是 IDENTITY，插入不写该列）。请求 `code`、`person`，可选 `expect`（空串表示当前为空）。响应 `before` / `after`、`dept_before` / `dept_after`、`dept_note`。预演为 `validate`。写入分类 `(archives, customer_person)`，放行 `archives/update` 不连带放行。只读例外改为 `{accounts, operators, type, op}`，`op` 只收 `customer_person`；`archive` / `fields` 已取消（未知键进程起不来）。`archives/update` 在只读账套上仍一律 403。客户端 `arc_customer_person`，命令行 `arc-customer-person`。审计行另记 `read_only_exception`，健康检查列出例外。**升级顺序：先桥，后 API**。
@@ -42,6 +46,8 @@
 
 ### 修复
 
+- `customer_fields` 改简称撞上简称唯一索引时返回 500：桥先按库的排序规则查别的客户是否已用该简称，已用 409 `abbrname_taken`（`field=fields.abbrname`，预演同样拒绝），预查之后并发撞上唯一索引（2627 / 2601）也按 409 `abbrname_taken`（只在请求改了简称时；没改简称的重复键照旧上抛）。API 错误体的 `field` 以前只在 400 转出，现在 409 带了也转出（如 `abbrname_taken` 的 `fields.abbrname`）。
+- 只读例外的放行判断（桥 `ReadOnlyGate`、API `ReadOnlyException.covers`）另外要求规则的 `op` 是该 `type` 可开放的 op：绕过配置加载直接构造的规则（如 `op=update`）也不放行 `archives/update`。
 - 桥 `reports/mgmt/sales` 在 `group_by` 含 `period` 且 `period_from` 等于 `period_to` 时拼出只有 `ELSE` 的 `CASE`，SQL 语法错误；单个期间现在直接用期间号。
 
 ## [1.0.0] - 2026-10-04

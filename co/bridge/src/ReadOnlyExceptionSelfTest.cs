@@ -9,9 +9,10 @@ namespace U8Co
     // 客户专用路由（ArcCustomerOps.Ops：customer_person / customer_fields / customer_address / customer_address_add /
     // customer_address_delete）各自只放行自己的路径；type=vouchers 的规则只放行 op=head_fix（路径恰为 vouchers/head_fix、
     // 请求体 type=dispatch），archives 键不能用在它和客户专用路由上；
-    // op=create / delete（ConfigRulesReadOnly.ArchiveOps）必须带 archives（每项须在 EligibleArchives 里，目前只有
-    // district_class），只放行 archives/<op> 且请求体 archive 在规则里；archives 用在其它 op、未知档案类型启动即报错。
-    // update、其它档案的 create / delete 在只读账套上仍 403。不连库、不建 COM、不登录。
+    // op=create / delete（ConfigRulesReadOnly.ArchiveOps）必须带 archives（每项须在该 op 的可开放集合里），
+    // 只放行 archives/<op> 且请求体 archive 在规则里；archives 用在其它 op、未知档案类型启动即报错。
+    // update、其它档案的 create / delete 在只读账套上仍 403。客户新增（create + customer）见 ReadOnlyExceptionCustomerSelfTest。
+    // 不连库、不建 COM、不登录。
     internal static class ReadOnlyExceptionSelfTest
     {
         const string Listed = ReadOnlyGateSelfTest.Listed;
@@ -28,6 +29,7 @@ namespace U8Co
             CheckVoucherConfig();
             CheckVoucherGate();
             CheckVoucherPost();
+            ReadOnlyExceptionCustomerSelfTest.Run();
         }
 
         static void CheckConfig()
@@ -49,7 +51,7 @@ namespace U8Co
             ExpectError("roex2 op get", RuleOf("get", null), ro, "delete");
         }
 
-        // create / delete 规则：archives 必填、非空、唯一、只收 district_class。
+        // create / delete 规则：archives 必填、非空、唯一；两者都收 district_class，都不收 vendor。
         static void CheckArchiveOp(string op, string[] ro)
         {
             ReadOnlyExceptionRule[] rules = Parse(RuleOf(op, new object[] { ArcKindRwMore.District }), ro);
@@ -57,7 +59,7 @@ namespace U8Co
                 && rules[0].Archives[0] == ArcKindRwMore.District);
             ExpectError("roex2 no archives " + op, RuleOf(op, null), ro, "缺少 archives");
             ExpectError("roex2 empty " + op, RuleOf(op, new object[0]), ro, "不能为空");
-            ExpectError("roex2 other kind " + op, RuleOf(op, new object[] { "customer" }), ro, ArcKindRwMore.District);
+            ExpectError("roex2 other kind " + op, RuleOf(op, new object[] { "vendor" }), ro, ArcKindRwMore.District);
             ExpectError("roex2 dup " + op,
                 RuleOf(op, new object[] { ArcKindRwMore.District, ArcKindRwMore.District }), ro, "重复");
             ExpectError("roex2 not list " + op, RuleOf(op, "district_class"), ro, "字符串数组");
@@ -370,7 +372,7 @@ namespace U8Co
             return cfg;
         }
 
-        static Dictionary<string, object> RuleOf(string op, object archives)
+        internal static Dictionary<string, object> RuleOf(string op, object archives)
         {
             Dictionary<string, object> rule = ReadOnlyGateSelfTest.RuleDict();
             rule["op"] = op;
@@ -381,24 +383,24 @@ namespace U8Co
             return rule;
         }
 
-        static ReadOnlyExceptionRule[] Parse(Dictionary<string, object> rule, string[] ro)
+        internal static ReadOnlyExceptionRule[] Parse(Dictionary<string, object> rule, string[] ro)
         {
             return ConfigRulesReadOnly.ReadOnlyExceptions(ReadOnlyGateSelfTest.ExMap(new object[] { rule }), ro);
         }
 
-        static void ExpectError(string name, Dictionary<string, object> rule, string[] ro, string text)
+        internal static void ExpectError(string name, Dictionary<string, object> rule, string[] ro, string text)
         {
             ReadOnlyGateSelfTest.ExpectConfigError(name, ReadOnlyGateSelfTest.ExMap(new object[] { rule }), ro, text);
         }
 
-        static void ExpectAdmit(string name, BridgeConfig cfg, string path, string user, string archive)
+        internal static void ExpectAdmit(string name, BridgeConfig cfg, string path, string user, string archive)
         {
             AuditDraft draft = new AuditDraft();
             string code = ReadOnlyGateSelfTest.CodeWith(cfg, path, Body(Listed, user, archive), draft);
             ReadOnlyGateSelfTest.Expect(name, code == "bad_request" && draft.Policy == ReadOnlyGate.ExceptionCode);
         }
 
-        static void ExpectRefused(string name, BridgeConfig cfg, string path, string user, string archive)
+        internal static void ExpectRefused(string name, BridgeConfig cfg, string path, string user, string archive)
         {
             ExpectRefused(name, cfg, path, user, archive, Listed);
         }
@@ -427,7 +429,7 @@ namespace U8Co
             return Encoding.UTF8.GetBytes(new JavaScriptSerializer().Serialize(body));
         }
 
-        static WorkItem Item(BridgeConfig cfg, string path, string archive)
+        internal static WorkItem Item(BridgeConfig cfg, string path, string archive)
         {
             WorkItem item = new WorkItem();
             item.Config = cfg;

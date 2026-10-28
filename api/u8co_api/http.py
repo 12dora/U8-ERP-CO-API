@@ -67,9 +67,10 @@ def api_error_detail(exc: ApiError) -> dict:
 
 
 def _detail(status: int, code: str, message: str, field: str | None = None, hint: str | None = None) -> dict:
-    # retryable 总是有；field 只用于 400 和 403 operator_forbidden；hint 没有具体提示时按错误码取默认，401/500 不给。
+    # retryable 总是有；field 只用于 400、409（桥给了字段路径时，如 abbrname_taken）和 403 operator_forbidden；
+    # hint 没有具体提示时按错误码取默认，401/500 不给。
     detail: dict = {"code": code, "message": message, "retryable": is_retryable(code)}
-    if field and (status == 400 or code == "operator_forbidden"):
+    if field and (status in (400, 409) or code == "operator_forbidden"):
         detail["field"] = field
     if status not in (401, 500):
         hint = hint or default_hint(status, code)

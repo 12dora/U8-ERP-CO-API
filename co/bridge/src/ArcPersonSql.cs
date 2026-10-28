@@ -88,7 +88,8 @@ namespace U8Co
             return row == null ? "" : Cell(row, "dept");
         }
 
-        static void Gate(ArcPersonAsk ask, ArcPersonSnap snap)
+        // expect 不符：409，detail.current.person 是当前专管业务员编码（空为空串）。
+        internal static void Gate(ArcPersonAsk ask, ArcPersonSnap snap)
         {
             if (!ask.HasExpect)
             {
@@ -98,8 +99,10 @@ namespace U8Co
             {
                 return;
             }
-            string current = snap.Person.Length == 0 ? "空" : snap.Person;
-            throw new BridgeException(409, "state_mismatch", "当前专管业务员是" + current);
+            string person = snap.Person ?? "";
+            Dictionary<string, object> current = new Dictionary<string, object>();
+            current["person"] = person;
+            throw ArcCustomerRow.Mismatch("当前专管业务员是" + (person.Length == 0 ? "空" : person), current);
         }
 
         static void Write(object conn, WorkContext ctx, ArcPersonAsk ask, ArcPersonSnap snap)

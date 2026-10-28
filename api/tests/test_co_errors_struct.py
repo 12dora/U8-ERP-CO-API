@@ -189,9 +189,12 @@ def test_bridge_field_200_chars_allowed() -> None:
     assert error.field == "a" * 200
 
 
-def test_bridge_field_only_for_400() -> None:
+def test_bridge_field_for_400_and_409_only() -> None:
     error = to_api_error(409, {"ok": False, "code": "u8_rejected", "message": "m", "field": "lines"})
-    assert error.field is None
+    assert error.field == "lines"
+    assert to_api_error(409, {"ok": False, "code": "state_mismatch", "message": "m"}).field is None
+    for status, code in ((403, "account_read_only"), (404, "not_found"), (422, "login_failed"), (504, "outcome_unknown")):
+        assert to_api_error(status, {"ok": False, "code": code, "message": "m", "field": "lines"}).field is None
 
 
 def test_bridge_field_and_hint_on_the_wire() -> None:
@@ -206,10 +209,11 @@ def test_bridge_field_and_hint_on_the_wire() -> None:
     }
 
 
-def test_api_error_field_rendered_only_for_400() -> None:
+def test_api_error_field_rendered_only_for_400_and_409() -> None:
     fake = FakeBridge()
     assert _error(fake, bad_request("fields 无效", field="fields"))["field"] == "fields"
-    assert "field" not in _error(fake, ApiError(409, "state_mismatch", "m", field="lines"))
+    assert _error(fake, ApiError(409, "state_mismatch", "m", field="lines"))["field"] == "lines"
+    assert "field" not in _error(fake, ApiError(404, "not_found", "m", field="lines"))
 
 
 def test_error_models_accept_the_wire_shape() -> None:

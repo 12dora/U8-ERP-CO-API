@@ -11,6 +11,7 @@ from tests.support import audit_line
 from tests.test_co_core_routes import _auth, _sealed, _Up, _wired
 from tests.test_co_gate import _SECRET, FakeBridge, _client
 from tests.test_co_update_close_gen import _spec
+from u8co_api.co_bridge import to_api_error
 from u8co_api.errors import ApiError
 
 _PATH = "/v1/co/archives/customer_person"
@@ -148,6 +149,19 @@ def test_bridge_conflict_passes_through() -> None:
     denied = _client(fake).post(_PATH, json=_body(expect="EX040002"))
     assert denied.status_code == 409
     assert denied.json()["error"]["code"] == "state_mismatch"
+
+
+def test_state_mismatch_current_person_reaches_the_caller() -> None:
+    bridge = {"ok": False, "code": "state_mismatch", "message": "当前专管业务员是空", "detail": {"current": {"person": ""}}}
+    fake = _PersonBridge()
+    fake.error = to_api_error(409, bridge)
+    denied = _client(fake).post(_PATH, json=_body(expect="EX040002"))
+    assert denied.status_code == 409
+    wire = denied.json()["error"]
+    assert (wire["code"], wire["message"]) == ("state_mismatch", "当前专管业务员是空")
+    assert wire["detail"] == {"current": {"person": ""}}
+    description = _spec()["paths"][_PATH]["post"]["description"]
+    assert "detail.current.person" in description
 
 
 def test_not_found_passes_through() -> None:

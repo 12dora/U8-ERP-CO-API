@@ -13,6 +13,7 @@ from co.client.tests.test_u8co_update_close_gen import SECRET, _AUTH, _assert_si
 from co.client.u8co_cli import _parser
 from co.client.u8co_cli_assist import KEY_COMMANDS, WRITE_COMMANDS
 from co.client.u8co_client import U8Call, U8CoClient
+from co.client.u8co_errors import U8CoStateMismatch, error_from
 from co.client.u8co_idem import WRITE_ROUTES
 
 _CODE = "C900001"
@@ -62,6 +63,21 @@ class ArcCustomerFieldsTests(unittest.TestCase):
             self.assertEqual(sent["fields"], fields)
             self.assertEqual(sent["expect"], expect)
 
+    def test_name_and_tax_no_pass_the_local_check(self) -> None:
+        cases = (
+            ({"name": "示例客户有限公司", "tax_no": "EXAMPLE-TAX-NO-001"}, {"name": "旧名称", "tax_no": ""}),
+            ({"tax_no": ""}, {"tax_no": "EXAMPLE-TAX-NO-001"}),
+            ({"name": "名" * 98, "tax_no": "9" * 50}, None),
+        )
+        for fields, expect in cases:
+            _path, sent = self._send(
+                lambda client, f=fields, e=expect: client.arc_customer_fields(
+                    _call(), _CODE, dict(f), expect=None if e is None else dict(e)
+                )
+            )
+            self.assertEqual(sent["fields"], fields)
+            self.assertEqual(sent.get("expect"), expect)
+
     def test_dry_and_keyed_clients(self) -> None:
         _path, sent = self._send(lambda client: client.dry().arc_customer_fields(_call(), _CODE, dict(_FIELDS)))
         self.assertIs(sent["dry_run"], True)
@@ -104,11 +120,30 @@ class ArcCustomerFieldsTests(unittest.TestCase):
             (lambda: client.arc_customer_fields(call, _CODE, {"abbrname": "x"}, expect={"abbrname": "y" * 61}), "expect"),
             (lambda: client.arc_customer_fields(call, _CODE, {"end_date": "2026-10-20"}, expect={"end_date": "x"}), "end_date"),
             (lambda: client.arc_customer_fields(call, _CODE, {"abbrname": "x"}, idempotency_key="has space"), "idempotency_key"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"name": ""}), "name"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"name": "  "}), "name"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"name": "名" * 99}), "name"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"name": "示例\n客户"}), "name"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"tax_no": "9" * 51}), "tax_no"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"tax_no": 91}), "tax_no"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"name": "x"}, expect={"name": "名" * 99}), "expect"),
+            (lambda: client.arc_customer_fields(call, _CODE, {"name": "x"}, expect={"tax_no": ""}), "tax_no"),
         )
         for invoke, word in bad:
             with self.subTest(word=word), self.assertRaises(ValueError) as caught:
                 invoke()
             self.assertIn(word, str(caught.exception))
+
+    def test_state_mismatch_exposes_current(self) -> None:
+        current = {"name": "示例客户有限公司", "tax_no": ""}
+        exc = error_from(409, {"code": "state_mismatch", "message": "与 expect 不符", "detail": {"current": current}})
+        self.assertIsInstance(exc, U8CoStateMismatch)
+        self.assertEqual(exc.current, current)
+        person = error_from(409, {"code": "state_mismatch", "message": "当前专管业务员是空", "detail": {"current": {"person": ""}}})
+        self.assertEqual(person.current, {"person": ""})
+        # 并发修改没有 detail；detail 里的 current 不是对象时同样当没有。
+        self.assertIsNone(error_from(409, {"code": "state_mismatch", "message": "客户 C900001 已被他人修改"}).current)
+        self.assertIsNone(error_from(409, {"code": "state_mismatch", "message": "m", "detail": {"current": "x"}}).current)
 
     def test_route_is_a_write(self) -> None:
         self.assertIn("/v1/archives/customer_fields", WRITE_ROUTES)

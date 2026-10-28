@@ -1,4 +1,4 @@
-"""客户字段 /v1/co/archives/customer_fields：只改 Customer 的简称、地区分类、停用日期、销售默认收付款协议，不走 EAI。"""
+"""客户字段 /v1/co/archives/customer_fields：只改 Customer 的名称、简称、税号、地区分类、停用日期、销售默认收付款协议，不走 EAI。"""
 
 from __future__ import annotations
 
@@ -11,24 +11,30 @@ from u8co_api.co_models_arc_cus import PERMISSION_RULES, check_text, check_ymd, 
 from u8co_api.co_models_dry import DryRunFlag
 from u8co_api.co_models_gl import PASS, Scalar
 
-# 可改的键 → 列（Customer.cCusAbbName nvarchar(60)、cDCCode nvarchar(12)、dEndDate、cCusSAProtocol nvarchar(20)）。
-FIELD_KEYS = ("abbrname", "district", "end_date", "sa_protocol")
-_LIMIT = {"abbrname": 60, "district": 12, "end_date": 10, "sa_protocol": 20}
+# 可改的键 → 列（Customer.cCusAbbName nvarchar(60)、cDCCode nvarchar(12)、dEndDate、cCusSAProtocol nvarchar(20)、
+# cCusName nvarchar(98)、cCusRegCode nvarchar(50)）。顺序同桥的 ArcCusFields.Keys（响应 before / after 的键序）。
+FIELD_KEYS = ("abbrname", "district", "end_date", "sa_protocol", "name", "tax_no")
+_LIMIT = {"abbrname": 60, "district": 12, "end_date": 10, "sa_protocol": 20, "name": 98, "tax_no": 50}
 # 写入时首尾不能有空白的键。
 _TRIMMED = ("district", "sa_protocol")
+# 写入时去掉首尾空白后不能为空的键（税号写空串清为 NULL）。
+_REQUIRED = ("abbrname", "name")
 
 CUSTOMER_FIELDS_HELP = op_doc(
-    "改客户档案的简称、地区分类、停用日期、销售默认收付款协议"
-    "（Customer.cCusAbbName、cDCCode、dEndDate、cCusSAProtocol），不走 EAI。",
+    "改客户档案的名称、简称、税号、地区分类、停用日期、销售默认收付款协议"
+    "（Customer.cCusName、cCusAbbName、cCusRegCode、cDCCode、dEndDate、cCusSAProtocol），不走 EAI。",
     (
         "用法",
         (
-            "code 是客户编码；fields 至少一项，键只收 abbrname、district、end_date、sa_protocol",
-            "abbrname 去掉首尾空白后不能为空，最长 60；district 写空串清空，否则须是 DistrictClass 里的末级地区分类",
+            "code 是客户编码；fields 至少一项，键只收 abbrname、district、end_date、sa_protocol、name、tax_no",
+            "abbrname 去掉首尾空白后不能为空，最长 60，不能与其他客户的简称重复（不分大小写）；"
+            "district 写空串清空，否则须是 DistrictClass 里的末级地区分类",
+            "name 客户名称：去掉首尾空白后不能为空，最长 98；tax_no 税号：去掉首尾空白后最长 50，写空串清空；两者不查重",
             "end_date 写空串清空，否则 yyyy-MM-dd，不能早于客户建档日期",
             "sa_protocol 销售默认收付款协议：写空串清空，否则须是收付款协议档案（AA_Agreement）里的协议编码"
             "（不分大小写，写入库里存的编码），且未停用（停用日期为空或晚于登录日期）；最长 20",
-            "expect 为调用方认为的当前值（键须在 fields 里；空串表示当前为空；日期按 yyyy-MM-dd）；强烈建议带上",
+            "expect 为调用方认为的当前值（键须在 fields 里；空串表示当前为空；日期按 yyyy-MM-dd；"
+            "district、sa_protocol 不分大小写，其余逐字比较）；强烈建议带上",
             "dry_run 为 true 时在事务里跑完全部检查后回滚，不写库（validate）",
         ),
     ),
@@ -36,6 +42,7 @@ CUSTOMER_FIELDS_HELP = op_doc(
         "规则",
         (
             "EAI 客户修改会清空开户银行、银行账号并改写最后收款日期，本路由只更新请求里列出的列和修改人、修改日期",
+            "改名称不改历史单据（发货单、销售订单、发票）上的客户名称副本，也不重算助记码",
             "全部请求值已等于当前值时成功返回 changed=false，不写库、不改审计列",
             *PERMISSION_RULES,
             only_read_only_rule("customer_fields"),
@@ -45,7 +52,9 @@ CUSTOMER_FIELDS_HELP = op_doc(
         "错误",
         (
             "404 not_found：客户不存在",
-            "409 state_mismatch：expect 与当前值不符（消息列出字段），或并发修改",
+            "409 state_mismatch：expect 与当前值不符（消息列出字段；error.detail.current 给 fields 各键的当前值，"
+            "空为空串），或并发修改（没有 detail）",
+            "409 abbrname_taken：简称已被其他客户使用",
             "409 district_invalid：地区分类不存在或不是末级",
             "409 sa_protocol_invalid：收付款协议不存在或已停用（请求值已等于当前值时不检查）",
             "504 outcome_unknown：写后回读不一致，先 get 核对再决定是否重试",
@@ -60,8 +69,8 @@ def _check_value(key: str, value: str) -> None:
             check_ymd(value, "fields.end_date")
         return
     label = f"fields.{key}"
-    if key == "abbrname" and value.strip() == "":
-        raise ValueError("fields.abbrname 不能为空")
+    if key in _REQUIRED and value.strip() == "":
+        raise ValueError(f"fields.{key} 不能为空")
     check_text(value, label, _LIMIT[key], trimmed=key in _TRIMMED)
 
 
@@ -84,7 +93,7 @@ class ArcCustomerFieldsIn(CoAuth):
     fields: dict[str, StrictStr] = Field(
         description=(
             "要改的列：abbrname 简称、district 地区分类（空串清空）、end_date 停用日期（空串清空）、"
-            "sa_protocol 销售默认收付款协议（空串清空）"
+            "sa_protocol 销售默认收付款协议（空串清空）、name 名称、tax_no 税号（空串清空）"
         ),
         examples=[{"abbrname": "示例简称", "district": "33", "end_date": "2026-10-20", "sa_protocol": "A001"}],
     )
@@ -125,8 +134,8 @@ class ArcCustomerFieldsOut(BaseModel):
     code: Scalar = Field(None, description="客户编码")
     changed: bool | None = Field(None, description="是否写了库；请求值都已等于当前值时为 false")
     before: dict[str, Scalar] | None = Field(
-        None, description="修改前的 abbrname、district、end_date、sa_protocol（空为空串）"
+        None, description="修改前的 abbrname、district、end_date、sa_protocol、name、tax_no（空为空串）"
     )
     after: dict[str, Scalar] | None = Field(
-        None, description="修改后（写后回读）的 abbrname、district、end_date、sa_protocol"
+        None, description="修改后（写后回读）的 abbrname、district、end_date、sa_protocol、name、tax_no"
     )

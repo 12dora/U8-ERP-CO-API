@@ -119,7 +119,7 @@ def _arc_commands(sub: Any) -> None:
     person.add_argument("--code", required=True)
     person.add_argument("--person", required=True)
     person.add_argument("--expect", default=None)
-    # 客户字段（abbrname / district / end_date / sa_protocol）、收货地址（改）：--file 是 {"fields": {...}, "expect": {...}}，expect 可选（改地址的 name / unit / default 时必填）。
+    # 客户字段（abbrname / district / end_date / sa_protocol / name / tax_no）、收货地址（改）：--file 是 {"fields": {...}, "expect": {...}}，expect 可选（改地址的 name / unit / default 时必填）。
     cus_fields = sub.add_parser("arc-customer-fields")
     _add_auth(cus_fields)
     cus_fields.add_argument("--code", required=True)

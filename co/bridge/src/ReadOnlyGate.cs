@@ -9,7 +9,7 @@ namespace U8Co
     // 403 account_read_only，含预演与幂等重放；写入策略文件、测试账套名单都不能放行。
     // readOnlyExceptions 匹配的写入放行，审计 policy 记 read_only_exception；不匹配的仍拒绝。匹配 = 账套、操作员
     // （不分大小写）、写入分类 (archives, op) 都对上，路径恰为 archives/<op>；op=create / delete 另要求请求体
-    // archive 在规则的 archives 里（目前只有 district_class）。type=vouchers 的规则只放行 op=head_fix：
+    // archive 在规则的 archives 里（create 可列 district_class、customer，delete 只有 district_class；ConfigRulesReadOnly.Eligible）。type=vouchers 的规则只放行 op=head_fix：
     // 路径恰为 vouchers/head_fix 且请求体 type 为 dispatch，vouchers/update 等其它单据路由仍拒绝。登录前在 WriteClassGate.Pre（账套名单之后、解密之前，先于写入策略）
     // 查，入队后在 WriteClassGate.Post（登录 U8 之前）再查一次。
     internal static class ReadOnlyGate
@@ -142,16 +142,26 @@ namespace U8Co
                     && string.Equals(ask.Type, VoucherHeadFix.Kind, StringComparison.Ordinal);
             }
             if (!string.Equals(rule.Type, ask.Type, StringComparison.Ordinal)
-                || !string.Equals(ask.Path, Requests.ArcRoot + rule.Op, StringComparison.Ordinal))
+                || !string.Equals(ask.Path, Requests.ArcRoot + rule.Op, StringComparison.Ordinal)
+                || !KnownArchiveOp(rule.Op))
             {
                 return false;
             }
-            // op=create / delete 的规则必须带 archives，请求的档案类型要在里面（缺省或为空不匹配任何请求）；其它 op 不带。
+            // op=create / delete 的规则必须带 archives，请求的档案类型要在里面（缺省或为空不匹配任何请求），
+            // 且仍在该 op 的可开放集合里（直接构造的规则也不能放行客户删除）；其它 op 不带。
             if (Array.IndexOf(ConfigRulesReadOnly.ArchiveOps, rule.Op) >= 0)
             {
-                return Contains(rule.Archives, ask.Archive, StringComparison.Ordinal);
+                return Contains(rule.Archives, ask.Archive, StringComparison.Ordinal)
+                    && Contains(ConfigRulesReadOnly.Eligible(rule.Op), ask.Archive, StringComparison.Ordinal);
             }
             return rule.Archives == null;
+        }
+
+        // type=archives 可开放的 op：客户专用路由或 create / delete。配置加载已拒绝其它 op，
+        // 这里再挡一次，直接构造的规则（如 op=update）也不放行。
+        static bool KnownArchiveOp(string op)
+        {
+            return ArcCustomerOps.Is(op) || Array.IndexOf(ConfigRulesReadOnly.ArchiveOps, op) >= 0;
         }
 
         static bool Contains(string[] list, string value, StringComparison cmp)

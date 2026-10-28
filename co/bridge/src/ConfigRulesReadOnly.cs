@@ -8,8 +8,10 @@ namespace U8Co
     // config.json 的 readOnlyExceptions：只读账套上允许穿过闸门的精确写入。账套必须同时在
     // readOnlyAccounts 里；type 是 archives 或 vouchers。archives 的 op 是客户专用路由（ArcCustomerOps.Ops：customer_person、
     // customer_fields、customer_address、customer_address_add、customer_address_delete）或 create、delete。
-    // op=create / delete 必须另写 archives（非空列表，每项须在 EligibleArchives 里，目前只有 district_class；
-    // delete 用于回滚刚新增的档案）；其余 op 不能写 archives。vouchers 只允许 op=head_fix（历史发货单表头修正，
+    // op=create / delete 必须另写 archives（非空列表，每项须在该 op 的可开放集合里：create 是 EligibleArchives
+    // ＝ district_class、customer，delete 是 EligibleDelete ＝ district_class；delete 用于回滚刚新增的地区分类，
+    // 客户不能删，新增错的客户用 customer_fields 写停用日期）；其余 op 不能写 archives。archives/update 不能开放
+    // （客户 EAI 修改会清银行账号等，见 ArcCusFields）。vouchers 只允许 op=head_fix（历史发货单表头修正，
     // 路径恰为 vouchers/head_fix），vouchers/update 等其它单据路由不能开放。operators 比较不区分大小写，
     // 且不能含双引号、反斜杠或控制字符（健康检查 JSON 仍会转义）。
     internal static class ConfigRulesReadOnly
@@ -20,8 +22,12 @@ namespace U8Co
         internal static readonly string[] VoucherOps = new string[] { VoucherHeadFix.Op };
         // 带 archives 的 op：请求体 archive 必须在规则的 archives 里。
         internal static readonly string[] ArchiveOps = new string[] { "create", "delete" };
-        // 允许走只读例外新增 / 删除的档案类型（官方 EAI 组件写入的末端档案）。
-        internal static readonly string[] EligibleArchives = new string[] { ArcKindRwMore.District };
+        // 客户档案的类型名（ArcKind.Customer 的 Name）。
+        internal const string CustomerArchive = "customer";
+        // 允许走只读例外新增的档案类型（官方 EAI 组件写入，INSERT 不经 diffedit）。
+        internal static readonly string[] EligibleArchives = new string[] { ArcKindRwMore.District, CustomerArchive };
+        // 允许走只读例外删除的档案类型：只有地区分类（回滚刚新增的）；客户不开放删除。
+        internal static readonly string[] EligibleDelete = new string[] { ArcKindRwMore.District };
         static readonly string[] Keys = new string[]
         {
             "accounts", "archives", "op", "operators", "type"
@@ -155,7 +161,7 @@ namespace U8Co
             return text;
         }
 
-        // op=create / delete 必须有 archives 且每项在 EligibleArchives 里；其它 op 不能写 archives（返回 null）。
+        // op=create / delete 必须有 archives 且每项在该 op 的可开放集合里（Eligible）；其它 op 不能写 archives（返回 null）。
         static string[] ArchivesOf(Dictionary<string, object> obj, string at, string op)
         {
             if (Array.IndexOf(ArchiveOps, op) < 0)
@@ -167,15 +173,26 @@ namespace U8Co
                 return null;
             }
             string[] list = NeedStrings(obj, "archives", at, StringComparer.Ordinal);
+            string[] eligible = Eligible(op);
             for (int i = 0; i < list.Length; i++)
             {
-                if (Array.IndexOf(EligibleArchives, list[i]) < 0)
+                if (Array.IndexOf(eligible, list[i]) < 0)
                 {
-                    throw new InvalidOperationException(at + ".archives 目前只允许 "
-                        + string.Join(", ", EligibleArchives) + "：" + list[i]);
+                    throw new InvalidOperationException(at + ".archives 在 op=" + op + " 下目前只允许 "
+                        + string.Join(", ", eligible) + "：" + list[i]);
                 }
             }
             return list;
+        }
+
+        // 某个 op 可开放的档案类型：create → EligibleArchives，delete → EligibleDelete，其它 op 没有。
+        internal static string[] Eligible(string op)
+        {
+            if (op == "create")
+            {
+                return EligibleArchives;
+            }
+            return op == "delete" ? EligibleDelete : new string[0];
         }
 
         static string NeedText(Dictionary<string, object> map, string key, string at)

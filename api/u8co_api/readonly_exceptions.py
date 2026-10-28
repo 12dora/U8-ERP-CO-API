@@ -4,13 +4,15 @@ JSON 数组，每项 accounts / operators / type / op，archives 的 create、de
 type 只能是 archives 或 vouchers。
 type=archives：op 只能是 customer_person、customer_fields、customer_address、customer_address_add、
 customer_address_delete（客户主数据的受控 SQL 写入）、create 或 delete；请求路径必须恰好是 archives/<op>。
-op=create、delete 必须写 archives：非空的档案种类列表，每项都在代码里的可开放集合（目前只有 district_class）内，
-放行时请求体的 archive 须在列表里；其它 op 不能写 archives。delete 与 create 成对开放，用来回滚刚新增的档案；
-customer_address_delete 与 customer_address_add 同理。
+op=create、delete 必须写 archives：非空的档案种类列表，每项都在代码里该 op 的可开放集合内
+（create：district_class、customer；delete：只有 district_class），放行时请求体的 archive 须在列表里；
+其它 op 不能写 archives。地区分类的 delete 与 create 成对开放，用来回滚刚新增的档案；客户只开放新增
+（EAI 新增是 INSERT，不经清银行账号的 diffedit），不开放删除，新增错的客户用 customer_fields 写停用日期；
+customer_address_delete 与 customer_address_add 同理成对。
 type=vouchers：op 只能是 head_fix（历史发货单表头修正），请求路径必须恰好是 vouchers/head_fix，也不能写 archives。
 账套必须是 U8CO_READONLY_ACCOUNTS 的子集。未知键、其它 type/op、不合规的操作员编码一律让进程起不来。
-操作员比较不区分大小写，不去首尾空白。archives/update、其它档案的 create / delete、vouchers/update 等其余写路由
-在只读账套上仍一律 403。
+操作员比较不区分大小写，不去首尾空白。archives/update（含客户）、其它档案的 create / delete、客户的 delete、
+vouchers/update 等其余写路由在只读账套上仍一律 403。
 """
 
 from __future__ import annotations
@@ -42,8 +44,11 @@ _OPS = {
 }
 # type → 请求动作前缀：路径必须恰好是 <前缀><op>。
 _PREFIX = {_ARCHIVES: "co:archives/", _VOUCHERS: "co:vouchers/"}
-# op 为 create、delete 时 archives 可以列出的档案种类（代码里的封闭集合，配置只能从中选）。
-CREATE_ARCHIVES = frozenset(("district_class",))
+# op 为 create、delete 时 archives 可以列出的档案种类（代码里的封闭集合，配置只能从中选）。与桥
+# ConfigRulesReadOnly.EligibleArchives / EligibleDelete 一致。客户不能删、update 不能开放。
+CREATE_ARCHIVES = frozenset(("district_class", "customer"))
+DELETE_ARCHIVES = frozenset(("district_class",))
+_ELIGIBLE = {_CREATE: CREATE_ARCHIVES, _DELETE: DELETE_ARCHIVES}
 _SIZE = 65536
 _ACCOUNT = re.compile(r"^[0-9]{3}\Z")
 
@@ -66,11 +71,15 @@ class ReadOnlyException:
         return who in {item.casefold() for item in self.operators}
 
     def covers(self, payload: dict) -> bool:
-        """op 为 create、delete 时请求体的 archive 须在 archives 里；其它 op 没有这一层限制。"""
+        """op 须是该 type 可开放的 op（直接构造的 op=update 等一律不放行）；op 为 create、delete 时请求体的 archive
+        须在 archives 里；其它 op 没有这一层限制。"""
+        if self.op not in _OPS.get(self.type, ()):
+            return False
         if self.type != _ARCHIVES or self.op not in _ARCHIVE_OPS:
             return True
-        # 解析器保证这两个 op 一定有 archives；对象被直接构造成没有时，一律不放行。
-        return bool(self.archives) and _text(payload.get("archive")) in self.archives
+        # 解析器保证这两个 op 一定有 archives 且都可开放；对象被直接构造成没有、或列了不可开放的种类时，一律不放行。
+        archive = _text(payload.get("archive"))
+        return bool(self.archives) and archive in self.archives and archive in _ELIGIBLE[self.op]
 
     def summary(self) -> dict:
         found = {
@@ -160,10 +169,11 @@ def _archives(where: str, type_: str, op: str, item: dict) -> tuple[str, ...] | 
     if "archives" not in item:
         raise SystemExit(f"{where}.archives 在 op={op} 时必须给出")
     found = _strings(where, item["archives"], "archives", False)
+    eligible = _ELIGIBLE[op]
     for kind in found:
-        if kind not in CREATE_ARCHIVES:
-            allowed = "、".join(sorted(CREATE_ARCHIVES))
-            raise SystemExit(f"{where}.archives 里的 {kind!r} 不能开放写入（目前只有 {allowed}）")
+        if kind not in eligible:
+            allowed = "、".join(sorted(eligible))
+            raise SystemExit(f"{where}.archives 里的 {kind!r} 不能开放 op={op}（目前只有 {allowed}）")
     return found
 
 

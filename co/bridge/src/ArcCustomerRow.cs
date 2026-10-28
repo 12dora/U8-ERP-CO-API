@@ -116,6 +116,15 @@ namespace U8Co
             return string.Equals((a ?? "").Trim(), (b ?? "").Trim(), StringComparison.OrdinalIgnoreCase);
         }
 
+        // expect 与当前值不符：409 state_mismatch，消息照旧，另在错误体 detail.current 里给结构化的当前值
+        // （customer_fields 是请求 fields 的各键，customer_person 是 person；空值是空串），调用方不必解析中文消息。
+        public static BridgeException Mismatch(string message, Dictionary<string, object> current)
+        {
+            Dictionary<string, object> detail = new Dictionary<string, object>();
+            detail["current"] = current;
+            return new BridgeException(409, "state_mismatch", message).WithDetail(detail);
+        }
+
         // 回读与写入不一致、pubufts 已变：别人在中间改了，409。
         public static BridgeException Concurrent(string code)
         {

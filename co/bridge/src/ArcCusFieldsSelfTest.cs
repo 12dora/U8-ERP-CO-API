@@ -5,6 +5,7 @@ namespace U8Co
 {
     // --selftest 的客户字段修改部分（archives/customer_fields）：请求解析与校验、expect 核对、SET 子句、
     // 无变化 / 预演 / 完成响应、共用 SQL 与客户专管业务员原语句一致、权限与写入分类、锁键、预演模式。不连库。
+    // 名称、税号、detail.current、简称重复见 ArcCusFieldsNameSelfTest。
     internal static class ArcCusFieldsSelfTest
     {
         public static void Run()
@@ -19,6 +20,7 @@ namespace U8Co
             CheckSql();
             CheckRoute();
             CheckLocks();
+            ArcCusFieldsNameSelfTest.Run();
         }
 
         static void CheckParse()
@@ -50,7 +52,7 @@ namespace U8Co
             Rejected("fields missing", Body("C900001", null, null), "fields");
             Rejected("fields empty", Body("C900001", Fields(), null), "fields");
             Rejected("fields not object", WithRaw("fields", "x"), "fields");
-            Rejected("unknown key", Body("C900001", Fields("name", "x"), null), "fields.name");
+            Rejected("unknown key", Body("C900001", Fields("nickname", "x"), null), "fields.nickname");
             Rejected("key case", Body("C900001", Fields("Abbrname", "x"), null), "fields.Abbrname");
             Rejected("abbr empty", Body("C900001", Fields("abbrname", "  "), null), "fields.abbrname");
             Rejected("abbr long", Body("C900001", Fields("abbrname", new string('简', 61)), null), "fields.abbrname");
@@ -67,7 +69,7 @@ namespace U8Co
             Rejected("value not string", Body("C900001", number, null), "fields.district");
             Rejected("expect not object", WithRaw("expect", "x"), "expect");
             Rejected("expect extra key", Body("C900001", Fields("district", "33"), Fields("end_date", "")), "expect.end_date");
-            Rejected("expect unknown key", Body("C900001", Fields("district", "33"), Fields("name", "")), "expect.name");
+            Rejected("expect unknown key", Body("C900001", Fields("district", "33"), Fields("nickname", "")), "expect.nickname");
             Rejected("expect bad date", Body("C900001", Fields("end_date", ""), Fields("end_date", "x")), "expect.end_date");
             Dictionary<string, object> nullValue = Fields();
             nullValue["district"] = null;
@@ -150,7 +152,7 @@ namespace U8Co
                 Expect("set mapped " + key, set.EndsWith("=NULL", StringComparison.Ordinal)
                     && (key == "end_date") == set.StartsWith("dEndDate", StringComparison.Ordinal));
             }
-            Expect("set unknown", SetRejects("name") && SetRejects("Sa_Protocol") && args.Count == 0);
+            Expect("set unknown", SetRejects("nickname") && SetRejects("Sa_Protocol") && SetRejects("Name") && args.Count == 0);
         }
 
         static bool SetRejects(string key)
@@ -194,9 +196,9 @@ namespace U8Co
             Dictionary<string, object> after = View(body, "after");
             Dictionary<string, object> before = View(body, "before");
             Expect("ok changed", (bool)body["changed"] && (string)body["code"] == "C900001");
-            Expect("ok after", (string)after["district"] == "33" && (string)after["abbrname"] == "示例简称" && after.Count == 4
+            Expect("ok after", (string)after["district"] == "33" && (string)after["abbrname"] == "示例简称" && after.Count == ArcCusFields.Keys.Length
                 && (string)after["sa_protocol"] == "");
-            Expect("ok before", (string)before["district"] == "" && before.Count == 4 && before.ContainsKey("sa_protocol"));
+            Expect("ok before", (string)before["district"] == "" && before.Count == ArcCusFields.Keys.Length && before.ContainsKey("sa_protocol"));
             CheckOkProtocol();
             body = ArcCusFields.OkBody(ask, Cur("示例简称", "33", ""), false);
             Expect("ok unchanged", !(bool)body["changed"] && (string)View(body, "after")["district"] == "33"
@@ -208,7 +210,7 @@ namespace U8Co
             Dictionary<string, object> body = ArcCusFields.OkBody(ArcCusFields.Parse(Body("C900001", Fields("sa_protocol", ""), null)),
                 Cur("示例简称", "", "", "A001"), true);
             Expect("ok protocol cleared", (string)View(body, "after")["sa_protocol"] == ""
-                && (string)View(body, "before")["sa_protocol"] == "A001" && View(body, "after").Count == 4);
+                && (string)View(body, "before")["sa_protocol"] == "A001" && View(body, "after").Count == ArcCusFields.Keys.Length);
         }
 
         static void CheckDry(ArcCusFieldsAsk ask, Dictionary<string, string> cur)
@@ -245,7 +247,7 @@ namespace U8Co
             }
             Expect("lock alias sa_protocol column", ArcCusFieldsSql.LockSql.IndexOf(
                 "LTRIM(RTRIM(ISNULL(cCusSAProtocol,''))) AS sa_protocol,", StringComparison.Ordinal) > 0
-                && ArcCusFields.Keys.Length == 4);
+                && ArcCusFields.Keys.Length == 6);
             Expect("same", ArcCustomerRow.Same(" A ", "a") && !ArcCustomerRow.Same("a", "b"));
             Expect("concurrent", ArcCustomerRow.Concurrent("C900001").Status == 409);
             Expect("unknown", ArcCustomerRow.Unknown("C900001", "字段").Status == 504);
@@ -296,22 +298,24 @@ namespace U8Co
             return Cur(abbr, district, end, "");
         }
 
-        static Dictionary<string, string> Cur(string abbr, string district, string end, string protocol)
+        internal static Dictionary<string, string> Cur(string abbr, string district, string end, string protocol)
         {
             Dictionary<string, string> cur = new Dictionary<string, string>(StringComparer.Ordinal);
             cur["abbrname"] = abbr;
             cur["district"] = district;
             cur["end_date"] = end;
             cur["sa_protocol"] = protocol;
+            cur["name"] = "示例客户有限公司";
+            cur["tax_no"] = "";
             return cur;
         }
 
-        static ArcCusFieldsAsk Ask(Dictionary<string, object> fields, Dictionary<string, object> expect)
+        internal static ArcCusFieldsAsk Ask(Dictionary<string, object> fields, Dictionary<string, object> expect)
         {
             return ArcCusFields.Parse(Body("C900001", fields, expect));
         }
 
-        static string Mismatch(ArcCusFieldsAsk ask, Dictionary<string, string> cur)
+        internal static string Mismatch(ArcCusFieldsAsk ask, Dictionary<string, string> cur)
         {
             try
             {
@@ -325,7 +329,7 @@ namespace U8Co
         }
 
         // 键值依次成对：Fields("a", "1", "b", "2")。
-        static Dictionary<string, object> Fields(params string[] pairs)
+        internal static Dictionary<string, object> Fields(params string[] pairs)
         {
             Dictionary<string, object> map = new Dictionary<string, object>();
             for (int i = 0; i + 1 < pairs.Length; i += 2)
@@ -335,7 +339,7 @@ namespace U8Co
             return map;
         }
 
-        static Dictionary<string, object> Body(string code, Dictionary<string, object> fields, Dictionary<string, object> expect)
+        internal static Dictionary<string, object> Body(string code, Dictionary<string, object> fields, Dictionary<string, object> expect)
         {
             Dictionary<string, object> body = new Dictionary<string, object>();
             if (code != null)
@@ -360,7 +364,7 @@ namespace U8Co
             return body;
         }
 
-        static void Rejected(string name, Dictionary<string, object> body, string field)
+        internal static void Rejected(string name, Dictionary<string, object> body, string field)
         {
             try
             {

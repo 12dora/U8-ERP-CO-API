@@ -51,7 +51,8 @@ CUSTOMER_PERSON_HELP = op_doc(
         "错误",
         (
             "404 not_found：客户不存在",
-            "409 state_mismatch：expect 与当前值不符，或并发修改",
+            "409 state_mismatch：expect 与当前值不符（error.detail.current.person 是当前专管业务员编码，空为空串），"
+            "或并发修改（没有 detail）",
             "409 u8_rejected：业务员不存在",
             "504 outcome_unknown：写后回读不一致，先 get 核对再决定是否重试",
         ),

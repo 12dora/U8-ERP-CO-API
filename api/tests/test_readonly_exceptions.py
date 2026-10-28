@@ -1,6 +1,6 @@
 """只读例外（U8CO_READONLY_EXCEPTIONS）：解析失败让进程起不来；路由、账套、操作员（create 另看 archive）命中才穿过闸门。
 type=archives：op 为 customer_person、customer_fields、customer_address、customer_address_add、customer_address_delete、
-create、delete（后两者须列 archives，目前只有 district_class）；type=vouchers：op 只能是 head_fix（见
+create、delete（后两者须列 archives：create 可列 district_class、customer，delete 只有 district_class）；type=vouchers：op 只能是 head_fix（见
 test_readonly_exceptions_vouchers）。假桥，不访问网络。
 """
 
@@ -164,10 +164,22 @@ def test_create_and_delete_require_the_archives_list(op: str) -> None:
 
 
 @pytest.mark.parametrize("op", ("create", "delete"))
-@pytest.mark.parametrize("kind", ("customer", "vendor", "project", "fa_card", "District_class", "unit"))
+@pytest.mark.parametrize("kind", ("vendor", "project", "fa_card", "District_class", "Customer", "unit"))
 def test_archives_must_be_eligible(op: str, kind: str) -> None:
-    _exits(_raw(op=op, archives=[kind]), _RO, "不能开放写入")
-    _exits(_raw(op=op, archives=["district_class", kind]), _RO, "不能开放写入")
+    _exits(_raw(op=op, archives=[kind]), _RO, f"不能开放 op={op}")
+    _exits(_raw(op=op, archives=["district_class", kind]), _RO, f"不能开放 op={op}")
+
+
+def test_customer_is_eligible_for_create_only() -> None:
+    (item,) = _rules(op="create", archives=["customer"])
+    assert (item.op, item.archives) == ("create", ("customer",))
+    (both,) = _rules(op="create", archives=["district_class", "customer"])
+    assert both.archives == ("district_class", "customer")
+    # 客户不开放删除；update 不是可开放的 op（带不带 archives 都起不来）。
+    _exits(_raw(op="delete", archives=["customer"]), _RO, "不能开放 op=delete")
+    _exits(_raw(op="delete", archives=["district_class", "customer"]), _RO, "不能开放 op=delete")
+    _exits(_raw(op="update", archives=["customer"]), _RO, "op 在 type=archives 时只能是")
+    _exits(_raw(op="update"), _RO, "op 在 type=archives 时只能是")
 
 
 @pytest.mark.parametrize("op", ("create", "delete"))

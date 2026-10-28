@@ -50,7 +50,7 @@
 | `enableReplicatedWrites` | 否 | `false` | 第二级写入（复现 U8 界面 SQL 的写入，清单见 [已知限制](limitations.md)「写入分级」）的总开关，只能写 `true` / `false`。为 `false` 时第二级写入（含预演）一律返回 403 `feature_disabled`，即使账套在 `testAccounts` 里；一般在登录 U8 之前返回，`arap/voucher/delete` 取消处理凭证时在登录后、写入前返回（见第 3 节「第二级写入」）。为 `true` 时仍只对 `testAccounts` 里的账套开放。健康检查的 `replicated_writes`、`meta` 的 `features.replicated_writes` 报告该值；`--check-config` 打印该值 |
 | `testAccounts` | 否 | `[]` | 测试账套（三位数字）。`enableReplicatedWrites` 为 `true` 时，第二级写入只对这些账套开放，其他账套返回 403 `test_account_only`（判定时机同上）。只放测试账套，**不要放正式账套**。名单中的账套还须在 `allowedAccounts` 里，否则 `--check-config` 和启动时给出警告；名单不为空而 `enableReplicatedWrites` 不是 `true` 时同样警告（第二级写入仍全部关闭）。`--check-config` 打印该键 |
 | `readOnlyAccounts` | 否 | `[]` | 只读账套（三位数字）。名单中的账套只开放读取，每条写路由（含预演和带幂等键的重发）一律在解密口令、登录 U8 之前返回 403 `account_read_only`「该账套只开放读取」（配置了只读例外 `readOnlyExceptions` / `U8CO_READONLY_EXCEPTIONS` 时，与例外完全一致的那一种写入放行，见「只读例外」），出队后登录前再检查一次。写入策略放行、账套在 `testAccounts` 里都不能解除。检查位于 `allowedAccounts` 之后（名单外的账套仍是 `account_not_allowed`）；审计行 `policy` 记 `account_read_only`；读路由不受影响。可以先于 `allowedAccounts` 配置。健康检查和 `meta` 列出 `read_only_accounts`；`--check-config` 打印该键。详见第 3 节「只读账套」 |
-| `readOnlyExceptions` | 否 | `[]` | 只读账套的例外写入。数组，每项 `{accounts, operators, type, op}`，`op` 为 `create`、`delete` 时另有 `archives`。账套必须同时在 `readOnlyAccounts` 里；未知键、空 `accounts` / `operators`、`type` 不是 `archives` / `vouchers`、`type=archives` 时 `op` 不是 `customer_person` / `customer_fields` / `customer_address` / `customer_address_add` / `customer_address_delete` / `create` / `delete`、`type=vouchers` 时 `op` 不是 `head_fix`、`create` 和 `delete` 缺 `archives` 或列了不可开放的档案、其它 `op`（含 `vouchers`）带了 `archives` 时启动失败。`type=archives` 只认路径 `/u8co/v1/archives/<op>`，`create`、`delete` 另看请求体 `archive` 是否在 `archives` 里；`type=vouchers` 只认路径 `/u8co/v1/vouchers/head_fix`（`vouchers/update` 等其它单据写路由仍 403；其它写路由即使请求体 `type`/`op` 写成 `archives`/`customer_person` 也不放行）。操作员比较不区分大小写、不去首尾空白；`operators` 不能含双引号、反斜杠或控制字符。命中后仍走写入策略。匹配时审计 `policy` 记 `read_only_exception`；`archives/update` 等其它写路由仍 403 `account_read_only`。健康检查和 `meta` 列出 `read_only_exceptions`（字符串已转义，`create` / `delete` 项另含 `archives`）；`--check-config` 打印该键。修改后须重启桥。形状见第 3 节「只读例外」 |
+| `readOnlyExceptions` | 否 | `[]` | 只读账套的例外写入。数组，每项 `{accounts, operators, type, op}`，`op` 为 `create`、`delete` 时另有 `archives`。账套必须同时在 `readOnlyAccounts` 里；未知键、空 `accounts` / `operators`、`type` 不是 `archives` / `vouchers`、`type=archives` 时 `op` 不是 `customer_person` / `customer_fields` / `customer_address` / `customer_address_add` / `customer_address_delete` / `create` / `delete`、`type=vouchers` 时 `op` 不是 `head_fix`、`create` 和 `delete` 缺 `archives` 或列了不可开放的档案（`create` 可列 `district_class`、`customer`，`delete` 只能列 `district_class`）、其它 `op`（含 `vouchers`）带了 `archives` 时启动失败。`type=archives` 只认路径 `/u8co/v1/archives/<op>`，`create`、`delete` 另看请求体 `archive` 是否在 `archives` 里；`type=vouchers` 只认路径 `/u8co/v1/vouchers/head_fix`（`vouchers/update` 等其它单据写路由仍 403；其它写路由即使请求体 `type`/`op` 写成 `archives`/`customer_person` 也不放行）。操作员比较不区分大小写、不去首尾空白；`operators` 不能含双引号、反斜杠或控制字符。命中后仍走写入策略。匹配时审计 `policy` 记 `read_only_exception`；`archives/update` 等其它写路由仍 403 `account_read_only`。健康检查和 `meta` 列出 `read_only_exceptions`（字符串已转义，`create` / `delete` 项另含 `archives`）；`--check-config` 打印该键。修改后须重启桥。形状见第 3 节「只读例外」 |
 | `permEvaluateOperators` | 否 | `[]` | 允许调用 `perm/evaluate`（查询其他操作员的有效权限）的 U8 操作员编码，每项 1 到 20 个字符，不含空白、单引号、分号，不区分大小写。为空时一个都不放行，账套主管也不例外；名单外的调用操作员在登录 U8 之前返回 403 `no_permission`。`perm/snapshot`（查询本人权限）不受影响。建议只配置专门的系统后台身份，正式账套留空。`--check-config` 打印该键。见 [接口参考](api-reference.md)「操作员权限」 |
 | `taxInvoiceNoFields` | 否 | `{}` | 销售发票（`sale_invoice`）表头上存放数电 / 金税发票号的列，按账套配置。对象，键是三位账套号（必须同时在 `allowedAccounts` 里），值是 `SaleBillVouch` 表头文本列名，只认 `cDefine1`–`3`、`cDefine8`–`14`、`cTaxBillCode`（大小写不敏感，写入时用规范大小写）。未配置或该账套没有键时，`vouchers/search` 的 `code_like` 仍只匹配 U8 单号，列表 / 搜索行的 `tax_invoice_no` 为 `null`。列名不在白名单、账套不在 `allowedAccounts`、键不是三位数字或值不是字符串时服务不启动。`--check-config` 打印该键。修改后须重启桥。**先升级桥二进制，再写入本键；回滚到旧桥前先删除本键**（旧桥把未知键当启动失败，值为 `{}` 也不行）。新桥读不含本键的旧配置正常。见下文「销售发票数电号列」 |
 | `writePolicyFile` | 否 | 无 | 写入策略文件的路径，相对路径按 `<root>` 解析，必须位于 `<root>` 之下。不配置时不启用写入策略；配置后必须指向一份有效策略，文件不存在或无效时所有写入（含预演）返回 503 `write_policy_unavailable`，读路由不受影响。策略文件改动不必重启（按内容哈希每 `reloadSeconds` 秒重读），增加或修改这个键须重启。格式见第 3 节「写入策略」。健康检查多出 `write_policy`；`--check-config` 打印路径和状态，并在 `license.maxConcurrentLogins` 小于 2、或开启 `loginReuse` 而该值不大于 `staWorkers` 时警告 |
@@ -455,7 +455,7 @@ CLR 在进程启动时读取 exe 旁的这份文件（不是 `config.json`）：
 | --- | --- | --- | --- |
 | API 账套白名单 | `U8CO_ACCOUNTS`、信任项的 `accounts`、令牌的账套声明 | 哪些账套能被调用 | 重启 API |
 | API 只读账套 | `U8CO_READONLY_ACCOUNTS` | 名单中的账套一律不能写（含预演） | 重启 API |
-| API 只读例外 | `U8CO_READONLY_EXCEPTIONS` | 只读账套上按账套、操作员精确放行 `archives/customer_person`、`customer_fields`、`customer_address`、`customer_address_add`、`customer_address_delete`，`vouchers/head_fix`，以及 `archives/create`、`delete` 的 `district_class` | 重启 API |
+| API 只读例外 | `U8CO_READONLY_EXCEPTIONS` | 只读账套上按账套、操作员精确放行 `archives/customer_person`、`customer_fields`、`customer_address`、`customer_address_add`、`customer_address_delete`，`vouchers/head_fix`，`archives/create` 的 `district_class`、`customer`，以及 `archives/delete` 的 `district_class` | 重启 API |
 | API 读写权限 | 令牌的写权限声明或 scope | 哪个调用方能写 | 更换令牌 |
 | API 写入策略 | `U8CO_WRITE_POLICY_FILE` | 按账套、单据类型、操作放行；冻结、时段、操作员、行数和金额上限 | 自动重载 |
 | 桥账套白名单 | `allowedAccounts` | 该桥登录哪些账套 | 重启桥 |
@@ -479,7 +479,7 @@ API 和桥配置同一份策略。API 一侧在调桥之前即拒绝，省一次
 
 ### 只读例外
 
-正式账套保持只读（`readOnlyAccounts` / `U8CO_READONLY_ACCOUNTS`），只放行已经核对过的客户主数据整理（专管业务员、简称 / 地区分类 / 停用日期 / 销售默认收付款协议、收货地址的修改、新增和删除）、地区分类的新增和删除、以及历史发货单表头修正（`vouchers/head_fix`）时，配只读例外，不要把账套从只读名单里拿掉。
+正式账套保持只读（`readOnlyAccounts` / `U8CO_READONLY_ACCOUNTS`），只放行已经核对过的客户主数据整理（专管业务员、名称 / 简称 / 税号 / 地区分类 / 停用日期 / 销售默认收付款协议、收货地址的修改、新增和删除）、客户新增、地区分类的新增和删除、以及历史发货单表头修正（`vouchers/head_fix`）时，配只读例外，不要把账套从只读名单里拿掉。
 
 API 环境变量 `U8CO_READONLY_EXCEPTIONS` 与桥 `config.json` 的 `readOnlyExceptions` 使用同一份 JSON 数组：
 
@@ -491,15 +491,16 @@ API 环境变量 `U8CO_READONLY_EXCEPTIONS` 与桥 `config.json` 的 `readOnlyEx
   {"accounts": ["801"], "operators": ["svc01"], "type": "archives", "op": "customer_address_add"},
   {"accounts": ["801"], "operators": ["svc01"], "type": "archives", "op": "customer_address_delete"},
   {"accounts": ["801"], "operators": ["svc01"], "type": "vouchers", "op": "head_fix"},
-  {"accounts": ["801"], "operators": ["svc01"], "type": "archives", "op": "create", "archives": ["district_class"]},
+  {"accounts": ["801"], "operators": ["svc01"], "type": "archives", "op": "create", "archives": ["district_class", "customer"]},
   {"accounts": ["801"], "operators": ["svc01"], "type": "archives", "op": "delete", "archives": ["district_class"]}
 ]
 ```
 
 - 命中条件：账套在该项的 `accounts` 里，操作员在 `operators` 里（不区分大小写、不去首尾空白），路由恰好是 `archives/<op>`（`type=archives`，写入分类 `type=archives`、`op` 同名）或 `vouchers/head_fix`（`type=vouchers`，写入分类 `(dispatch, head_fix)`，规则键 `write:voucher:dispatch:head_fix`）。`op=create`、`op=delete` 的路由是 `archives/create`、`archives/delete`，另须请求体的 `archive` 在该项 `archives` 里。
-- `type` 只收 `archives`、`vouchers`。`type=archives` 的 `op` 只收 `customer_person`、`customer_fields`、`customer_address`、`customer_address_add`、`customer_address_delete`、`create`、`delete`；`type=vouchers` 的 `op` 只收 `head_fix`，路径必须恰好是 `vouchers/head_fix`，`vouchers/update` 等其它单据写入在只读账套上仍 403。`archives` 只用于 `create`、`delete`，且这两项必须写：非空列表，每个档案种类须在代码里的可开放集合内，目前只有 `district_class`（地区分类走官方 EAI 组件，新增后可以删掉）；其它 `op`（含 `vouchers`、`customer_address_add`、`customer_address_delete`）带 `archives` 启动失败。其它 `type`、未知键、账套不在只读名单里，API 启动失败。已有的配置不用改。
-- 回滚：`customer_address_add` 用 `customer_address_delete` 回滚（两个 `op` 要成对开放）；`vouchers/head_fix` 用把 `fields` 与 `expect` 对调的同一路由回滚（不需要另开）。
-- 命中后仍走写入策略（若已配置）；预演（`dry_run`）也必须是同一路由。不匹配的写入（`archives/update`、其它档案的新增和删除、其它操作员、其它账套、不匹配的带键重发）仍 403 `account_read_only`。
+- `type` 只收 `archives`、`vouchers`。`type=archives` 的 `op` 只收 `customer_person`、`customer_fields`、`customer_address`、`customer_address_add`、`customer_address_delete`、`create`、`delete`；`type=vouchers` 的 `op` 只收 `head_fix`，路径必须恰好是 `vouchers/head_fix`，`vouchers/update` 等其它单据写入在只读账套上仍 403。`archives` 只用于 `create`、`delete`，且这两项必须写：非空列表，每个档案种类须在代码里该 `op` 的可开放集合内：`create` 收 `district_class`、`customer`，`delete` 只收 `district_class`（地区分类走官方 EAI 组件，新增后可以删掉；客户 EAI 新增是 INSERT，不经清银行账号的 `diffedit`，但客户不开放删除，`delete` 列 `customer` 启动失败）；其它 `op`（含 `vouchers`、`customer_address_add`、`customer_address_delete`）带 `archives` 启动失败。其它 `type`、未知键、账套不在只读名单里，API 启动失败。已有的配置不用改。
+- 升级提示：`customer_fields` 的例外按路由放行、不按键区分。升级到支持 `name`、`tax_no` 的桥和 API 之后，已有的 `{"op":"customer_fields"}` 例外同时放行改客户名称和税号，不需要另配，也没有办法只开放其中几个键；不想放开的账套，升级前撤掉这一项或在调用方限制。
+- 回滚：`customer_address_add` 用 `customer_address_delete` 回滚（两个 `op` 要成对开放）；`create` 的 `customer` 没有删除可开，新增错的客户用 `customer_fields` 写 `end_date` 停用（`customer_fields` 要另开一项）；`vouchers/head_fix` 用把 `fields` 与 `expect` 对调的同一路由回滚（不需要另开）。
+- 命中后仍走写入策略（若已配置）；预演（`dry_run`）也必须是同一路由。不匹配的写入（`archives/update`——包括客户，EAI 客户修改会清空开户银行与银行账号——、其它档案的新增和删除、客户删除、其它操作员、其它账套、不匹配的带键重发）仍 403 `account_read_only`。开放客户新增时写入策略的 `ops` 只加 `create`，不要加 `update`。
 - 命中时审计字段 `read_only_exception` 为 true（与 `outcome` 独立：成功时 `outcome` 也是 `read_only_exception`，桥返回错误或策略拒绝时 `outcome` 是错误码）。健康检查 `api_read_only_exceptions` 列出本服务摘要，`read_only_exceptions` 透传桥的摘要。
 - 撤回：去掉 `U8CO_READONLY_EXCEPTIONS`（以及桥的 `readOnlyExceptions`）并重启，只读闸门恢复为「一律不能写」。
 

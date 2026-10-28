@@ -135,7 +135,7 @@
 | POST | `archives/get`、`archives/list` | 读 | 基础档案读取、列表 |
 | POST | `archives/create`、`update`、`delete` | 写 | 基础档案写操作 |
 | POST | `archives/customer_person` | 写 | 修改客户专管业务员（只改 `cCusPPerson`，条件满足时一并改分管部门和 `Customer_Auth`；§15） |
-| POST | `archives/customer_fields` | 写 | 修改客户简称、地区分类、停用日期、销售默认收付款协议（只改 `cCusAbbName`、`cDCCode`、`dEndDate`、`cCusSAProtocol`；§15） |
+| POST | `archives/customer_fields` | 写 | 修改客户名称、简称、税号、地区分类、停用日期、销售默认收付款协议（只改 `cCusName`、`cCusAbbName`、`cCusRegCode`、`cDCCode`、`dEndDate`、`cCusSAProtocol`；§15） |
 | POST | `archives/customer_address` | 写 | 修改客户已有收货地址的编码、名称、收货单位、默认标志（`CusDeliverAdd`；§15） |
 | POST | `archives/customer_address_add` | 写 | 给客户新增一个收货地址（`CusDeliverAdd`；§15） |
 | POST | `archives/customer_address_delete` | 写 | 删除客户的一个收货地址，`expect` 为并发核对；用于回滚新增（§15） |
@@ -1659,7 +1659,7 @@ U8 的已知缺陷：记账组件回写记账标志时按（期间、类别序�
 - 选择器标志（整行才有，`keys_only` 不给；列值为空按 `false`）：`warehouse` 的 `bin_managed`（启用货位管理）；`position` 的 `leaf`（末级货位，`class_code` 是所属仓库）；`inventory` 的 `batch_managed`（批次管理）、`shelf_life_managed`（保质期管理）。这些键不影响事件服务的档案指纹（只看名称、分类、停用状态和停用日期）。
 - 新增必须有 `name`；存货新增必须带 `template`（已有存货编码，桥按它铺满其余标签），其他档案可选。编码已存在 409「档案编码已存在」。客户、供应商要给税号类必填项，缺了由 U8 报错。
 - 修改至少一个字段，不能改编码。桥发整条记录（当前值打底，再用 `fields` 覆盖），因为 U8 修改时按档案设置检查全部必输项。
-- 只读账套上的档案写入一律 403 `account_read_only`。配置了 `U8CO_READONLY_EXCEPTIONS` 时，仅当账套、操作员、路由 `archives/<op>` 命中例外（`type=archives`、`op` 为 `customer_person`、`customer_fields`、`customer_address`、`customer_address_add`、`customer_address_delete`、`create`、`delete`）才穿过只读闸门（仍受写入策略约束）；另有 `type=vouchers`、`op=head_fix` 一种，只放行路由 `vouchers/head_fix`（§8），`vouchers/update` 等其它单据写入仍 403；`create`、`delete` 另须请求体的 `archive` 在例外的 `archives` 列表里（目前只能是 `district_class`，新增和删除成对开放，新增错了可以删掉）。审计字段 `read_only_exception` 为 true，成功时 `outcome` 也记 `read_only_exception`。`archives/update`、其它档案的新增和删除、其它操作员或其它账套、不匹配的带键重发都不放行。预演（`dry_run`）同样必须是这条路由。例如只读账套上 `archives/create` 的 `district_class`：例外 `{"op":"create","archives":["district_class"]}` 配上之后，同一账套同一操作员新增地区分类照常走 EAI，新增 `customer` 仍 403。客户端 `arc_update` 与 `arc_create` 一样可带 `idempotency_key`。
+- 只读账套上的档案写入一律 403 `account_read_only`。配置了 `U8CO_READONLY_EXCEPTIONS` 时，仅当账套、操作员、路由 `archives/<op>` 命中例外（`type=archives`、`op` 为 `customer_person`、`customer_fields`、`customer_address`、`customer_address_add`、`customer_address_delete`、`create`、`delete`）才穿过只读闸门（仍受写入策略约束）；另有 `type=vouchers`、`op=head_fix` 一种，只放行路由 `vouchers/head_fix`（§8），`vouchers/update` 等其它单据写入仍 403；`create`、`delete` 另须请求体的 `archive` 在例外的 `archives` 列表里：`create` 可列 `district_class`、`customer`，`delete` 只能列 `district_class`（地区分类新增和删除成对开放，新增错了可以删掉；客户只开放新增——EAI 新增是 INSERT，不经清银行账号的 `diffedit`——不开放删除，新增错的客户用 `customer_fields` 写 `end_date` 停用，`archives/update` 的客户修改也不能开放）。审计字段 `read_only_exception` 为 true，成功时 `outcome` 也记 `read_only_exception`。`archives/update`、其它档案的新增和删除、其它操作员或其它账套、不匹配的带键重发都不放行。预演（`dry_run`）同样必须是这条路由。例如只读账套上 `archives/create` 的 `district_class`：例外 `{"op":"create","archives":["district_class"]}` 配上之后，同一账套同一操作员新增地区分类照常走 EAI，新增 `customer` 仍 403；要开放客户新增另配 `{"op":"create","archives":["customer"]}`（或与地区分类写在同一项 `["district_class","customer"]`）。客户端 `arc_update` 与 `arc_create` 一样可带 `idempotency_key`。
 - 删除：已被单据使用的档案由 U8 拒绝，409 `u8_rejected`。
 
 ### 客户专管业务员 `archives/customer_person`
@@ -1676,26 +1676,28 @@ U8 的已知缺陷：记账组件回写记账标志时按（期间、类别序�
 
 写入分类 `(archives, customer_person)`：写入策略放行 `archives/update` 不连带放行本路由。功能权限：客户档案编辑 `AS011`；记录级客户权限同档案读取。锁键与档案写入相同（`arc:customer:<编码>`、`arc:write`）。客户端 `arc_customer_person(call, code, person, expect=None, idempotency_key=None)`；命令行 `arc-customer-person --code C --person P`，可选 `--expect`、`--dry-run`、`--idempotency-key`；预演用 `client.dry()`。
 
-错误：404 `not_found` 客户不存在；409 `state_mismatch` 为 `expect` 与当前值不符或并发修改；409 `u8_rejected` 业务员不存在；504 `outcome_unknown` 写后回读不一致，先 `archives/get` 核对再决定是否重试。
+错误：404 `not_found` 客户不存在；409 `state_mismatch` 为 `expect` 与当前值不符（消息照旧是「当前专管业务员是…」，另有 `error.detail.current = {"person": 当前编码}`，当前为空时是空串）或并发修改（「已被他人修改」，没有 `detail`）；409 `u8_rejected` 业务员不存在；504 `outcome_unknown` 写后回读不一致，先 `archives/get` 核对再决定是否重试。
 
-### 客户简称、地区分类、停用日期、销售默认收付款协议 `archives/customer_fields`
+### 客户名称、简称、税号、地区分类、停用日期、销售默认收付款协议 `archives/customer_fields`
 
-只改客户档案的四列，不走客户 EAI（EAI 的客户修改会清空开户银行与银行账号、改写最后收款日期、补助记码，并拒绝未填所属行业的客户；实测见 `docs/u8-notes.md`）。一个事务内 `UPDLOCK` 读出当前行，核对 `expect`，只 `UPDATE` 请求里列出的列，加修改人（操作员姓名）和修改日期，乐观锁 `pubufts`，写后同事务回读，不符回滚并返回 504。
+只改客户档案的六列，不走客户 EAI（EAI 的客户修改会清空开户银行与银行账号、改写最后收款日期、补助记码，并拒绝未填所属行业的客户；实测见 `docs/u8-notes.md`）。一个事务内 `UPDLOCK` 读出当前行，核对 `expect`，只 `UPDATE` 请求里列出的列，加修改人（操作员姓名）和修改日期，乐观锁 `pubufts`，写后同事务回读，不符回滚并返回 504。
 
 | 字段 | 说明 |
 | --- | --- |
 | `code` | 客户编码，校验同 `archives/update` 的 `code` |
-| `fields` | 对象，至少一项，键只收下表四个，其它键 400 |
-| `expect` | 可选，强烈建议带上。调用方认为的当前值，键须在 `fields` 里；空串表示当前为空；日期按 `yyyy-MM-dd` 比较。不符 409 `state_mismatch`，消息列出字段 |
+| `fields` | 对象，至少一项，键只收下表六个，其它键 400 |
+| `expect` | 可选，强烈建议带上。调用方认为的当前值，键须在 `fields` 里；空串表示当前为空；日期按 `yyyy-MM-dd` 比较；`district`、`sa_protocol` 不分大小写，其余逐字比较。不符 409 `state_mismatch`，消息列出不符的字段，`error.detail.current` 给 `fields` 每个键的当前值 |
 
 | `fields` 键 | 列 | 规则 |
 | --- | --- | --- |
-| `abbrname` | `Customer.cCusAbbName`（nvarchar(60) NOT NULL） | 去掉首尾空白后不能为空，最长 60，不含控制字符 |
+| `abbrname` | `Customer.cCusAbbName`（nvarchar(60) NOT NULL，唯一索引） | 去掉首尾空白后不能为空，最长 60，不含控制字符。与其他客户的简称相同（按库的排序规则，不分大小写）409 `abbrname_taken`「简称已被其他客户使用：简称」，`field` 为 `fields.abbrname`；预查之后并发撞上唯一索引（SQL Server 2627 / 2601）同样 409 `abbrname_taken`，不是 500 |
+| `name` | `Customer.cCusName`（nvarchar(98)） | 去掉首尾空白后不能为空，最长 98，不含控制字符。不查重（库里名称不唯一）。不改历史单据（发货单、销售订单、发票等）上的客户名称副本，也不重算助记码 `cCusMnemCode` |
+| `tax_no` | `Customer.cCusRegCode`（nvarchar(50)，纳税人登记号） | 去掉首尾空白后最长 50，不含控制字符；空串清为 NULL。不查重、不校验格式 |
 | `district` | `Customer.cDCCode`（nvarchar(12)） | 空串清空；否则须在 `DistrictClass` 中且 `bDCEnd=1`（末级），不然 409 `district_invalid`「地区分类不存在或不是末级」 |
 | `end_date` | `Customer.dEndDate` | 空串清空；否则 `yyyy-MM-dd`，不能早于客户建档日期（`dCusCreateDatetime` 的日期），否则 400 |
 | `sa_protocol` | `Customer.cCusSAProtocol`（nvarchar(20)，销售默认收付款协议） | 空串清空；否则最长 20，不含控制字符，首尾不能有空白（400）。须是收付款协议档案 `AA_Agreement` 里的 `cCode`（不分大小写，写入库里存的编码），不存在 409 `sa_protocol_invalid`「收付款协议不存在：编码」；已停用（停用日期 `dEDate` 非空且不晚于登录日期）409 `sa_protocol_invalid`「收付款协议已停用：编码」。请求值已等于当前值时不检查。协议档案没有销售 / 采购标志，不按侧别过滤；`expect.sa_protocol` 不分大小写比较 |
 
-请求值全部已等于当前值时成功返回 `changed:false`，不 `UPDATE`、不改审计列。响应 `{"ok":true,"code":C,"changed":true,"before":{"abbrname","district","end_date","sa_protocol"},"after":{...}}`，四个键总在（即使本次只改简称），空值是空串。预演是 `validate`：事务里跑完全部检查后回滚，不写库。
+请求值全部已等于当前值时成功返回 `changed:false`，不 `UPDATE`、不改审计列。响应 `{"ok":true,"code":C,"changed":true,"before":{"abbrname","district","end_date","sa_protocol","name","tax_no"},"after":{...}}`，六个键总在（即使本次只改简称），空值是空串。预演是 `validate`：事务里跑完全部检查后回滚，不写库。
 
 ```json
 {"acc":"801","operator":"op001","code":"C900001",
@@ -1705,7 +1707,16 @@ U8 的已知缺陷：记账组件回写记账标志时按（期间、类别序�
 
 写入分类 `(archives, customer_fields)`，规则键 `write:archive:customer:customer_fields`；写入策略放行 `archives/update` 不连带放行。功能权限：客户档案编辑 `AS011`；记录级客户权限同档案读取。锁键 `arc:customer:<编码>`、`arc:write`。客户端 `arc_customer_fields(call, code, fields, expect=None, idempotency_key=None)`；命令行 `arc-customer-fields --code C --file edit.json`（文件内容 `{"fields":{...},"expect":{...}}`，`expect` 可选），可选 `--dry-run`、`--idempotency-key`。
 
-错误：404 `not_found` 客户不存在；400 键、长度、日期格式或停用日期早于建档日期；409 `state_mismatch` 为 `expect` 与当前值不符或并发修改；409 `district_invalid`；409 `sa_protocol_invalid`（收付款协议不存在或已停用）；504 `outcome_unknown` 写后回读不一致，先 `archives/get` 核对再决定是否重试。**升级顺序：先桥，后 API**（旧桥遇 `sa_protocol` 回 400「未知字段」）。
+错误：404 `not_found` 客户不存在；400 键、长度、日期格式或停用日期早于建档日期；409 `state_mismatch` 为 `expect` 与当前值不符或并发修改；409 `abbrname_taken` 简称已被其他客户使用；409 `district_invalid`；409 `sa_protocol_invalid`（收付款协议不存在或已停用）；504 `outcome_unknown` 写后回读不一致，先 `archives/get` 核对再决定是否重试。**升级顺序：先桥，后 API**（旧桥遇 `name`、`tax_no` 回 400「未知字段」）。
+
+`expect` 不符时的错误体（并发修改「客户 C 已被他人修改」没有 `detail`）：
+
+```json
+{"error":{"code":"state_mismatch","message":"与 expect 不符：name 当前是示例客户有限公司","retryable":false,
+ "detail":{"current":{"name":"示例客户有限公司","tax_no":""}}}}
+```
+
+`current` 的键就是请求 `fields` 的键（不只不符的那几个），值是当前值（空为空串，日期 `yyyy-MM-dd`），调用方据此判断「当前已是目标值」或重新带 `expect` 重试，不必解析中文消息。Python 客户端：`U8CoStateMismatch.current`。
 
 ### 客户收货地址 `archives/customer_address`
 
@@ -2231,7 +2242,7 @@ API 的 `/v1/co/health` 返回 `ok`、`version`，以及桥报了的 `license`�
 | 键 | 在哪 | 说明 |
 | --- | --- | --- |
 | `retryable` | 仅 API，总是有 | 布尔。`busy`、`busy_timeout`、`stopping`、`u8_license_full`、`ia_timeout`、`rate_limited`、`unavailable`、`store_unavailable`、`write_policy_unavailable`、`write_frozen`、`write_window`、`write_quota`、`u8_license_hold` 为 `true`（请求没有执行，按 `Retry-After` 稍后重发）；其余一律 `false`，`outcome_unknown` 也是 `false`（见下文「重试」） |
-| `field` | 知道是哪个字段时。桥在 401 以外的 4xx 上都可能带；API 只在 400 上转出 | 出错字段在请求体里的路径：点号分隔，键名写法同调用方发来的（桥自己生成的路径用小写），数组下标从 0 开始，例如 `lines`、`head.ccuscode`、`lines.2.iquantity`（不知道下标时 `lines.iquantity`）、`fields.ccusname`（档案）、`items.0.archive`。只含字母、数字、`_`、`.`、`-`，最长 200 |
+| `field` | 知道是哪个字段时。桥在 401 以外的 4xx 上都可能带；API 在 400 和 409 上转出（409 如 `abbrname_taken` 的 `fields.abbrname`） | 出错字段在请求体里的路径：点号分隔，键名写法同调用方发来的（桥自己生成的路径用小写），数组下标从 0 开始，例如 `lines`、`head.ccuscode`、`lines.2.iquantity`（不知道下标时 `lines.iquantity`）、`fields.ccusname`（档案）、`items.0.archive`。只含字母、数字、`_`、`.`、`-`，最长 200 |
 | `hint` | 桥和 API，可能没有 | 简短的中文处理建议。桥给了就用桥的（最长 300），否则 API 按码补缺省的，见下表。401 和 500 不带 |
 | `detail` | 桥和 API，只在 4xx（401 除外），可能没有 | 结构化补充（JSON 对象），各路由自己定义键，例如存货核算记账 409 时的 `uncosted`（`[{wh, inv, batch}]`，最多 20 项）和 `uncosted_total`（§32）。API 转出桥给的对象（403 只保留标量值，字符串同 `message` 截断）；不是对象、为空或序列化后超过 32 KiB 时丢掉 |
 
@@ -2281,7 +2292,8 @@ API 的缺省 `hint`（表在 `api/u8co_api/errors.py`；表里没有的码没�
 | 403 | `operator_not_allowed` | 写入策略不允许这个操作员在此账套写入 |
 | 403 | `no_permission` | 写操作：操作员没有对应的 U8 功能权限（总账、档案写入、生产订单关闭和打开等），或记录不在数据权限内。读路由：没有该功能权限，或单张单据、档案不在数据权限内（§22） |
 | 404 | `not_found` | 单据不存在 |
-| 409 | `state_mismatch` | 调用前已是目标状态，不满足门槛，或提交后回读对不上 |
+| 409 | `state_mismatch` | 调用前已是目标状态，不满足门槛，或提交后回读对不上。客户专用写入 `customer_fields`、`customer_person` 的 `expect` 不符另带 `detail.current`（§15） |
+| 409 | `abbrname_taken` | `customer_fields` 改的简称已被其他客户使用（§15） |
 | 409 | `u8_rejected` | U8 返回了拒绝文本，`message` 是原文 |
 | 409 | `workflow_enabled` | 单据走审批流，不能直接审核 |
 | 409 | `workflow_unknown` | 查不到审批流配置，按失败处理 |

@@ -17,7 +17,7 @@
 {"route": "archives/customer_address", "access": "write", "summary": "修改客户收货地址"},
 {"route": "archives/customer_address_add", "access": "write", "summary": "新增客户收货地址"},
 {"route": "archives/customer_address_delete", "access": "write", "summary": "删除客户收货地址"},
-{"route": "archives/customer_fields", "access": "write", "summary": "修改客户简称、地区分类、停用日期、销售默认收付款协议"},
+{"route": "archives/customer_fields", "access": "write", "summary": "修改客户名称、简称、税号、地区分类、停用日期、销售默认收付款协议"},
 {"route": "archives/customer_person", "access": "write", "summary": "修改客户专管业务员"},
 {"route": "archives/delete", "access": "write", "summary": "删除档案"},
 {"route": "archives/get", "access": "read", "summary": "读取档案"},
