@@ -32,6 +32,8 @@ namespace U8Co
             {
                 return SigCheck.RunCli(opts.Strict);
             }
+            // --check-config 按这个名字查服务的失败动作（「登录状态不是 0」自愈第二步）。
+            WedgedRestart.InstalledName = opts.ServiceName;
             if (!ApplyRoot(opts.Root))
             {
                 return 1;
@@ -45,6 +47,8 @@ namespace U8Co
                 AppHost.RunConsole();
                 return 0;
             }
+            // 以服务运行：「登录状态不是 0」自愈第二步只在服务的第一条失败动作为重启时请求重启。
+            WedgedRestart.ServiceName = opts.ServiceName;
             ServiceBase.Run(new U8CoService(opts.ServiceName));
             return 0;
         }

@@ -331,6 +331,11 @@ namespace U8Co
 
         public static void NoteCrash(object sender, UnhandledExceptionEventArgs e)
         {
+            if (e.IsTerminating)
+            {
+                // 进程将结束、SCM 会计一次失败：「登录状态不是 0」自愈的 FailChain 要算上（只在以服务运行时记）。
+                WedgedRestart.RecordFailure(WedgedRestart.KindCrash);
+            }
             try
             {
                 if (!Paths.RootWritable())

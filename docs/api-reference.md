@@ -2174,6 +2174,7 @@ U8 的已知缺陷：记账组件回写记账标志时按（期间、类别序�
 | --- | --- |
 | `version`、`workers`、`read_workers`、`queued`、`read_queued`、`running` | 版本，写、读线程数，写、读队列里的任务数，正在执行的任务数 |
 | `pinning`、`worker_queued` | 是否把需要登录的任务按操作员固定写线程（`true`）；按写线程序号列出排给各线程的任务数（不含不带操作员和已过期、已放弃的任务；命中登录缓存但已失效的读转到写线程时可能 429 `busy` 或 503 `stopping`） |
+| `wedged_logins` | 「登录状态不是 0」自愈（见 configuration.md）：`{"active":false,"count_24h":0,"last_at":null,"recycles_24h":0,"restarts_24h":0}`。`active` 有操作员此刻判为卡住；`count_24h` 近 24 小时判为卡住的次数，`last_at` 最近一次（UTC），`recycles_24h` 换写线程次数，`restarts_24h` 因此请求重启进程的次数。不含操作员 |
 | `signatures` | COM 签名自检摘要：`pending`、`ok`、`mismatch:<n>`、`unknown`（细节见 `meta` 的 `features.signatures` 和 getting-started.md） |
 | `license` | U8 许可点数：`ok`、`near`（将满）、`full`（已满）、`unknown`（读不到或还没采到） |
 | `license_detail` | 按子系统两位码给出点数，如 `{"SA":{"used":3,"limit":10,"full_24h":0}}`：`used` 已用、`limit` 总数、`full_24h` 近 24 小时出现「已满」的次数 |

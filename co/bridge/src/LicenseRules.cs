@@ -5,6 +5,7 @@ using System.Globalization;
 namespace U8Co
 {
     // --check-config 打印许可相关的键（含 licenseLeases；licenseServer 未配置时打印从应用服务器配置读到的地址）、cleanOrphanTasks、serializeWrites 和 loginReuse（含停用时段 loginReuseOffHours）的实际取值（含缺省），
+    // 「登录状态不是 0」自愈的 wedgedLoginRecycle、wedgedLoginRestart（含服务的失败动作，WedgedRules），
     // 以及写入策略 license.maxConcurrentLogins 与 staWorkers、loginReuse 搭配不当的警告。
     internal static class LicenseRules
     {
@@ -22,6 +23,8 @@ namespace U8Co
             lines.Add("cleanOrphanTasks（终审后清孤儿任务行，写 UFSystem）: " + (cfg.CleanOrphanTasks ? "true" : "false"));
             lines.Add("serializeWrites（写闸门）: " + WriteGate.ModeLabel(cfg));
             lines.Add("loginReuse（登录复用）: " + Reuse(cfg));
+            string service = WedgedRestart.InstalledName;
+            lines.AddRange(WedgedRules.Describe(cfg, service, WedgedRestart.FailureMode(service)));
             PolicyLicense lic = WritePolicy.LicenseOf(cfg);
             string[] warn = LoginWarnings(lic == null ? 0 : lic.MaxConcurrentLogins, cfg.LoginReuse, cfg.StaWorkers);
             for (int i = 0; i < warn.Length; i++)

@@ -22,6 +22,8 @@ namespace U8Co
         {
             AuthCache.Configure(cfg.AuthCacheSeconds);
             LoginCache.Configure(cfg.LoginReuse, 16, 60, cfg.LoginReuseOffHours);
+            // 「登录状态不是 0」自愈（wedgedLoginRecycle、wedgedLoginRestart）。
+            WedgedLogin.Configure(cfg);
             StaPool write = new StaPool("u8co-sta", cfg.StaWorkers, cfg.QueueCap, StaExec.Write, true, null);
             StaPool read = new StaPool(ReadPoolName, cfg.ReadWorkers, cfg.QueueCap, StaExec.Read, false, ReadRoute);
             write.Start();
@@ -179,7 +181,7 @@ namespace U8Co
         }
 
         // 在原来的 {"ok":true,"version":"1"} 后面追加线程和队列计数、许可点数状态（LicenseView，不影响 200）、登录复用计数（LoginCache）、
-        // 写入策略、只读账套和第二级写入开关（TestAccountGate）、操作员固定（PinHealth）。
+        // 写入策略、只读账套和第二级写入开关（TestAccountGate）、操作员固定（PinHealth）、「登录状态不是 0」自愈（WedgedLogin，不含操作员）。
         public static string HealthJson()
         {
             StaPool write = _write;
@@ -188,7 +190,7 @@ namespace U8Co
             return string.Format(
                 CultureInfo.InvariantCulture,
                 "{{\"ok\":true,\"version\":\"{0}\",\"workers\":{1},\"read_workers\":{2},"
-                + "\"queued\":{3},\"read_queued\":{4},\"running\":{5},\"signatures\":\"{6}\"{7}{8}{9}{10}{11}{12}}}",
+                + "\"queued\":{3},\"read_queued\":{4},\"running\":{5},\"signatures\":\"{6}\"{7}{8}{9}{10}{11}{12}{13}}}",
                 AppInfo.Version,
                 write == null ? 0 : write.Size,
                 read == null ? 0 : read.Size,
@@ -201,7 +203,8 @@ namespace U8Co
                 WritePolicy.HealthFragment(),
                 ReadOnlyGate.HealthFragment(),
                 TestAccountGate.HealthFragment(),
-                PinHealth(write));
+                PinHealth(write),
+                WedgedLogin.HealthFragment());
         }
 
         // 操作员固定：pinning，以及每条写线程（按序号）排队中固定到它的任务数 worker_queued。

@@ -16,6 +16,8 @@ namespace U8Co
         static readonly Busy[] Slots = new Busy[MaxSlots];
         static int _slots;
         static int _sick;
+        // 「登录状态不是 0」自愈第二步（WedgedLogin）请求的重启：与卡死同一条路径（Halt → Settle → FailFast）。
+        static int _restart;
         // 本线程占的槽号加 1（0 表示没占）。Extend / Restore 只改本线程的槽。
         [ThreadStatic]
         static int _mine;
@@ -96,9 +98,15 @@ namespace U8Co
             get { return LimitTicks; }
         }
 
+        // WedgedLogin 第二步：健康检查立即变 503，看门狗线程下一轮（2 秒内）按卡死同样处理，由服务失败动作拉起。
+        public static void RequestRestart()
+        {
+            Interlocked.Exchange(ref _restart, 1);
+        }
+
         public static bool Unhealthy()
         {
-            if (_sick != 0)
+            if (_sick != 0 || Interlocked.CompareExchange(ref _restart, 0, 0) != 0)
             {
                 return true;
             }
@@ -145,6 +153,13 @@ namespace U8Co
                 StaWorker.Halt();
                 Settle();
                 // 经 StopGuard：恰逢请求停止时先报已停止，不触发失败重启；平时照常 FailFast，由恢复动作拉起。
+                bool wedged = Interlocked.CompareExchange(ref _restart, 0, 0) != 0;
+                // 以服务运行时记下这次结束进程，「登录状态不是 0」自愈据此估计 SCM 的失败计数（FailChain）。
+                WedgedRestart.RecordFailure(wedged ? WedgedRestart.KindWedged : WedgedRestart.KindWatchdog);
+                if (wedged)
+                {
+                    StopGuard.Kill("看门狗：登录状态不是 0 换线程后仍未恢复，重启进程", "u8co wedged U8 login state");
+                }
                 StopGuard.Kill("看门狗：任务超时，强制结束", "u8co job exceeded its time limit");
             }
         }

@@ -65,6 +65,10 @@ namespace U8Co
         public bool LoginReuse;
         // 登录复用的停用时段（ReuseWindow）：时段内不复用。null 表示不设，复用只看 loginReuse。
         public ReuseWindow LoginReuseOffHours;
+        // 「登录状态不是 0」自愈（WedgedLogin）：连续几次判为卡住后换掉该操作员的写线程，0 关闭；
+        // 换线程后仍卡住时是否重启进程，null 为缺省（见 WedgedRestart.Policy 与 FailChain）。
+        public int WedgedLoginRecycle = 2;
+        public bool? WedgedLoginRestart;
         // 存货核算脚本（ia/post、ia/period_end、存货月末结账）的命令超时（秒）。生产规模的月份要一到数分钟。
         public int IaCommandSeconds = 900;
         // 写入策略文件（WritePolicy）的完整路径，位于运行目录之下。null 表示不启用写入策略。
@@ -89,6 +93,8 @@ namespace U8Co
             "serializeWrites",
             // 登录复用
             "loginReuse", "loginReuseOffHours",
+            // 「登录状态不是 0」自愈
+            "wedgedLoginRecycle", "wedgedLoginRestart",
             // 测试账套（月末结账）
             "testAccounts",
             // 第二级写入总开关
@@ -126,6 +132,7 @@ namespace U8Co
             WriteGate.LoadMode(cfg, map);
             cfg.LoginReuse = ConfigRules.OptionalBool(map, "loginReuse", false);
             cfg.LoginReuseOffHours = ReuseWindow.FromConfig(map);
+            WedgedRules.Load(cfg, map);
             FileAcl.RefuseExtraReaders(Paths.SecretFile);
             cfg.Secret = ReadSecret(Paths.SecretFile);
             cfg.MacKey = Crypto.MacKey(cfg.Secret);
@@ -222,7 +229,7 @@ namespace U8Co
             RejectUnknown(map, ConfigKeys, "config.json");
         }
 
-        static int OptionalInt(Dictionary<string, object> map, string key, int fallback, int min, int max)
+        internal static int OptionalInt(Dictionary<string, object> map, string key, int fallback, int min, int max)
         {
             object raw;
             if (!map.TryGetValue(key, out raw))

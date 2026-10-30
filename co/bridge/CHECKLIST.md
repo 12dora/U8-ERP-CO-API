@@ -95,6 +95,8 @@
 - 登录缓存的键带登录日期。不要为了命中率把日期去掉，否则会绕过 U8 的日期检查。（`docs/architecture.md` §4；`AuthCache.cs`）
 - 登录复用（`loginReuse`）打开时登录对象会留给下一笔请求。任何 by-ref 登录槽（`Init`、`Transact` 等把 `login` 按引用交给组件的调用）都要先 `ctx.DropLogin()` 或经 `LoginBack`；改写登录对象属性、可能在请求连接上留下未结束事务的新路径同样先 `ctx.DropLogin()`。登录子系统 QM、AR、AP 的请求由 `StaExec.KeepAfter` 一律不放回，确认无副作用之前不要去掉。（`docs/architecture.md`「登录复用」；`LoginCache.cs`、`StaExec.cs`、`WorkContext.cs`）
 
+- U8 登录一律经 `U8Session.Open`（或 `LoginCache.Acquire`），用完 `Dispose`，不要另起 `clsLogin`：「登录状态不是 0」自愈（`WedgedLogin`）靠它登记某操作员的在用和进行中的登录，绕过去会把桥自己的冲突误判成卡住、换掉写线程。（`docs/architecture.md`「登录状态不是 0 自愈」；`U8Session.cs`、`WedgedLogin.cs`）
+
 ## SQL
 
 - 列表 SQL：`TOP (?)` 带整数参数，日期 `CONVERT(date, ?, 23)`，rowversion 输出 `CONVERT(varchar(20), CONVERT(bigint, ufts))`、比较 `CONVERT(binary(8), CONVERT(bigint, ?))`，水位 `MIN_ACTIVE_ROWVERSION() - 1` 在查询前取。（`docs/u8-notes.md` §13）

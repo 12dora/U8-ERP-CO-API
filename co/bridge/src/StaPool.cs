@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Threading;
 
 namespace U8Co
@@ -29,7 +30,8 @@ namespace U8Co
         readonly WorkExec _exec;
         readonly bool _pinned;
         readonly WorkRoute _route;
-        Thread[] _threads = new Thread[0];
+        // 换线程（Recycle）时整个数组换掉，读的一方不加锁。
+        volatile Thread[] _threads = new Thread[0];
         int _running;
         int _expect;
         bool _stop;
@@ -98,16 +100,17 @@ namespace U8Co
             }
             for (int i = 0; i < _size; i++)
             {
-                int slot = Watchdog.Register();
-                Thread thread = new Thread(new ParameterizedThreadStart(Loop));
-                thread.IsBackground = true;
-                thread.Name = _name + "-" + (i + 1);
-                thread.SetApartmentState(ApartmentState.STA);
-                threads[i] = thread;
-                // 状态：{看门狗槽位, 线程序号}，序号即 OperatorPin.Index 的取值。
-                thread.Start(new int[] { slot, i });
+                threads[i] = NewThread(i);
             }
+            // 先登记再起线程：线程里换线程（Recycle）要按序号改这个数组。
             _threads = threads;
+            for (int i = 0; i < _size; i++)
+            {
+                LoopArgs args = new LoopArgs();
+                args.Slot = Watchdog.Register();
+                args.Index = i;
+                threads[i].Start(args);
+            }
             Interlocked.Exchange(ref _expect, 1);
         }
 
@@ -220,22 +223,45 @@ namespace U8Co
             }
         }
 
+        // 线程状态：看门狗槽位、线程序号（即 OperatorPin.Index 的取值），换线程时新线程先做的一次登录（WedgedLogin.Probe）。
+        sealed class LoopArgs
+        {
+            public int Slot;
+            public int Index;
+            public WedgedProbe Probe;
+            // 换线程时被换掉的旧线程：新线程探测登录前先等它退出（最多 5 秒）。
+            public Thread Previous;
+        }
+
+        Thread NewThread(int index)
+        {
+            Thread thread = new Thread(new ParameterizedThreadStart(Loop));
+            thread.IsBackground = true;
+            thread.Name = _name + "-" + (index + 1);
+            thread.SetApartmentState(ApartmentState.STA);
+            return thread;
+        }
+
         void Loop(object state)
         {
-            int[] args = (int[])state;
-            int slot = args[0];
-            int index = args[1];
+            LoopArgs args = (LoopArgs)state;
+            int slot = args.Slot;
             if (_name == StaWorker.ReadPoolName)
             {
                 // 读线程池不缓存登录（loginReuse 只作用于写线程）。
                 LoginCache.MarkNoKeepThread();
             }
+            if (_pinned)
+            {
+                WedgedLogin.BindWorker(args.Index);
+            }
             try
             {
+                FirstProbe(args);
                 while (true)
                 {
                     bool idle;
-                    WorkItem item = Take(index, out idle);
+                    WorkItem item = Take(args.Index, out idle);
                     if (item == null && idle)
                     {
                         // 空闲：在本 STA 上关掉已过期的缓存登录（loginReuse），不持队列锁。
@@ -247,12 +273,109 @@ namespace U8Co
                         return;
                     }
                     Run(item, slot);
+                    // 「登录状态不是 0」自愈第一步：本任务（已经回了 422）里判定本线程要换掉。
+                    WedgedProbe probe = _pinned ? WedgedLogin.TakeRecycle() : null;
+                    if (probe != null && Recycle(args, probe))
+                    {
+                        return;
+                    }
                 }
             }
             finally
             {
                 // 线程退出前（含异常退出）在本 STA 上关掉缓存的登录（loginReuse）。
                 Guarded(slot, true);
+            }
+        }
+
+        // 换线程后的新线程：先等旧线程退出，池没在停止才探测登录（停止时只清掉口令副本）。
+        void FirstProbe(LoopArgs args)
+        {
+            WedgedProbe probe = args.Probe;
+            args.Probe = null;
+            if (probe == null)
+            {
+                return;
+            }
+            probe.PreviousAlive = JoinPrevious(args);
+            if (IsStopping())
+            {
+                WedgedLogin.Discard(probe);
+                return;
+            }
+            WedgedLogin.Probe(probe, args.Slot);
+        }
+
+        // 等被换掉的旧线程退出，最多 5 秒；返回旧线程是否仍活着（写进 login_probe 的 previous_alive）。
+        static bool JoinPrevious(LoopArgs args)
+        {
+            Thread old = args.Previous;
+            args.Previous = null;
+            if (old == null)
+            {
+                return false;
+            }
+            return !old.Join(5000);
+        }
+
+        bool IsStopping()
+        {
+            lock (_gate)
+            {
+                return _stop;
+            }
+        }
+
+        // 换掉本线程（WedgedLogin 第一步）：在本线程上关掉本线程缓存的全部登录、释放本线程上已不用的 COM 对象，
+        // 再在同一序号、同一看门狗槽位上起一条新的 STA 线程，本线程随即退出。预期 CLR 在线程退出时 CoUninitialize、
+        // U8 登录组件这条线程上的全局状态随之释放——这是推测，待实际环境确认（审计 worker_recycled 之后 login_probe 是否 ok）。队列是共用的，固定到这个序号的排队任务由新线程接着取，排队期限不变。
+        // 池已在停止（Drain / Halt）时不换，返回 false，本线程照常走到 Take 返回 null 退出。
+        bool Recycle(LoopArgs args, WedgedProbe probe)
+        {
+            Guarded(args.Slot, true);
+            ReleaseCom(args.Slot);
+            lock (_gate)
+            {
+                if (_stop)
+                {
+                    WedgedLogin.Discard(probe);
+                    return false;
+                }
+                LoopArgs next = new LoopArgs();
+                next.Slot = args.Slot;
+                next.Index = args.Index;
+                next.Probe = probe;
+                next.Previous = Thread.CurrentThread;
+                // 先起线程再换数组：数组里的线程始终是活的，看门狗（IsAlive）不会在空档里看到没启动的线程。
+                // 新线程要取任务得先拿 _gate，此刻拿不到；它先等本线程退出（Previous.Join）再探测登录。
+                Thread thread = NewThread(args.Index);
+                thread.Start(next);
+                Thread[] threads = (Thread[])_threads.Clone();
+                threads[args.Index] = thread;
+                _threads = threads;
+            }
+            // 审计写文件，不持队列锁。
+            WedgedLogin.Recycled(probe);
+            return true;
+        }
+
+        // 释放本 STA 上已无引用的 RCW（登录对象已经在 Guarded 里 ShutDown 并 FinalReleaseComObject）。占看门狗槽位。
+        static void ReleaseCom(int slot)
+        {
+            Watchdog.Enter(slot);
+            try
+            {
+                // 不调 GC.Collect / WaitForPendingFinalizers：终结器线程可能排在别的 STA 线程的长 COM 调用后面，
+                // 会把本线程卡到看门狗时限。只放本套间里已无引用的 RCW，其余交给线程退出。
+                Marshal.CleanupUnusedObjectsInCurrentContext();
+            }
+            catch (Exception)
+            {
+                // 释放不了的交给线程退出。
+            }
+            finally
+            {
+                Watchdog.Leave(slot);
             }
         }
 

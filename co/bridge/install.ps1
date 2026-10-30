@@ -334,6 +334,7 @@ function Update-BridgeService([string]$BinPath) {
     if ($LASTEXITCODE -ne 0) { throw "sc description 失败" }
 }
 
+# 前两次失败 60 秒后重启，一天内第三次起不再拉起（防止反复崩溃）。「登录状态不是 0」自愈的第二步要求第一条是重启（WedgedRestart.FailureMode）。
 function Set-BridgeFailure {
     & sc.exe failure $ServiceName reset= 86400 actions= "restart/60000/restart/60000//"
     if ($LASTEXITCODE -ne 0) { throw "sc failure 失败" }
@@ -353,7 +354,7 @@ function Install-BridgeService {
 
 function Invoke-CheckConfig {
     $exe = Get-RuntimePath "bin\u8co-bridge.exe"
-    & $exe --check-config --root $RuntimeDir
+    & $exe --check-config --root $RuntimeDir --service-name $ServiceName
     if ($LASTEXITCODE -ne 0) { throw "配置检查失败" }
 }
 

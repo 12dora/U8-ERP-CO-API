@@ -137,6 +137,8 @@ namespace U8Co
             LoginCacheSelfTest.Run();
             // 操作员固定到写线程（OperatorPinSelfTest，不起线程、不建 COM）。
             OperatorPinSelfTest.Run();
+            // 「登录状态不是 0」自愈（WedgedLoginSelfTest，不起线程、不建 COM；只在系统临时目录写一个文件，用完删掉）。
+            WedgedLoginSelfTest.Run();
         }
 
         // 写闸门与写入策略的自检（从 Run 拆出，控制函数长度）。

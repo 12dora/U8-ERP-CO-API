@@ -243,6 +243,17 @@ U8 在同一台机器上只允许同一操作员保持一个登录，第二个�
 - 管理员在系统管理中清除桥的任务后，缓存中的登录可能已失效而健康检查无法发现，下一笔请求可能因此失败一次，随后该登录被关闭并重新登录。
 - 健康检查增加 `login_reuse`、`login_reuse_active`、`logins_opened`、`logins_reused`、`logins_closed`（进程启动后累计）；`logins_opened` 减 `logins_closed` 约等于当前未关闭的登录数。
 
+### 登录状态不是 0 自愈
+
+U8 的登录组件（`U8Login.clsLogin`）是 VB6 的套间线程 DLL，模块级全局状态按 STA 线程各存一份。实测出现过这样的卡住：许可点数饱和、某操作员的几次登录回「加密点数已饱和」之后，同一写线程上该操作员的每次登录都回「登录状态不是 0」，持续一个多小时；当时桥没有该操作员的登录，`UFSystem` 里也没有它在本机的任务行，新进程立即能登，重启服务即恢复。推测是这份线程状态卡住；下面的第一步（换一条新的 STA 线程）按这个推测设计，能否恢复有待实际环境确认，确认不了时由第二步（重启进程）兜底。按操作员固定写线程（见上）让这种卡住只落在一条线程上，也让桥能在线程一级尝试恢复（`WedgedLogin.cs`、`WedgedState.cs`、`WedgedRestart.cs`）：
+
+- 登记：`U8Session.Open` 进出时登记该操作员正在进行的登录，成功后登记在用登录（复用缓存里的也算，`Dispose` 时减回）。
+- 判定：写线程上一次登录最终回 422「登录状态不是 0」（重试用完、没见过饱和），且没有该操作员的在用登录、也没有它的另一个正在进行的登录时，记一次。桥自己的冲突（同一请求里的嵌套登录）因此不算。相邻不超过 10 分钟才连续；成功清零。
+- 第一步（`wedgedLoginRecycle` 次后）：本请求照常 422；该写线程跑完这个任务后在本线程上关掉缓存的全部登录、`Marshal.CleanupUnusedObjectsInCurrentContext` 释放本套间里已无引用的 RCW（不调 `GC.Collect` / `WaitForPendingFinalizers`：终结器可能排在别的 STA 线程的长 COM 调用后面，把本线程卡到看门狗时限），在同一序号、同一看门狗槽位上先起一条新的 STA 线程、再换进线程数组（数组里始终是活线程，看门狗不会误判），自己退出（预期 CLR 在线程退出时 `CoUninitialize`，VB6 的线程状态随之释放）。队列是共用的，固定到该序号的任务由新线程接着取。新线程先等旧线程退出（最多 5 秒），再用失败那次的参数登录一次（参数副本只在内存里，用完清掉口令），结果写审计 `login_probe`。池正在停止时不换。
+- 第二步：换线程后 30 分钟内再判为卡住、第二步开着时（以服务运行、`wedgedLoginRestart` 不为 `false`、服务第一条失败动作为重启；控制台模式从不重启），按 `FailChain` 估计 SCM 此刻的失败计数：`<root>\bridge-failfast.log` 记着桥自己导致的每次进程结束（`wedged`、看门狗 `watchdog`、终止进程的未处理异常 `crash`，都在结束前写），从现在往前取相邻间隔都小于服务重置周期的那串，长度 + 1 ≤ K − 1（K 为开头连续「重启」的条数）才 `Watchdog.RequestRestart`，留一次重启给真正的卡死；距上一次结束不到 30 分钟也不重启。重启与任务卡死同一条路径（健康检查 503 → `Halt` → `Settle` → 记 `wedged` → `StopGuard.Kill` 的 `FailFast`），由服务失败动作拉起。服务的失败动作每分钟最多查一次，只在升级时查。
+- 别的程序或机器以同一操作员登录造成的真冲突从进程里分不出来，所以动作有上限：先换线程，再按上面的计数至多重启（现装的失败动作下一个重置周期内至多一次）；之后照常返回 422。
+- 审计事件 `login_wedged`、`worker_recycled`、`login_probe`、`restart_requested`；健康检查 `wedged_logins`（不含操作员）。恢复在审计里表现为 `worker_recycled` → `login_probe`（`ok`）。
+
 ### 操作员权限
 
 读路由在登录（写线程）或登录缓存命中（读线程）之后、进入处理函数之前经过 `PermGate`（只使用 `ctx.Conn`）：
@@ -287,7 +298,7 @@ U8 在同一台机器上只允许同一操作员保持一个登录，第二个�
 | 90 秒 | API 服务和 Python 客户端读桥的缺省超时，长于 75 秒，以便先看到桥的结果 |
 | 3 分钟 | 任一工作线程上的单个任务超过该时间，或任一工作线程（`u8co-http`、`u8co-sta-N`、`u8co-read-N`）已退出：健康检查变为 503，两个池不再接受新任务（排队中的返回 503 `stopping`），等其他线程手上的任务完成（最多 75 秒）后进程 `FailFast` |
 
-服务的恢复动作是失败后 60 秒重启、一天内重置计数，因此 `FailFast` 之后服务会被重新拉起。停止服务时，两条队列中仍在排队的请求返回 503 `stopping`，所有线程在同一个总时限（65 秒）内结束；`OnStop` 会向服务控制管理器再申请 120 秒。停止有上限：
+服务的恢复动作是前两次失败后 60 秒重启、第三次起不再拉起（防止反复崩溃），一天内重置计数，因此 `FailFast` 之后服务会被重新拉起。「登录状态不是 0 自愈」的第二步也走这条路径（`Watchdog.RequestRestart`）。停止服务时，两条队列中仍在排队的请求返回 503 `stopping`，所有线程在同一个总时限（65 秒）内结束；`OnStop` 会向服务控制管理器再申请 120 秒。停止有上限：
 
 - `OnStop` 一开始即启动后台线程 `u8co-stop-watch`，90 秒后无论进行到哪一步，都在 `unhandled.log` 记一行并 `FailFast`。`OnStop` 返回后它继续计时，用于处理许可查询超时后遗留在 COM 调用中的 STA 线程导致进程无法退出的情况。
 - 等满 65 秒仍有工作线程存活（COM 调用未返回）时，记一行后立即 `FailFast`。
@@ -361,7 +372,7 @@ SQL 只使用参数 `?`，调用方输入不拼入 SQL 文本；表名和列名�
 | `duration_ms` | 耗时 |
 | `trancount_before`、`trancount_after` | 审核前后的 `@@TRANCOUNT` |
 
-另有事件行（带 `event` 字段），例如 `signature_check`、`assembly_loaded`、`license_full`、`idem_persist_failed`、`write_policy_invalid`。
+另有事件行（带 `event` 字段），例如 `signature_check`、`assembly_loaded`、`license_full`、`idem_persist_failed`、`write_policy_invalid`、`login_wedged`、`worker_recycled`、`login_probe`、`restart_requested`（见「登录状态不是 0 自愈」）。
 
 不记录口令、签名、密钥、登录令牌、连接串，也不记录 `head`、`lines`、`fields`、分录和审批意见。异常文本中出现的连接串口令替换为 `***`。401、403 等在登录前即被拒绝的请求，审计中没有操作员和年度。
 

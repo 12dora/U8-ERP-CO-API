@@ -23,6 +23,8 @@ namespace U8Co
         bool _employeeLoaded;
         // 占着 LicenseHold 的在用登录名额，Dispose 时退回。
         bool _held;
+        // 计入 WedgedLogin 在用登录数的操作员（OperatorPin.Norm），Dispose 时减回；不经 Open 造的会话为 null。
+        string _heldOp;
         public string OperatorName;
 
         public object Login
@@ -81,20 +83,34 @@ namespace U8Co
             return _token;
         }
 
+        // 自检用：代替一次 clsLogin 登录（OpenOnce），可返回 new U8Session() 或抛 BridgeException。用完设回 null。
+        internal static Func<BridgeConfig, U8Open, string, U8Session> Once;
+
         // 先过许可保护（LicenseHold：holdWritesWhen、maxConcurrentLogins），占一个在用登录名额再调 clsLogin；
         // 登录失败退回名额，成功的由 Dispose 退回。同一请求内的嵌套登录不占名额（LicenseHold.BeginNested）。
+        // 「登录状态不是 0」自愈（WedgedLogin）：进出登记正在进行的登录，成功登记在用登录，最终失败交给它判定。
         public static U8Session Open(BridgeConfig cfg, U8Open ask)
         {
             bool held = LicenseHold.Enter(ask);
             U8Session session = null;
+            string op = OperatorPin.Norm(ask.User);
+            WedgedLogin.Begin(op);
             try
             {
                 session = OpenRetry(cfg, ask);
                 session._held = held;
+                WedgedLogin.Opened(op);
+                session._heldOp = op;
                 return session;
+            }
+            catch (BridgeException ex)
+            {
+                WedgedLogin.Failed(cfg, ask, ex);
+                throw;
             }
             finally
             {
+                WedgedLogin.End(op);
                 if (session == null && held)
                 {
                     LicenseHold.Leave();
@@ -128,7 +144,7 @@ namespace U8Co
                 long begun = DateTime.UtcNow.Ticks;
                 try
                 {
-                    U8Session session = OpenOnce(cfg, ask, subId);
+                    U8Session session = LoginOnce(cfg, ask, subId);
                     LicenseState.NoteOk(subId, session._login, cfg);
                     return session;
                 }
@@ -156,6 +172,12 @@ namespace U8Co
         {
             LicenseState.NoteFinal(subId, ex, attempts);
             return ex;
+        }
+
+        static U8Session LoginOnce(BridgeConfig cfg, U8Open ask, string subId)
+        {
+            Func<BridgeConfig, U8Open, string, U8Session> once = Once;
+            return once != null ? once(cfg, ask, subId) : OpenOnce(cfg, ask, subId);
         }
 
         static U8Session OpenOnce(BridgeConfig cfg, U8Open ask, string subId)
@@ -216,6 +238,12 @@ namespace U8Co
             {
                 _held = false;
                 LicenseHold.Leave();
+            }
+            string op = _heldOp;
+            _heldOp = null;
+            if (op != null)
+            {
+                WedgedLogin.Closed(op);
             }
             object login = _login;
             _login = null;

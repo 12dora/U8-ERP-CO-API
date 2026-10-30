@@ -20,5 +20,6 @@
   "cleanOrphanTasks": false,
   "serializeWrites": true,
   "loginReuse": false,
-  "loginReuseOffHours": { "days": "1-5", "start": "09:00", "end": "18:00" }
+  "loginReuseOffHours": { "days": "1-5", "start": "09:00", "end": "18:00" },
+  "wedgedLoginRecycle": 2
 }
