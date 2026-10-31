@@ -37,7 +37,12 @@ namespace U8Co
             {
                 restart = cfg.WedgedLoginRestart.Value ? "true" : "false";
             }
-            restart += "；控制台模式一律不重启；距桥上一次结束进程至少 30 分钟，并按服务失败计数留一次重启给看门狗卡死";
+            restart += "；控制台模式一律不重启；距桥上一次结束进程至少 30 分钟";
+            // 失败动作全部为重启时不留，ScmLabel 写明「全部为重启，第二步不按失败次数封顶（仍间隔 30 分钟）」。
+            if (scm == null || !scm.Unlimited)
+            {
+                restart += "，并按服务失败计数留一次重启给看门狗卡死";
+            }
             return new string[]
             {
                 "wedgedLoginRecycle（登录状态不是 0 自愈：连续几次判为卡住后换写线程）: " + recycle,

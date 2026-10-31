@@ -331,11 +331,18 @@ namespace U8Co
 
         public static void NoteCrash(object sender, UnhandledExceptionEventArgs e)
         {
+            // 先写完诊断，再记账并结束进程。
+            WriteCrash(e);
             if (e.IsTerminating)
             {
-                // 进程将结束、SCM 会计一次失败：「登录状态不是 0」自愈的 FailChain 要算上（只在以服务运行时记）。
-                WedgedRestart.RecordFailure(WedgedRestart.KindCrash);
+                // 进程将结束：经 StopGuard 唯一的结束路径记入「登录状态不是 0」自愈的失败链（只在以服务运行时记；
+                // 只有 OnStop 里本桥自己报已停止成功时不记），并在同一把锁里 FailFast。
+                StopGuard.NoteCrash();
             }
+        }
+
+        static void WriteCrash(UnhandledExceptionEventArgs e)
+        {
             try
             {
                 if (!Paths.RootWritable())
@@ -377,7 +384,8 @@ namespace U8Co
             // （SCM 会报已停止而进程不退、exe 被锁），直接结束进程。
             if (StaWorker.AnyAlive)
             {
-                StopGuard.Kill("stop 工作线程 65 秒内未退出（COM 调用未返回），强制结束", "u8co: STA worker alive after stop");
+                StopGuard.Kill("stop 工作线程 65 秒内未退出（COM 调用未返回），强制结束", "u8co: STA worker alive after stop",
+                    WedgedRestart.KindWatchdog);
             }
         }
 

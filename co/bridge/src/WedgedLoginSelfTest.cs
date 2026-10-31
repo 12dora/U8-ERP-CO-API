@@ -6,7 +6,7 @@ namespace U8Co
 {
     // --selftest 的「登录状态不是 0」自愈部分（WedgedState、FailChain、WedgedLogin、WedgedRestart.Policy、WedgedRules、健康检查片段）：
     // 连续次数与窗口、登录成功清零、阈值 0 关闭、本进程持有该操作员登录（在用或另一个正在进行的登录）时不记、
-    // 换线程只一次之后升级、重启限频（含进程重启前落盘的时刻）、按 SCM 失败计数留一次重启（失败链含看门狗记录）、
+    // 换线程只一次之后升级、重启限频（含进程重启前落盘的时刻）、SCM 失败链与停止过程（WedgedChainSelfTest）、
     // 结束进程记录文件的读写（临时目录）、重启策略的取值表、配置解析、健康检查形状（不含操作员）、
     // 新线程上的探测登录（口令副本清掉、换线程请求丢掉、失败升级、成功清零）。
     // 经 U8Session.Once 代替 clsLogin（登录对象为空），WedgedLogin.Now / RestartPolicy / RestartHook 代替时钟、策略和重启；
@@ -26,7 +26,7 @@ namespace U8Co
             CheckStrikes();
             CheckEscalate();
             CheckRateLimit();
-            CheckChain();
+            WedgedChainSelfTest.Run();
             CheckFile();
             CheckOff();
             CheckSwitch();
@@ -89,41 +89,6 @@ namespace U8Co
             dog.Strike(Op, T0, Wide, out n);
             Expect("rate watchdog limited", dog.Strike(Op, T0 + Minute, Wide, out n) == WedgedAction.RestartLimited
                 && dog.HealthFragment(T0 + Minute).Contains("\"restarts_24h\":0"));
-        }
-
-        // SCM 的失败链：相邻间隔都小于重置周期、以 now 结尾；链长 + 1 ≤ K − 1 才重启（留一次给看门狗卡死）。
-        static void CheckChain()
-        {
-            long day = 24L * Hour;
-            Expect("chain two", FailChain.Length(new long[] { T0 - 25L * Hour, T0 - 2 * Hour }, T0, day) == 2);
-            Expect("chain broken", FailChain.Length(new long[] { T0 - 50L * Hour, T0 - 25L * Hour }, T0, day) == 0);
-            Expect("chain gap", FailChain.Length(new long[] { T0 - 50L * Hour, T0 - 2 * Hour }, T0, day) == 1);
-            Expect("chain infinite", FailChain.Length(new long[] { T0 - 100L * Hour, T0 - 50L * Hour }, T0, 0) == 2);
-            Expect("chain future", FailChain.Length(new long[] { T0 + Minute }, T0, day) == 0);
-            Expect("chain empty", FailChain.Allows(new long[0], T0, Install()));
-            Expect("chain reserve", !FailChain.Allows(new long[] { T0 - 2 * Hour }, T0, Install()));
-            Expect("chain k1", !FailChain.Allows(new long[0], T0, new ScmPolicy(1, day)));
-            Expect("chain k3", FailChain.Allows(new long[] { T0 - 2 * Hour }, T0, new ScmPolicy(3, day)));
-            Expect("chain null", !FailChain.Allows(new long[0], T0, null));
-            int n;
-            // 看门狗卡死 2 小时前用过一次：现装的「重启、重启、无操作」只剩留给卡死的那一次，不重启。
-            WedgedState dog = new WedgedState(1);
-            dog.SeedFailures(Recs(false, T0 - 2 * Hour));
-            dog.Strike(Op, T0, Install, out n);
-            Expect("chain watchdog reserve", dog.Strike(Op, T0 + Minute, Install, out n) == WedgedAction.RestartReserve);
-            Expect("chain label", WedgedAction.Label(WedgedAction.RestartReserve) == "restart_scm_reserve");
-            // 自愈重启 23 小时前用过：仍在一个重置周期内，不重启；超过 24 小时没有失败才再用一次。
-            WedgedState recent = new WedgedState(1);
-            recent.SeedFailures(Recs(true, T0 - 23 * Hour));
-            recent.Strike(Op, T0, Install, out n);
-            Expect("chain wedged reserve", recent.Strike(Op, T0 + Minute, Install, out n) == WedgedAction.RestartReserve);
-            WedgedState aged = new WedgedState(1);
-            aged.SeedFailures(Recs(true, T0 - 24 * Hour - Minute));
-            aged.Strike(Op, T0, Install, out n);
-            Expect("chain aged restart", aged.Strike(Op, T0 + Minute, Install, out n) == WedgedAction.Restart);
-            // 换线程窗口过后再卡住：先换线程，再升级时上一次自愈重启已在链里，不重启。
-            Expect("chain recycle again", aged.Strike(Op, T0 + 40 * Minute, Install, out n) == WedgedAction.Recycle);
-            Expect("chain then reserve", aged.Strike(Op, T0 + 41 * Minute, Install, out n) == WedgedAction.RestartReserve);
         }
 
         // 结束进程记录文件：不存在为空；追加、读回种类；坏行丢掉；只留最近 48 行。

@@ -250,8 +250,8 @@ U8 的登录组件（`U8Login.clsLogin`）是 VB6 的套间线程 DLL，模块�
 - 登记：`U8Session.Open` 进出时登记该操作员正在进行的登录，成功后登记在用登录（复用缓存里的也算，`Dispose` 时减回）。
 - 判定：写线程上一次登录最终回 422「登录状态不是 0」（重试用完、没见过饱和），且没有该操作员的在用登录、也没有它的另一个正在进行的登录时，记一次。桥自己的冲突（同一请求里的嵌套登录）因此不算。相邻不超过 10 分钟才连续；成功清零。
 - 第一步（`wedgedLoginRecycle` 次后）：本请求照常 422；该写线程跑完这个任务后在本线程上关掉缓存的全部登录、`Marshal.CleanupUnusedObjectsInCurrentContext` 释放本套间里已无引用的 RCW（不调 `GC.Collect` / `WaitForPendingFinalizers`：终结器可能排在别的 STA 线程的长 COM 调用后面，把本线程卡到看门狗时限），在同一序号、同一看门狗槽位上先起一条新的 STA 线程、再换进线程数组（数组里始终是活线程，看门狗不会误判），自己退出（预期 CLR 在线程退出时 `CoUninitialize`，VB6 的线程状态随之释放）。队列是共用的，固定到该序号的任务由新线程接着取。新线程先等旧线程退出（最多 5 秒），再用失败那次的参数登录一次（参数副本只在内存里，用完清掉口令），结果写审计 `login_probe`。池正在停止时不换。
-- 第二步：换线程后 30 分钟内再判为卡住、第二步开着时（以服务运行、`wedgedLoginRestart` 不为 `false`、服务第一条失败动作为重启；控制台模式从不重启），按 `FailChain` 估计 SCM 此刻的失败计数：`<root>\bridge-failfast.log` 记着桥自己导致的每次进程结束（`wedged`、看门狗 `watchdog`、终止进程的未处理异常 `crash`，都在结束前写），从现在往前取相邻间隔都小于服务重置周期的那串，长度 + 1 ≤ K − 1（K 为开头连续「重启」的条数）才 `Watchdog.RequestRestart`，留一次重启给真正的卡死；距上一次结束不到 30 分钟也不重启。重启与任务卡死同一条路径（健康检查 503 → `Halt` → `Settle` → 记 `wedged` → `StopGuard.Kill` 的 `FailFast`），由服务失败动作拉起。服务的失败动作每分钟最多查一次，只在升级时查。
-- 别的程序或机器以同一操作员登录造成的真冲突从进程里分不出来，所以动作有上限：先换线程，再按上面的计数至多重启（现装的失败动作下一个重置周期内至多一次）；之后照常返回 422。
+- 第二步：换线程后 30 分钟内再判为卡住、第二步开着时（以服务运行、`wedgedLoginRestart` 不为 `false`、服务第一条失败动作为重启；控制台模式从不重启），按 `FailChain` 估计 SCM 此刻的失败计数：`<root>\bridge-failfast.log` 记着桥自己导致的每次进程结束（`wedged`、看门狗 `watchdog`、终止进程的未处理异常 `crash`，都在结束前写），从现在往前取相邻间隔都小于服务重置周期的那串，长度 + 1 ≤ K − 1（K 为开头连续「重启」的条数）才 `Watchdog.RequestRestart`，留一次重启给真正的卡死；失败动作全部为重启（至少一条，`ScmPolicy.Unlimited`）时 SCM 重复最后一条、每次都拉起，`FailChain.Allows` 不按长度封顶；距上一次结束不到 30 分钟也不重启（不论哪种失败动作）。重启与任务卡死同一条路径（健康检查 503 → `Halt` → `Settle` → 记 `wedged` → `StopGuard.Kill` 的 `FailFast`），由服务失败动作拉起。服务的失败动作每分钟最多查一次，只在升级时查。
+- 别的程序或机器以同一操作员登录造成的真冲突从进程里分不出来，所以动作有上限：先换线程，再按上面的计数至多重启（现装的失败动作下一个重置周期内至多一次；失败动作全部为重启时只受 30 分钟间隔限制）；之后照常返回 422。
 - 审计事件 `login_wedged`、`worker_recycled`、`login_probe`、`restart_requested`；健康检查 `wedged_logins`（不含操作员）。恢复在审计里表现为 `worker_recycled` → `login_probe`（`ok`）。
 
 ### 操作员权限
@@ -303,6 +303,7 @@ U8 的登录组件（`U8Login.clsLogin`）是 VB6 的套间线程 DLL，模块�
 - `OnStop` 一开始即启动后台线程 `u8co-stop-watch`，90 秒后无论进行到哪一步，都在 `unhandled.log` 记一行并 `FailFast`。`OnStop` 返回后它继续计时，用于处理许可查询超时后遗留在 COM 调用中的 STA 线程导致进程无法退出的情况。
 - 等满 65 秒仍有工作线程存活（COM 调用未返回）时，记一行后立即 `FailFast`。
 - 以上两种情况都在结束进程前先向服务控制管理器报告 `SERVICE_STOPPED`，按正常停止处理，不触发失败重启。看门狗的 `FailFast` 走同一入口（`StopGuard.Kill`）：恰逢停止请求时同样先报告已停止；平时不报告，由恢复动作拉起。控制台模式（`--console`，Ctrl+C）同样按 65 秒结束。
+- 桥自己结束进程（看门狗、自愈重启、停止超时、STA 停止兜底、未处理异常崩溃）只有一条路径 `StopGuard.Exit`：在一把与 `Arm` / `Returned` 共用的锁里决定记不记 `bridge-failfast.log`（「登录状态不是 0 自愈」的失败链 `FailChain`）、报不报 `SERVICE_STOPPED`（`StopExit`），然后在锁里 `FailFast`，记账和结束进程不可分割。规则：只有本桥在 `OnStop` 返回前自己向 SCM 报已停止成功、随即结束进程时才不记，其余桥自己结束进程（含 `OnStop` 返回后、报已停止失败、未处理异常崩溃）一律记（宁可多记，不可少记）。`OnStop` 返回后由 `ServiceBase` 报的已停止我们确认不了，不算；崩溃处理先写完 `unhandled.log` 再走这条路径。
 - 手工停止服务后若 exe 仍被锁定无法替换，只结束 `<root>\bin\u8co-bridge.exe` 对应的那个进程，不要按进程名结束。
 
 启动时把 .NET 线程池最小线程数提高到 `2 × queueCap + staWorkers + readWorkers + 8`（不低于原值）。

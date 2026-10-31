@@ -65,7 +65,7 @@ namespace U8Co
         [return: MarshalAs(UnmanagedType.Bool)]
         static extern bool CloseServiceHandle(IntPtr handle);
 
-        // 服务 name 的失败动作：开头连续几条是重启、重置周期。没装、查不到返回 null。
+        // 服务 name 的失败动作：开头连续几条是重启、是否全部为重启、重置周期。没装、查不到返回 null。
         public static ScmPolicy FailureMode(string name)
         {
             if (string.IsNullOrEmpty(name))
@@ -113,7 +113,7 @@ namespace U8Co
                     return null;
                 }
                 FailureActions fa = (FailureActions)Marshal.PtrToStructure(buf, typeof(FailureActions));
-                return new ScmPolicy(LeadingRestarts(fa), ResetTicks(fa.ResetPeriod));
+                return Classify(ActionTypes(fa), fa.ResetPeriod);
             }
             finally
             {
@@ -127,25 +127,34 @@ namespace U8Co
             return seconds <= 0 ? 0 : seconds * TimeSpan.TicksPerSecond;
         }
 
-        static int LeadingRestarts(FailureActions fa)
+        // 各条失败动作的类型（SC_ACTION_TYPE），按顺序；ActionList 为空时为空数组。
+        static int[] ActionTypes(FailureActions fa)
         {
             if (fa.Actions <= 0 || fa.ActionList == IntPtr.Zero)
             {
-                return 0;
+                return new int[0];
             }
             int size = Marshal.SizeOf(typeof(ScAction));
-            int n = 0;
-            while (n < fa.Actions)
+            int[] types = new int[fa.Actions];
+            for (int i = 0; i < fa.Actions; i++)
             {
-                IntPtr at = new IntPtr(fa.ActionList.ToInt64() + (long)n * size);
-                ScAction a = (ScAction)Marshal.PtrToStructure(at, typeof(ScAction));
-                if (a.Type != ActionRestart)
-                {
-                    break;
-                }
-                n++;
+                IntPtr at = new IntPtr(fa.ActionList.ToInt64() + (long)i * size);
+                types[i] = ((ScAction)Marshal.PtrToStructure(at, typeof(ScAction))).Type;
             }
-            return n;
+            return types;
+        }
+
+        // 失败动作分类（纯函数，自检直接调）：开头连续几条是重启（SC_ACTION_RESTART = 1）；全部为重启（至少一条）时
+        // SCM 重复最后一条重启，失败计数不再封顶（Unlimited）。resetSeconds 是 dwResetPeriod。
+        internal static ScmPolicy Classify(int[] types, int resetSeconds)
+        {
+            int count = types == null ? 0 : types.Length;
+            int leading = 0;
+            while (leading < count && types[leading] == ActionRestart)
+            {
+                leading++;
+            }
+            return new ScmPolicy(leading, ResetTicks(resetSeconds), leading >= 1 && leading == count);
         }
 
         // 第二步的实际策略，null 表示不重启。控制台模式一律 null（不管配置，控制台进程从不因此退出）。
@@ -165,7 +174,8 @@ namespace U8Co
             return Load(SafePath());
         }
 
-        // 以服务运行时追加一条（看门狗、崩溃、自愈重启在结束进程前调用）。写不进去照样结束。
+        // 以服务运行时追加一条。只由 StopGuard 在结束进程的同一把锁里调用（看门狗、自愈重启、停止兜底经 StopGuard.Kill，
+        // 终止进程的未处理异常经 StopGuard.NoteCrash）：只有 OnStop 返回前本桥自己报已停止成功时不调。写不进去照样结束。
         public static void RecordFailure(string kind)
         {
             if (ServiceName == null)
@@ -266,6 +276,10 @@ namespace U8Co
             }
             string reset = scm.ResetTicks <= 0 ? "不重置"
                 : (scm.ResetTicks / TimeSpan.TicksPerSecond).ToString(CultureInfo.InvariantCulture) + " 秒无失败后重置";
+            if (scm.Unlimited)
+            {
+                return "全部为重启，第二步不按失败次数封顶（仍间隔 30 分钟），失败计数" + reset;
+            }
             string text = "开头 " + scm.Restarts.ToString(CultureInfo.InvariantCulture) + " 条为重启，失败计数" + reset;
             if (scm.Restarts < 2)
             {

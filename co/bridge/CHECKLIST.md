@@ -96,6 +96,7 @@
 - 登录复用（`loginReuse`）打开时登录对象会留给下一笔请求。任何 by-ref 登录槽（`Init`、`Transact` 等把 `login` 按引用交给组件的调用）都要先 `ctx.DropLogin()` 或经 `LoginBack`；改写登录对象属性、可能在请求连接上留下未结束事务的新路径同样先 `ctx.DropLogin()`。登录子系统 QM、AR、AP 的请求由 `StaExec.KeepAfter` 一律不放回，确认无副作用之前不要去掉。（`docs/architecture.md`「登录复用」；`LoginCache.cs`、`StaExec.cs`、`WorkContext.cs`）
 
 - U8 登录一律经 `U8Session.Open`（或 `LoginCache.Acquire`），用完 `Dispose`，不要另起 `clsLogin`：「登录状态不是 0」自愈（`WedgedLogin`）靠它登记某操作员的在用和进行中的登录，绕过去会把桥自己的冲突误判成卡住、换掉写线程。（`docs/architecture.md`「登录状态不是 0 自愈」；`U8Session.cs`、`WedgedLogin.cs`）
+- SCM 失败动作若全部为重启，第二步按无限次（仍隔 30 分钟）；有非重启条目时仍留一次给看门狗；停止过程中的结束进程不计入失败链（仅限本桥在 `OnStop` 返回前自己报已停止成功的那次，其余一律记，宁可多记；桥自己结束进程一律走 `StopGuard.Kill(…, kind)`、崩溃走 `StopGuard.NoteCrash`，不要另调 `WedgedRestart.RecordFailure` 或 `Environment.FailFast`）。（`docs/configuration.md`「登录状态不是 0 自愈」；`docs/architecture.md`「超时和看门狗」；`WedgedState.cs`、`StopGuard.cs` 的 `StopExit`）
 
 ## SQL
 

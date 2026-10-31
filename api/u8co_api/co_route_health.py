@@ -51,4 +51,8 @@ class RouteProbes:
         replicated = reply.get("replicated_writes") if isinstance(reply, dict) else None
         if isinstance(replicated, bool):
             item["replicated_writes"] = replicated
+        # 桥的「登录状态不是 0」自愈（不含操作员）；形状由 CoRouteHealth 校验，不认的丢掉。
+        wedged = reply.get("wedged_logins") if isinstance(reply, dict) else None
+        if isinstance(wedged, dict):
+            item["wedged_logins"] = wedged
         return item

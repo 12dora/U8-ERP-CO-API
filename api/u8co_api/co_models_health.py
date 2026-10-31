@@ -4,7 +4,17 @@ from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    StrictStr,
+    ValidationError,
+    field_validator,
+    model_serializer,
+)
 
 from u8co_api.co_models_license import PACKS_HELP, SOURCE_HELP, CoLicensePack, license_packs, license_source
 
@@ -60,6 +70,11 @@ REPLICATED_HELP = (
     "桥的第二级写入总开关（桥 config.json 的 enableReplicatedWrites，缺省 false）：false 时结账、核算、期初等"
     "第二级写入一律 403 feature_disabled；true 时仍只对 testAccounts 开放。旧版桥不报则省略"
 )
+WEDGED_HELP = (
+    "缺省桥的「登录状态不是 0」自愈（不含操作员）：active 有操作员此刻判为卡住，count_24h 近 24 小时次数，"
+    "last_at 最近一次（UTC），recycles_24h 换写线程次数，restarts_24h 因此请求重启进程的次数。"
+    "旧版桥不报或形状不对则省略"
+)
 API_READ_ONLY_HELP = "本服务的只读账套（U8CO_READONLY_ACCOUNTS），这些账套的写路由在访问桥之前 403 account_read_only。没配时省略"
 API_READ_ONLY_EXC_HELP = (
     "本服务的只读例外（U8CO_READONLY_EXCEPTIONS）非机密摘要：账套、操作员、type（archives、vouchers）、op，"
@@ -114,6 +129,32 @@ def write_policy_of(value: object) -> CoWritePolicyHealth | None:
         return None
 
 
+class CoWedgedLogins(BaseModel):
+    model_config = _OUT
+    active: StrictBool = Field(description="有操作员此刻判为卡住")
+    count_24h: StrictInt = Field(ge=0, description="近 24 小时判为卡住的次数")
+    last_at: StrictStr | None = Field(None, description="最近一次卡住的时间（UTC，ISO 8601）；没有为 null")
+    recycles_24h: StrictInt = Field(ge=0, description="近 24 小时换写线程次数")
+    restarts_24h: StrictInt = Field(ge=0, description="近 24 小时因此请求重启进程的次数")
+
+    @model_serializer(mode="wrap")
+    def _keep_last_at(self, nxt):
+        # 桥在没有最近一次时仍给 last_at: null；exclude_none 会把 null 丢掉，这里补回去。
+        data = nxt(self)
+        data["last_at"] = self.last_at
+        return data
+
+
+def wedged_logins_of(value: object) -> CoWedgedLogins | None:
+    """桥报告的「登录状态不是 0」自愈对象；形状不对时整项丢掉（健康检查不因此失败）。"""
+    if not isinstance(value, dict):
+        return None
+    try:
+        return CoWedgedLogins.model_validate(value)
+    except ValidationError:
+        return None
+
+
 class CoRouteHealth(BaseModel):
     model_config = _OUT
     route: str = Field(description="路由名：routes[序号]，序号从 0 起，与审计行的 bridge 字段一致")
@@ -123,6 +164,7 @@ class CoRouteHealth(BaseModel):
     error: str | None = Field(None, description="不可用时的错误码（如 unavailable）；可用时省略")
     write_policy: CoWritePolicyHealth | None = Field(None, description="这个桥的写入策略，形状同顶层 write_policy")
     replicated_writes: bool | None = Field(None, description="这个桥的第二级写入总开关，含义同顶层 replicated_writes")
+    wedged_logins: CoWedgedLogins | None = Field(None, description="这个桥的「登录状态不是 0」自愈，形状同顶层 wedged_logins")
 
     @field_validator("replicated_writes", mode="before")
     @classmethod
@@ -133,6 +175,11 @@ class CoRouteHealth(BaseModel):
     @classmethod
     def _write_policy(cls, value: object) -> CoWritePolicyHealth | None:
         return write_policy_of(value)
+
+    @field_validator("wedged_logins", mode="before")
+    @classmethod
+    def _wedged_logins(cls, value: object) -> CoWedgedLogins | None:
+        return wedged_logins_of(value)
 
 
 class CoHealthOut(BaseModel):
@@ -158,6 +205,7 @@ class CoHealthOut(BaseModel):
     api_read_only_accounts: list[str] | None = Field(None, description=API_READ_ONLY_HELP)
     api_read_only_exceptions: list[dict] | None = Field(None, description=API_READ_ONLY_EXC_HELP)
     replicated_writes: bool | None = Field(None, description=REPLICATED_HELP)
+    wedged_logins: CoWedgedLogins | None = Field(None, description=WEDGED_HELP)
 
     @field_validator("replicated_writes", mode="before")
     @classmethod
@@ -201,3 +249,8 @@ class CoHealthOut(BaseModel):
     @classmethod
     def _license_packs(cls, value: object) -> dict[str, dict] | None:
         return license_packs(value)
+
+    @field_validator("wedged_logins", mode="before")
+    @classmethod
+    def _wedged_logins(cls, value: object) -> CoWedgedLogins | None:
+        return wedged_logins_of(value)

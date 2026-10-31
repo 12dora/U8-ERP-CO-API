@@ -154,13 +154,14 @@ namespace U8Co
                 Settle();
                 // 经 StopGuard：恰逢请求停止时先报已停止，不触发失败重启；平时照常 FailFast，由恢复动作拉起。
                 bool wedged = Interlocked.CompareExchange(ref _restart, 0, 0) != 0;
-                // 以服务运行时记下这次结束进程，「登录状态不是 0」自愈据此估计 SCM 的失败计数（FailChain）。
-                WedgedRestart.RecordFailure(wedged ? WedgedRestart.KindWedged : WedgedRestart.KindWatchdog);
+                // StopGuard.Kill 在同一把锁里决定是否记下这次结束进程（「登录状态不是 0」自愈据此估计 SCM 的失败计数，FailChain）：
+                // 已向 SCM 报已停止（停止过程中）的不记，其余以服务运行时照记。
                 if (wedged)
                 {
-                    StopGuard.Kill("看门狗：登录状态不是 0 换线程后仍未恢复，重启进程", "u8co wedged U8 login state");
+                    StopGuard.Kill("看门狗：登录状态不是 0 换线程后仍未恢复，重启进程", "u8co wedged U8 login state",
+                        WedgedRestart.KindWedged);
                 }
-                StopGuard.Kill("看门狗：任务超时，强制结束", "u8co job exceeded its time limit");
+                StopGuard.Kill("看门狗：任务超时，强制结束", "u8co job exceeded its time limit", WedgedRestart.KindWatchdog);
             }
         }
 

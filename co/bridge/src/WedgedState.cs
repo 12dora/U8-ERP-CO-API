@@ -44,11 +44,18 @@ namespace U8Co
     {
         public readonly int Restarts;
         public readonly long ResetTicks;
+        // 失败动作全部为重启（至少一条）：SCM 重复最后一条，失败多少次都会拉起，FailChain 不按次数封顶。
+        public readonly bool Unlimited;
 
-        public ScmPolicy(int restarts, long resetTicks)
+        public ScmPolicy(int restarts, long resetTicks) : this(restarts, resetTicks, false)
+        {
+        }
+
+        public ScmPolicy(int restarts, long resetTicks, bool unlimited)
         {
             Restarts = restarts;
             ResetTicks = resetTicks;
+            Unlimited = unlimited && restarts >= 1;
         }
     }
 
@@ -80,9 +87,14 @@ namespace U8Co
         }
 
         // 这次结束进程之后 SCM 仍会拉起，并且还留一次重启给真正的卡死：链长 + 1 ≤ K − 1。
+        // 失败动作全部为重启时 SCM 每次都拉起，不按次数封顶，只受 WedgedState.RestartGapTicks 限频。
         public static bool Allows(IList<long> failures, long now, ScmPolicy policy)
         {
-            return policy != null && Length(failures, now, policy.ResetTicks) + 1 <= policy.Restarts - 1;
+            if (policy == null)
+            {
+                return false;
+            }
+            return policy.Unlimited || Length(failures, now, policy.ResetTicks) + 1 <= policy.Restarts - 1;
         }
     }
 
