@@ -369,6 +369,16 @@ U8 的退回先 `Ap_Proc_CancelNo`（`CL` / `AR`，处理号 `CLAR` 补零到 17
 - 回滚靠 `undo`：正向响应记下实际写了哪些行（出库单、发票的表头主键，`Ar_Detail` 的 `Auto_ID`），反向调用（`fields` 与 `expect` 对调）把它原样带回，下游只恢复这些行，每行当前必须等于 `expect`，不再判断 shared / differs。只靠重新判断不能保证恰好改回：合并发票的另一张发货单已经是新值时，正向会更新发票，而反向的判断会因为其它来源发货单还不是旧值把它跳过；出库单本来就是新值（`already_new`）时，反向的判断会把它当作可改的行改走。`Ar_Detail` 只会是被更新发票自己的行，`Auto_ID` 逐个记录。
 - 权限与锁：功能权限「发货单变更」`SA03020113`；数据权限按发货单表头的客户、部门、原业务员，以及销售类型（`cSTCode`，与读取发货单的规则一致），新业务员另按人员权限。红字发货单（`bReturnFlag=1`）同时取 `sale_return:<id>` 单据锁。收货地址存在性检查带 `UPDLOCK, HOLDLOCK, ROWLOCK`。
 
+### 销售订单合同号回写（`vouchers/so_contract`）
+
+- 为什么需要：合同号在销售订单表头自定义项 1 `SO_SOMain.cDefine1`，客户合同号在自定义项 2 `cDefine2`。已审核、已有下游的订单 U8 界面和 `vouchers/update` 都不让改（`SaleOrderCo.RefuseWritable`），所以另开受控 SQL 路由，只动这两列。
+- 只动 `SO_SOMain` 这一行的 `cDefine1`（及给了 `customer_contract_no` 时的 `cDefine2`），外加修改人 `cModifier`（操作员姓名，没有姓名用编码）、修改日期 `dModDate`（登录日期）、修改时间 `dmodifysystime`——这三列按 `sys.columns` 查到才写（列名取自 SaleEdit 写销售订单 DOM 时设的同名字段）。不碰表体 `SO_SODetails`、发货单 `DispatchList`、销售发票 `SaleBillVouch`、各 `…History` 表、金额、审核、关闭；已开出的发货单、发票上的合同号是生单时复制的，不跟着改。
+- 空值等价：NULL、空串、空白、「无」都是空；比较去首尾空白、不分大小写。写什么：合同号为空 → 写入；已等于目标（且客户合同号省略或已等于给的值）→ `changed=false`；合同号是别的值 → 只有 `customer_contract_no` 等于这个值（把它挪进客户合同号）才写，否则 409 `state_mismatch`，不覆盖；给了 `customer_contract_no` 而 `cDefine2` 非空 → 409 `state_mismatch`。`expect` 两个键都必填，与当前值不符 409 `state_mismatch`，`detail.current` 是 `{contract_no, customer_contract_no}` 的原值（NULL 为 null）。
+- 长度：取列宽（nvarchar 按字符）与表头自定义项设置 `UserDef_Base.iLength`（`cClass=单据头`、`cDicDbName` 为列名）中较小的正数，超出 400 `bad_request`（`field` 是请求字段名）。
+- 锁定人：`cLocker` 非空且不是本操作员（按姓名，同 `VoucherLockGate`）→ 409 `state_mismatch`「单据已被 X 锁定」，`detail.reason=locked`、`detail.locker`。
+- 并发与回读：行锁 `UPDLOCK, ROWLOCK`，`UPDATE … WHERE ID=? AND ufts=<读到的值>`；单据锁同修改销售订单（`sale_order:<id>`）；写后同一事务内回读，ufts 没变而值不对 409 `state_mismatch`（没写），ufts 变了而值不对 504 `outcome_unknown`。预演（validate）跑完全部检查后回滚。
+- 权限：功能权限是销售订单卡片 `SA_17voucher` 的「变更」按钮所需的「销售订单变更」`SA03010105`（已在测试账套上按 `AA_FormButtonAuths` 与 `UA_Auth_lang` 核对；`SA03010113` 是「销售订单弃审」）；数据权限按订单表头客户、部门、业务员、销售类型。
+
 ## 7. 采购
 
 登录 `PU`。先初始化 `Info_PU.ClsS_Infor`，再 `VoucherCO_PU.Init`。

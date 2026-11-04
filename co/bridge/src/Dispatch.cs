@@ -6,7 +6,7 @@ namespace U8Co
     internal delegate ApiResult OpHandler(WorkContext ctx, string op);
 
     // 登录检查在 StaWorker 里直接返回，不进这张表。
-    internal static class Dispatch
+    internal static partial class Dispatch
     {
         static readonly string[] GlOps = new string[]
         {
@@ -85,9 +85,8 @@ namespace U8Co
             map.Add("/u8co/v1/vouchers/delete", Delete);
             map.Add("/u8co/v1/vouchers/close", Close);
             map.Add("/u8co/v1/vouchers/generate", Generate);
-            // 历史发货单表头修正（VoucherHeadFix）：不经 EditMore / SaleEdit，受控 SQL。
-            map.Add(VoucherHeadFix.Path, VoucherHeadFix.Run);
-            // 销售订单 / 采购订单锁定、解锁（VoucherLock）。
+            // 受控 SQL 的单据表头修正（DispatchFixes.cs）；销售订单 / 采购订单锁定、解锁（VoucherLock）。
+            AddFixes(map);
             map.Add(Requests.LockPath, VoucherLock.Run);
             map.Add("/u8co/v1/workflow/state", Workflow.State);
             map.Add("/u8co/v1/workflow/history", Workflow.History);

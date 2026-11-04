@@ -27,6 +27,8 @@ namespace U8Co
             AddOps(set, VoucherRoot, new string[] { "verify", "create", "update", "delete", "close", "generate", "lock" });
             // 历史发货单表头修正（VoucherHeadFix）：单据锁同修改发货单（"dispatch:<id>"）。
             set.Add(VoucherHeadFix.Path);
+            // 销售订单合同号回写（VoucherSoContract）：单据锁同修改销售订单（"sale_order:<id>"）。
+            set.Add(VoucherSoContract.Path);
             // 审批流：提交、撤销、同意、不同意、退回、弃审、重新提交（state / history / tasks 是读）。
             AddOps(set, WorkflowRoot, new string[] { "submit", "withdraw", "approve", "disagree", "return", "abandon", "resubmit" });
             // 总账凭证：load / list / attachments 是读；post（记账）先登记；unpost（取消记账，测试账套）。

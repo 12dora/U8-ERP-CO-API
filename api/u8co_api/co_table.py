@@ -25,6 +25,7 @@ from u8co_api.co_models_edit import (
 )
 from u8co_api.co_models_head_fix import HEAD_FIX_HELP, VoucherHeadFixIn, VoucherHeadFixOut
 from u8co_api.co_models_lock import LOCK_HELP, LOCK_SUMMARY, CoLockIn, CoLockOut
+from u8co_api.co_models_so_contract import SO_CONTRACT_HELP, VoucherSoContractIn, VoucherSoContractOut
 from u8co_api.co_models_update_out import CoUpdateOut
 from u8co_api.co_models_wf import (
     WF_HELP,
@@ -187,6 +188,19 @@ ROUTES = (
         HEAD_FIX_HELP,
         "coVoucherHeadFix",
         "co:vouchers/head_fix",
+        TAG_EDIT,
+        keep_null=True,
+    ),
+    # 销售订单合同号回写（co_models_so_contract）：受控 SQL，已审核的订单也能写。
+    CoRoute(
+        "/v1/co/vouchers/so_contract",
+        "/v1/vouchers/so_contract",
+        VoucherSoContractIn,
+        VoucherSoContractOut,
+        "回写销售订单合同号",
+        SO_CONTRACT_HELP,
+        "coVoucherSoContract",
+        "co:vouchers/so_contract",
         TAG_EDIT,
         keep_null=True,
     ),

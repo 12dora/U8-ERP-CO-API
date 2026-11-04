@@ -100,6 +100,7 @@
 | POST | `vouchers/close` | 写 | 关闭、打开 |
 | POST | `vouchers/lock` | 写 | 销售订单锁定、解锁（§10；采购订单不支持） |
 | POST | `vouchers/head_fix` | 写 | 历史发货单表头修正：只改已审核发货单的收货地址编码、业务员，按规则同步下游销售出库单、销售发票和应收明细的业务员（§8；只读账套上须有只读例外） |
+| POST | `vouchers/so_contract` | 写 | 销售订单合同号回写：只改销售订单表头的合同号（`cDefine1`），可选同时改客户合同号（`cDefine2`），已审核的订单也能写（§8；只读账套上须有只读例外） |
 | POST | `vouchers/generate` | 写 | 参照生单 |
 | POST | `notes/get` | 读 | 读一张应收 / 应付票据及其处理记录（§16） |
 | POST | `notes/create` | 写 | 票据登记，同时生成收款单；应付票据（生成付款单）是第二级（§16） |
@@ -774,6 +775,41 @@ U8 客户端不让改「已审核、并且已有销售出库单或销售发票�
 ```
 
 写入分类 `(dispatch, head_fix)`，规则键 `write:voucher:dispatch:head_fix`，功能权限「发货单变更」`SA03020113`（数据权限按发货单表头的客户、部门、原业务员、销售类型（`cSTCode`，与发货单读取的规则一致），新业务员另按人员权限）；写入策略放行 `vouchers/update` 不连带放行本路由。只读账套上须配只读例外 `{"type":"vouchers","op":"head_fix"}`（路径必须恰好是 `vouchers/head_fix`），`vouchers/update` 等其它单据写入仍 403。客户端 `voucher_head_fix(call, HeadFix(kind, fields, expect), idempotency_key=None)`（`call.doc_id` 是发货单 id）；命令行 `voucher-head-fix --type dispatch --id N --addr-code X --person-code Y --expect-addr-code A --expect-person-code B`（给了哪个字段就要同时给它的 `--expect-…`，空串表示当前为空；`--addr-code ""` 清空地址），可加 `--dry-run`、`--idempotency-key`。
+
+### 销售订单合同号回写 `vouchers/so_contract`
+
+U8 不让改已审核、已有下游单据的销售订单（`vouchers/update` 同样拒绝，见 `u8-notes.md`）。本路由专门回写订单表头的合同号：受控 SQL，不走单据修改。**只改描述列**：写 `SO_SOMain.cDefine1`（合同号），给了 `customer_contract_no` 时再写 `cDefine2`（客户合同号）；不改金额、数量、日期、部门、业务员、审核人、关闭状态，不动发货单、销售发票和各 `…History` 表，已经开出的下游单据上的合同号不随之改变。
+
+| 字段 | 说明 |
+| --- | --- |
+| `type` | 目前只收 `sale_order`，其它值 400 |
+| `id` | 销售订单主键（`SO_SOMain.ID`） |
+| `contract_no` | 要写入 `cDefine1` 的合同号：非空、不是「无」，首尾不能有空白，不含控制字符。长度不能超过 U8 自定义项档案里该项的最大长度（`iMaxLen`），超过 400 `bad_request`（API 只收最长 120 个字符，细的长度由桥核对） |
+| `customer_contract_no` | 可选，要写入 `cDefine2`（客户合同号）的值，规则同 `contract_no`。省略或 `null` 表示不动 `cDefine2`；给了则订单当前的 `cDefine2` 必须为空，否则 409 `state_mismatch`（不覆盖已有的客户合同号）。用于把原先放在合同号里的客户自己的号挪到客户合同号 |
+| `expect` | 必填，`contract_no`、`cDefine2` 两项当前原值，两个键都要给：`{"contract_no": …, "customer_contract_no": …}`。`null`、空串、空白、「无」都表示当前为空，彼此等价（API 转发时把 `null` 换成空串）。与订单当前值不符 409 `state_mismatch` |
+| `dry_run` | `true` 时跑完全部检查（含锁定、`expect`、长度）后不写库（`validate`）；不能同时带 `Idempotency-Key` |
+
+同一事务内（行锁 `UPDLOCK, ROWLOCK`）按下面的顺序判定：订单不存在 404 `not_found`；订单被别的用户锁定（表头 `cLocker` 非空且不是本操作员）409 `state_mismatch`（`error.detail.reason` 为 `locked`，`detail.locker` 是锁定人）；`expect` 与当前值不符 409 `state_mismatch`（`error.detail.current` 是 `{"contract_no", "customer_contract_no"}` 的当前原值）；合同号当前已等于 `contract_no`（去首尾空白、不分大小写比较），并且 `customer_contract_no` 省略或 `cDefine2` 当前已等于它，成功返回 `changed:false`，不写库；给了 `customer_contract_no` 而 `cDefine2` 当前非空 409 `state_mismatch`；值超过自定义项档案的长度 400 `bad_request`。写入带行版本（`ufts`）乐观锁，写后在同一事务内回读，与请求不符回滚并 504 `outcome_unknown`（先 `vouchers/load` 核对再决定是否重试）；写入期间行被别人改了（行版本变了）409 `state_mismatch`，没有 `detail`。
+
+响应：
+
+```json
+{"ok":true,"type":"sale_order","id":1000000001,"code":"SO…","changed":true,
+ "current":{"contract_no":"HT202611001","customer_contract_no":null},
+ "ufts":"0x00000000000A1B2C"}
+```
+
+本路由只写入、不清空：`contract_no` 必须非空，写错的值只能改成正确的值，要清回空只能在 U8 里操作。`changed` 为 `true` 表示订单表头改了；`current` 是写后（`changed:false` 时是当前）的两项原值，空为 `null`；`ufts` 是订单行版本。
+
+请求：
+
+```json
+{"acc":"801","operator":"op001","type":"sale_order","id":1000000001,
+ "contract_no":"HT202611001","customer_contract_no":"KH-2026-088",
+ "expect":{"contract_no":"KH-2026-088","customer_contract_no":null}}
+```
+
+写入分类 `(sale_order, so_contract)`，规则键 `write:voucher:sale_order:so_contract`，功能权限为销售订单卡片的修改 / 变更按钮（功能 id 以桥 `PermRegistry` 登记为准；数据权限按订单表头的客户、部门、业务员、销售类型 `cSTCode`）；写入策略放行 `vouchers/update` 不连带放行本路由，策略 `allow` 要单独加 `{"type":"sale_order","ops":["so_contract"]}`。只读账套上须配只读例外 `{"type":"vouchers","op":"so_contract"}`（路径必须恰好是 `vouchers/so_contract`，且请求体 `type` 为 `sale_order`），`vouchers/update` 等其它单据写入仍 403。写入建议带 `Idempotency-Key`：同一个键重试原样拿到第一次的结果；一次写入只对应一个键。客户端 `voucher_so_contract(call, SoContract(kind, contract_no, expect, customer_contract_no=None), idempotency_key=None)`（`call.doc_id` 是订单主键）；命令行 `voucher-so-contract --type sale_order --id N --contract-no X [--customer-contract-no Y] --expect-contract-no A --expect-customer-contract-no B`（两个 `--expect-…` 都要给，空串表示当前为空），可加 `--dry-run`、`--idempotency-key`。
 
 ## 9. 删除 `vouchers/delete`
 
@@ -1659,7 +1695,7 @@ U8 的已知缺陷：记账组件回写记账标志时按（期间、类别序�
 - 选择器标志（整行才有，`keys_only` 不给；列值为空按 `false`）：`warehouse` 的 `bin_managed`（启用货位管理）；`position` 的 `leaf`（末级货位，`class_code` 是所属仓库）；`inventory` 的 `batch_managed`（批次管理）、`shelf_life_managed`（保质期管理）。这些键不影响事件服务的档案指纹（只看名称、分类、停用状态和停用日期）。
 - 新增必须有 `name`；存货新增必须带 `template`（已有存货编码，桥按它铺满其余标签），其他档案可选。编码已存在 409「档案编码已存在」。客户、供应商要给税号类必填项，缺了由 U8 报错。
 - 修改至少一个字段，不能改编码。桥发整条记录（当前值打底，再用 `fields` 覆盖），因为 U8 修改时按档案设置检查全部必输项。
-- 只读账套上的档案写入一律 403 `account_read_only`。配置了 `U8CO_READONLY_EXCEPTIONS` 时，仅当账套、操作员、路由 `archives/<op>` 命中例外（`type=archives`、`op` 为 `customer_person`、`customer_fields`、`customer_address`、`customer_address_add`、`customer_address_delete`、`create`、`delete`）才穿过只读闸门（仍受写入策略约束）；另有 `type=vouchers`、`op=head_fix` 一种，只放行路由 `vouchers/head_fix`（§8），`vouchers/update` 等其它单据写入仍 403；`create`、`delete` 另须请求体的 `archive` 在例外的 `archives` 列表里：`create` 可列 `district_class`、`customer`，`delete` 只能列 `district_class`（地区分类新增和删除成对开放，新增错了可以删掉；客户只开放新增——EAI 新增是 INSERT，不经清银行账号的 `diffedit`——不开放删除，新增错的客户用 `customer_fields` 写 `end_date` 停用，`archives/update` 的客户修改也不能开放）。审计字段 `read_only_exception` 为 true，成功时 `outcome` 也记 `read_only_exception`。`archives/update`、其它档案的新增和删除、其它操作员或其它账套、不匹配的带键重发都不放行。预演（`dry_run`）同样必须是这条路由。例如只读账套上 `archives/create` 的 `district_class`：例外 `{"op":"create","archives":["district_class"]}` 配上之后，同一账套同一操作员新增地区分类照常走 EAI，新增 `customer` 仍 403；要开放客户新增另配 `{"op":"create","archives":["customer"]}`（或与地区分类写在同一项 `["district_class","customer"]`）。客户端 `arc_update` 与 `arc_create` 一样可带 `idempotency_key`。
+- 只读账套上的档案写入一律 403 `account_read_only`。配置了 `U8CO_READONLY_EXCEPTIONS` 时，仅当账套、操作员、路由 `archives/<op>` 命中例外（`type=archives`、`op` 为 `customer_person`、`customer_fields`、`customer_address`、`customer_address_add`、`customer_address_delete`、`create`、`delete`）才穿过只读闸门（仍受写入策略约束）；另有 `type=vouchers` 的 `op=head_fix`、`op=so_contract` 两种，各自只放行路由 `vouchers/head_fix`、`vouchers/so_contract`（§8；后者另要求请求体 `type` 为 `sale_order`），`vouchers/update` 等其它单据写入仍 403；`create`、`delete` 另须请求体的 `archive` 在例外的 `archives` 列表里：`create` 可列 `district_class`、`customer`，`delete` 只能列 `district_class`（地区分类新增和删除成对开放，新增错了可以删掉；客户只开放新增——EAI 新增是 INSERT，不经清银行账号的 `diffedit`——不开放删除，新增错的客户用 `customer_fields` 写 `end_date` 停用，`archives/update` 的客户修改也不能开放）。审计字段 `read_only_exception` 为 true，成功时 `outcome` 也记 `read_only_exception`。`archives/update`、其它档案的新增和删除、其它操作员或其它账套、不匹配的带键重发都不放行。预演（`dry_run`）同样必须是这条路由。例如只读账套上 `archives/create` 的 `district_class`：例外 `{"op":"create","archives":["district_class"]}` 配上之后，同一账套同一操作员新增地区分类照常走 EAI，新增 `customer` 仍 403；要开放客户新增另配 `{"op":"create","archives":["customer"]}`（或与地区分类写在同一项 `["district_class","customer"]`）。客户端 `arc_update` 与 `arc_create` 一样可带 `idempotency_key`。
 - 删除：已被单据使用的档案由 U8 拒绝，409 `u8_rejected`。
 
 ### 客户专管业务员 `archives/customer_person`
@@ -3455,7 +3491,7 @@ API：`GET /v1/co/meta`（读权限）。桥：`POST /u8co/v1/meta`，照常 HMA
 | `gl/transfer/pnl`、`gl/transfer/custom` | — | 全部：停在凭证导入之前，分录在 `detail.transfer` |
 | `archives/create`、`update`、`delete` | 项目（`project`）、客户和供应商银行账户（`customer_bank`、`vendor_bank`）的新增、修改、删除；币种、凭证类别、汇率、供应商联系人（`currency`、`voucher_sign`、`exchange_rate`、`vendor_contact`）的修改、删除 | 其余走 EAI 的档案（含原因码 `reason`）；币种、凭证类别、汇率、供应商联系人的新增；客户联系人（`customer_contact`） |
 | `archives/customer_person`、`customer_fields`、`customer_address`、`customer_address_add`、`customer_address_delete` | — | 全部（SQL，不走 EAI） |
-| `vouchers/head_fix` | — | 全部（SQL，不走单据修改） |
+| `vouchers/head_fix`、`vouchers/so_contract` | — | 全部（SQL，不走单据修改） |
 | `workflow/*` 写操作 | — | `submit`、`withdraw`、`approve`、`disagree`、`return`、`abandon`、`resubmit` |
 | `arap/*` | `writeoff`、`writeoff/cancel`、`voucher/delete` | `voucher`：桥算完分录、停在凭证导入之前，计划的凭证在 `detail` 里 |
 | `openings/post` | `post`、`unpost` | — |

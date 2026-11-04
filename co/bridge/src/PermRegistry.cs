@@ -196,6 +196,8 @@ namespace U8Co
             AddAll(map, PartnerRules());
             // 历史发货单表头修正（PermRegistryHeadFix.cs）。
             AddAll(map, HeadFixRules());
+            // 销售订单合同号回写（PermRegistrySoContract.cs）。
+            AddAll(map, SoContractRules());
             // 采购发票应付审核、销售发票应收审核及弃审（PermRegistryArap.cs）。
             AddAll(map, ArapAuditRules());
             // 应收 / 应付核销（PermRegistryWriteoff.cs）。

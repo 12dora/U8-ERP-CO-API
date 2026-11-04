@@ -26,6 +26,7 @@ ACCESS = {
     "co:vouchers/delete": WRITE,
     "co:vouchers/update": WRITE,
     "co:vouchers/head_fix": WRITE,
+    "co:vouchers/so_contract": WRITE,
     "co:vouchers/close": WRITE,
     "co:vouchers/generate": WRITE,
     "co:vouchers/lock": WRITE,

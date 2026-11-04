@@ -24,6 +24,7 @@ WRITE_COMMANDS = (
     "gl-create", "gl-update", "arc-create", "arc-update", "arc-delete", "arc-customer-person",
     "arc-customer-fields", "arc-customer-address", "arc-customer-address-add", "arc-customer-address-delete",
     "voucher-head-fix",  # 历史发货单表头修正
+    "voucher-so-contract",  # 销售订单合同号回写
     "openings-post", "periods-close",
     "ia-post", "ia-period-end", "openings-arap",
     "gl-reverse",  # 红字冲销

@@ -239,6 +239,12 @@ class PackageDataTests(unittest.TestCase):
         self.assertEqual(routes["vouchers/head_fix"]["summary"], "修正历史发货单表头")
         self.assertIn("vouchers/head_fix", route_names("write"))
 
+    def test_routes_contain_vouchers_so_contract_as_write(self):
+        routes = {r["route"]: r for r in load_routes()}
+        self.assertEqual(routes["vouchers/so_contract"]["access"], "write")
+        self.assertEqual(routes["vouchers/so_contract"]["summary"], "回写销售订单合同号")
+        self.assertIn("vouchers/so_contract", route_names("write"))
+
     def test_routes_contain_ia_post_and_period_end_as_write(self):
         routes = {r["route"]: r for r in load_routes()}
         self.assertEqual(routes["ia/post"]["access"], "write")

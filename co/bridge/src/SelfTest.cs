@@ -158,6 +158,8 @@ namespace U8Co
             ArcCusAddrRowsSelfTest.Run();
             // 历史发货单表头修正 vouchers/head_fix（VoucherHeadFixSelfTest）。
             VoucherHeadFixSelfTest.Run();
+            // 销售订单合同号回写 vouchers/so_contract（VoucherSoContractSelfTest）。
+            VoucherSoContractSelfTest.Run();
             // 第二级写入路由矩阵：每条路由经 Requests.ForPath 的开关、测试账套、只读账套顺序（TestAccountRouteSelfTest）。
             TestAccountRouteSelfTest.Run();
             // 写入策略（WritePolicySelfTest）。

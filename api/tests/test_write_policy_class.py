@@ -56,6 +56,7 @@ def test_read_routes_do_not_classify(route: str) -> None:
             ("archives", "customer_address_delete"),
         ),
         ("vouchers/head_fix", {"type": "dispatch", "id": 1}, ("dispatch", "head_fix")),
+        ("vouchers/so_contract", {"type": "sale_order", "id": 1}, ("sale_order", "so_contract")),
         ("arap/writeoff/auto", {}, ("arap", "writeoff")),
         ("arap/writeoff/cancel", {}, ("arap", "other")),
         ("arap/process/voucher", {}, ("arap", "voucher")),

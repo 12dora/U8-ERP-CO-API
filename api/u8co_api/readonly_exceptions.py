@@ -9,7 +9,8 @@ op=create、delete 必须写 archives：非空的档案种类列表，每项都�
 其它 op 不能写 archives。地区分类的 delete 与 create 成对开放，用来回滚刚新增的档案；客户只开放新增
 （EAI 新增是 INSERT，不经清银行账号的 diffedit），不开放删除，新增错的客户用 customer_fields 写停用日期；
 customer_address_delete 与 customer_address_add 同理成对。
-type=vouchers：op 只能是 head_fix（历史发货单表头修正），请求路径必须恰好是 vouchers/head_fix，也不能写 archives。
+type=vouchers：op 只能是 head_fix（历史发货单表头修正）或 so_contract（销售订单合同号回写），
+请求路径必须恰好是 vouchers/<op>，so_contract 还要求请求体 type 是 sale_order；也不能写 archives。
 账套必须是 U8CO_READONLY_ACCOUNTS 的子集。未知键、其它 type/op、不合规的操作员编码一律让进程起不来。
 操作员比较不区分大小写，不去首尾空白。archives/update（含客户）、其它档案的 create / delete、客户的 delete、
 vouchers/update 等其余写路由在只读账套上仍一律 403。
@@ -40,8 +41,10 @@ _OPS = {
         "customer_address_delete",
         *_ARCHIVE_OPS,
     ),
-    _VOUCHERS: ("head_fix",),
+    _VOUCHERS: ("head_fix", "so_contract"),
 }
+# 放行时请求体 type 必须等于该值的 (type, op)：路径之外再收一道单据类型（与桥 ReadOnlyGate 一致）。
+_BODY_TYPE = {(_VOUCHERS, "so_contract"): "sale_order"}
 # type → 请求动作前缀：路径必须恰好是 <前缀><op>。
 _PREFIX = {_ARCHIVES: "co:archives/", _VOUCHERS: "co:vouchers/"}
 # op 为 create、delete 时 archives 可以列出的档案种类（代码里的封闭集合，配置只能从中选）。与桥
@@ -72,8 +75,11 @@ class ReadOnlyException:
 
     def covers(self, payload: dict) -> bool:
         """op 须是该 type 可开放的 op（直接构造的 op=update 等一律不放行）；op 为 create、delete 时请求体的 archive
-        须在 archives 里；其它 op 没有这一层限制。"""
+        须在 archives 里；vouchers/so_contract 的请求体 type 须是 sale_order；其它 op 没有这一层限制。"""
         if self.op not in _OPS.get(self.type, ()):
+            return False
+        required = _BODY_TYPE.get((self.type, self.op))
+        if required is not None and _text(payload.get("type")) != required:
             return False
         if self.type != _ARCHIVES or self.op not in _ARCHIVE_OPS:
             return True
@@ -104,8 +110,8 @@ def parse_exceptions(raw: str, read_only: tuple[str, ...]) -> tuple[ReadOnlyExce
 
 
 def allows(exceptions: tuple[ReadOnlyException, ...], action: str, payload: dict) -> bool:
-    """路由必须恰好是 archives/<op> 或 vouchers/head_fix，且任一同 type、op 例外的账套、操作员命中才放行。
-    archives 的 create、delete 另看请求体 archive。"""
+    """路由必须恰好是 archives/<op> 或 vouchers/<op>（head_fix、so_contract），
+    且任一同 type、op 例外的账套、操作员命中才放行。archives 的 create、delete 另看请求体 archive。"""
     if not exceptions:
         return False
     acc = _text(payload.get("acc"))

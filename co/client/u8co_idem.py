@@ -19,7 +19,7 @@ def _ops(root: str, ops: str) -> set[str]:
 
 # 桥的写路由（同 co/bridge/src/WriteGate.cs 的 Writes，去掉 /u8co 前缀）。写预演（u8co_assist.dry_fields）和幂等键共用这一份。
 WRITE_ROUTES = frozenset(
-    _ops("/v1/vouchers/", "verify create update delete close generate lock head_fix")
+    _ops("/v1/vouchers/", "verify create update delete close generate lock head_fix so_contract")
     | _ops("/v1/workflow/", "submit withdraw approve disagree return abandon resubmit")
     | _ops("/v1/gl/vouchers/", "create update void unvoid verify unverify sign unsign delete post")
     | {"/v1/gl/vouchers/reverse"}  # 红字冲销

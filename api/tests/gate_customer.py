@@ -1,4 +1,4 @@
-"""假桥对客户主数据专用写入（customer_person / customer_fields / customer_address 及其增删）和历史发货单表头修正的应答，
+"""假桥对客户主数据专用写入（customer_person / customer_fields / customer_address 及其增删）、历史发货单表头修正和销售订单合同号回写的应答，
 并入 test_co_gate._BUILDERS。"""
 
 
@@ -47,6 +47,18 @@ def _voucher_head_fix(payload: dict) -> dict:
     }
 
 
+def _voucher_so_contract(payload: dict) -> dict:
+    return {
+        "ok": True,
+        "type": payload["type"],
+        "id": payload["id"],
+        "code": "SO0001",
+        "changed": True,
+        "current": {"contract_no": payload["contract_no"], "customer_contract_no": payload.get("customer_contract_no")},
+        "ufts": "0x00000000000A1B2C",
+    }
+
+
 CUSTOMER_BUILDERS = {
     "/v1/archives/customer_person": _arc_customer_person,
     "/v1/archives/customer_fields": _arc_customer_fields,
@@ -54,4 +66,5 @@ CUSTOMER_BUILDERS = {
     "/v1/archives/customer_address_add": _arc_customer_address_rows,
     "/v1/archives/customer_address_delete": _arc_customer_address_rows,
     "/v1/vouchers/head_fix": _voucher_head_fix,
+    "/v1/vouchers/so_contract": _voucher_so_contract,
 }

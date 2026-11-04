@@ -112,6 +112,7 @@ def test_op_vocabulary_is_the_closed_bridge_set() -> None:
         "create", "update", "delete", "verify", "unverify", "close", "open", "generate", "lock", "unlock",
         "workflow", "writeoff", "voucher", "post", "process", "other", "customer_person",
         "customer_fields", "customer_address", "customer_address_add", "customer_address_delete", "head_fix",
+        "so_contract",
     )  # fmt: skip
 
 

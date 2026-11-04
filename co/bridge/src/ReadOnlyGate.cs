@@ -9,8 +9,9 @@ namespace U8Co
     // 403 account_read_only，含预演与幂等重放；写入策略文件、测试账套名单都不能放行。
     // readOnlyExceptions 匹配的写入放行，审计 policy 记 read_only_exception；不匹配的仍拒绝。匹配 = 账套、操作员
     // （不分大小写）、写入分类 (archives, op) 都对上，路径恰为 archives/<op>；op=create / delete 另要求请求体
-    // archive 在规则的 archives 里（create 可列 district_class、customer，delete 只有 district_class；ConfigRulesReadOnly.Eligible）。type=vouchers 的规则只放行 op=head_fix：
-    // 路径恰为 vouchers/head_fix 且请求体 type 为 dispatch，vouchers/update 等其它单据路由仍拒绝。登录前在 WriteClassGate.Pre（账套名单之后、解密之前，先于写入策略）
+    // archive 在规则的 archives 里（create 可列 district_class、customer，delete 只有 district_class；ConfigRulesReadOnly.Eligible）。type=vouchers 的规则只放行 ConfigRulesReadOnly.VoucherOps：
+    // head_fix 要路径恰为 vouchers/head_fix 且请求体 type 为 dispatch，so_contract 要路径恰为 vouchers/so_contract 且 type 为 sale_order，
+    // vouchers/update 等其它单据路由仍拒绝。登录前在 WriteClassGate.Pre（账套名单之后、解密之前，先于写入策略）
     // 查，入队后在 WriteClassGate.Post（登录 U8 之前）再查一次。
     internal static class ReadOnlyGate
     {
@@ -128,7 +129,7 @@ namespace U8Co
             return RouteMatch(rule, ask);
         }
 
-        // 路由部分：type=vouchers 的规则只认路径恰为 vouchers/head_fix、单据类型 dispatch；
+        // 路由部分：type=vouchers 的规则只认该 op 自己的路径和单据类型（ConfigRulesReadOnly.VoucherPaths / VoucherKinds）；
         // type=archives 的规则认路径 archives/<op>，op=create / delete 另看 archives。
         static bool RouteMatch(ReadOnlyExceptionRule rule, Ask ask)
         {
@@ -138,8 +139,7 @@ namespace U8Co
             }
             if (string.Equals(rule.Type, ConfigRulesReadOnly.TypeVouchers, StringComparison.Ordinal))
             {
-                return rule.Archives == null && string.Equals(ask.Path, VoucherHeadFix.Path, StringComparison.Ordinal)
-                    && string.Equals(ask.Type, VoucherHeadFix.Kind, StringComparison.Ordinal);
+                return rule.Archives == null && VoucherRouteMatch(rule.Op, ask);
             }
             if (!string.Equals(rule.Type, ask.Type, StringComparison.Ordinal)
                 || !string.Equals(ask.Path, Requests.ArcRoot + rule.Op, StringComparison.Ordinal)
@@ -155,6 +155,14 @@ namespace U8Co
                     && Contains(ConfigRulesReadOnly.Eligible(rule.Op), ask.Archive, StringComparison.Ordinal);
             }
             return rule.Archives == null;
+        }
+
+        // type=vouchers：op 在 VoucherOps 里，路径和请求体单据类型都是该 op 登记的那一个。
+        static bool VoucherRouteMatch(string op, Ask ask)
+        {
+            int at = Array.IndexOf(ConfigRulesReadOnly.VoucherOps, op);
+            return at >= 0 && string.Equals(ask.Path, ConfigRulesReadOnly.VoucherPaths[at], StringComparison.Ordinal)
+                && string.Equals(ask.Type, ConfigRulesReadOnly.VoucherKinds[at], StringComparison.Ordinal);
         }
 
         // type=archives 可开放的 op：客户专用路由或 create / delete。配置加载已拒绝其它 op，

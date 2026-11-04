@@ -8,7 +8,8 @@ namespace U8Co
     // --selftest 的只读例外泛化部分（ReadOnlyGate 的另一半，由 ReadOnlyGateSelfTest 调用）：
     // 客户专用路由（ArcCustomerOps.Ops：customer_person / customer_fields / customer_address / customer_address_add /
     // customer_address_delete）各自只放行自己的路径；type=vouchers 的规则只放行 op=head_fix（路径恰为 vouchers/head_fix、
-    // 请求体 type=dispatch），archives 键不能用在它和客户专用路由上；
+    // 请求体 type=dispatch）和 op=so_contract（路径恰为 vouchers/so_contract、请求体 type=sale_order），两者互不放行，
+    // archives 键不能用在它们和客户专用路由上；
     // op=create / delete（ConfigRulesReadOnly.ArchiveOps）必须带 archives（每项须在该 op 的可开放集合里），
     // 只放行 archives/<op> 且请求体 archive 在规则里；archives 用在其它 op、未知档案类型启动即报错。
     // update、其它档案的 create / delete 在只读账套上仍 403。客户新增（create + customer）见 ReadOnlyExceptionCustomerSelfTest。
@@ -29,6 +30,7 @@ namespace U8Co
             CheckVoucherConfig();
             CheckVoucherGate();
             CheckVoucherPost();
+            CheckSoContract();
             ReadOnlyExceptionCustomerSelfTest.Run();
         }
 
@@ -288,6 +290,40 @@ namespace U8Co
             }
         }
 
+        // so_contract：配置可解析；只放行 vouchers/so_contract + sale_order；与 head_fix 互不放行；入队后同样判断。
+        static void CheckSoContract()
+        {
+            string[] ro = new string[] { Listed };
+            ReadOnlyExceptionRule[] rules = Parse(VoucherRule(VoucherSoContract.Op, null), ro);
+            ReadOnlyGateSelfTest.Expect("roex4 parse so_contract", rules.Length == 1 && rules[0].Op == VoucherSoContract.Op);
+            ExpectError("roex4 archives on so_contract",
+                VoucherRule(VoucherSoContract.Op, new object[] { ArcKindRwMore.District }), ro, "只能用于");
+            ExpectError("roex4 archives type so_contract", RuleOf(VoucherSoContract.Op, null), ro, "customer_fields");
+            BridgeConfig cfg = VoucherCfg(VoucherSoContract.Op);
+            string path = VoucherSoContract.Path;
+            ExpectAdmitBody("roex4 admit so_contract", cfg, path, VBody(Listed, "svc01", "sale_order"));
+            ExpectRefusedBody("roex4 dispatch", cfg, path, VBody(Listed, "svc01", "dispatch"));
+            ExpectRefusedBody("roex4 no type", cfg, path, VBody(Listed, "svc01", null));
+            ExpectRefusedBody("roex4 update stays", cfg, "/u8co/v1/vouchers/update", VBody(Listed, "svc01", "sale_order"));
+            ExpectRefusedBody("roex4 head_fix not opened", cfg, VoucherHeadFix.Path, VBody(Listed, "svc01", "dispatch"));
+            ExpectRefusedBody("roex4 other operator", cfg, path, VBody(Listed, "op001", "sale_order"));
+            ExpectRefusedBody("roex4 head_fix rule only", VoucherCfg(VoucherHeadFix.Op), path, VBody(Listed, "svc01", "sale_order"));
+            WorkItem ok = VItem(cfg, path, "sale_order");
+            WriteClassGate.Post(ok);
+            ReadOnlyGateSelfTest.Expect("roex4 post so_contract", ok.Policy == ReadOnlyGate.ExceptionCode);
+            WorkItem bad = VItem(cfg, path, "dispatch");
+            string code = null;
+            try
+            {
+                WriteClassGate.Post(bad);
+            }
+            catch (BridgeException ex)
+            {
+                code = ex.Code;
+            }
+            ReadOnlyGateSelfTest.Expect("roex4 post dispatch", code == ReadOnlyGate.Code);
+        }
+
         static Dictionary<string, object> VoucherRule(string op, object archives)
         {
             Dictionary<string, object> rule = RuleOf(op, archives);
@@ -297,12 +333,17 @@ namespace U8Co
 
         static BridgeConfig VoucherCfg()
         {
+            return VoucherCfg(VoucherHeadFix.Op);
+        }
+
+        static BridgeConfig VoucherCfg(string op)
+        {
             BridgeConfig cfg = ReadOnlyGateSelfTest.CfgEx();
             ReadOnlyExceptionRule rule = new ReadOnlyExceptionRule();
             rule.Accounts = new string[] { Listed };
             rule.Operators = new string[] { "svc01" };
             rule.Type = "vouchers";
-            rule.Op = VoucherHeadFix.Op;
+            rule.Op = op;
             cfg.ReadOnlyExceptions = new ReadOnlyExceptionRule[] { rule };
             return cfg;
         }

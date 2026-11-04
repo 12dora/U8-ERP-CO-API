@@ -110,6 +110,7 @@
 {"route": "vouchers/load_many", "access": "read", "summary": "批量读取单据"},
 {"route": "vouchers/lock", "access": "write", "summary": "锁定或解锁单据"},
 {"route": "vouchers/search", "access": "read", "summary": "单据查询"},
+{"route": "vouchers/so_contract", "access": "write", "summary": "回写销售订单合同号"},
 {"route": "vouchers/update", "access": "write", "summary": "修改单据"},
 {"route": "vouchers/verify", "access": "write", "summary": "审核或弃审"},
 {"route": "workflow/abandon", "access": "write", "summary": "弃审"},

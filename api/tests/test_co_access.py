@@ -133,6 +133,15 @@ _WRITES = (
         "/v1/co/vouchers/head_fix",
         _auth(type="dispatch", id=1, fields={"addr_code": "02"}, expect={"addr_code": "01"}),
     ),
+    (
+        "/v1/co/vouchers/so_contract",
+        _auth(
+            type="sale_order",
+            id=1,
+            contract_no="HT202611001",
+            expect={"contract_no": None, "customer_contract_no": None},
+        ),
+    ),
     ("/v1/co/vouchers/close", _auth(type="sale_order", id=1, action="close")),
     ("/v1/co/vouchers/generate", _auth(type="sale_out", id=1)),
     ("/v1/co/vouchers/lock", _auth(type="sale_order", id=1, action="lock")),

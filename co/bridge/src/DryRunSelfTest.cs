@@ -97,6 +97,8 @@ namespace U8Co
             Mode("arc customer_address_delete", "validate", "archives/customer_address_delete", "", "archive_customer_address_delete", "");
             Mode("voucher head_fix", "validate", "vouchers/head_fix", "dispatch", "head_fix", "");
             Mode("voucher head_fix return", "refuse", "vouchers/head_fix", "sale_return", "head_fix", "");
+            Mode("voucher so_contract", "validate", "vouchers/so_contract", "sale_order", "so_contract", "");
+            Mode("voucher so_contract dispatch", "refuse", "vouchers/so_contract", "dispatch", "so_contract", "");
             Mode("wf approve", "validate", "workflow/approve", "sale_order", "approve", "");
             Mode("writeoff", "rollback", "arap/writeoff", "", "writeoff", "");
             Mode("arap voucher", "validate", "arap/voucher", "ar_bill", "arap_voucher", "");

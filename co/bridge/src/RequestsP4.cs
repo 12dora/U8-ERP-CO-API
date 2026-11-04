@@ -56,6 +56,8 @@ namespace U8Co
             new string[] { ArcRoot + "update", "archive", "code", "fields" },
             new string[] { ArcRoot + "delete", "archive", "code" },
             new string[] { ArcPerson.Path, "code", "person", "expect" },
+            // 销售订单合同号回写（VoucherSoContract；单据路由，type / id 照单据路由校验）。
+            VoucherSoContract.Spec,
             // 客户字段修改（ArcCusFields）、客户收货地址修改（ArcCusAddr）。
             new string[] { ArcCusFields.Path, "code", "fields", "expect" },
             new string[] { ArcCusAddr.Path, "code", "address", "fields", "expect" },
@@ -216,7 +218,7 @@ namespace U8Co
             return IsWriteoff(path) ? WriteoffAction(path) : OpeningAction(path);
         }
 
-        // 单据列表 list、现存量 stock_current、历史发货单表头修正 head_fix 的审计 action；其他路由返回 null。
+        // 单据列表 list、现存量 stock_current、历史发货单表头修正 head_fix、销售订单合同号回写 so_contract 的审计 action；其他路由返回 null。
         static string ListOrFixAction(string path)
         {
             if (path == ListPath)
@@ -226,6 +228,10 @@ namespace U8Co
             if (path == StockPath)
             {
                 return "stock_current";
+            }
+            if (path == VoucherSoContract.Path)
+            {
+                return VoucherSoContract.Op;
             }
             return path == VoucherHeadFix.Path ? VoucherHeadFix.Op : null;
         }
@@ -334,6 +340,12 @@ namespace U8Co
             if (path == VoucherHeadFix.Path)
             {
                 VoucherHeadFix.Parse(body);
+                return;
+            }
+            // 销售订单合同号回写：contract_no / customer_contract_no / expect 在登录前校验（VoucherSoContract.Parse），登录子系统取销售订单的 SA。
+            if (path == VoucherSoContract.Path)
+            {
+                VoucherSoContract.Parse(body);
                 return;
             }
             // 期间损益结转、自定义转账：登录前校验、测试账套名单，登录子系统 GL（ApplyGlTransfer，RequestsGlTransfer.cs）。

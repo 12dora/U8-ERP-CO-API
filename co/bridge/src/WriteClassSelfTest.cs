@@ -99,6 +99,7 @@ namespace U8Co
             Is("workflow", "/u8co/v1/workflow/approve", Body("purchase_order", null), "purchase_order", "workflow");
             Is("legacy sale", "/u8co/v1/sale-orders/verify", Body(null, "unverify"), "sale_order", "unverify");
             Is("legacy dispatch", "/u8co/v1/dispatches/verify", Body(null, "verify"), "dispatch", "verify");
+            Is("so contract", VoucherSoContract.Path, Body("sale_order", null), "sale_order", "so_contract");
             Expect("load is read", WriteClass.Of(V("load"), Body("sale_order", null)) == null);
             Expect("null path", WriteClass.Of(null, null) == null && WriteClass.Of((WorkItem)null) == null);
         }

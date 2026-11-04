@@ -12,14 +12,17 @@ namespace U8Co
     // ＝ district_class、customer，delete 是 EligibleDelete ＝ district_class；delete 用于回滚刚新增的地区分类，
     // 客户不能删，新增错的客户用 customer_fields 写停用日期）；其余 op 不能写 archives。archives/update 不能开放
     // （客户 EAI 修改会清银行账号等，见 ArcCusFields）。vouchers 只允许 op=head_fix（历史发货单表头修正，
-    // 路径恰为 vouchers/head_fix），vouchers/update 等其它单据路由不能开放。operators 比较不区分大小写，
+    // 路径恰为 vouchers/head_fix、单据类型 dispatch）和 op=so_contract（销售订单合同号回写，路径恰为 vouchers/so_contract、
+    // 单据类型 sale_order），vouchers/update 等其它单据路由不能开放。operators 比较不区分大小写，
     // 且不能含双引号、反斜杠或控制字符（健康检查 JSON 仍会转义）。
     internal static class ConfigRulesReadOnly
     {
         internal const string TypeArchives = "archives";
         internal const string TypeVouchers = "vouchers";
-        // type=vouchers 允许的 op（目前只有历史发货单表头修正）。
-        internal static readonly string[] VoucherOps = new string[] { VoucherHeadFix.Op };
+        // type=vouchers 允许的 op，与 VoucherPaths、VoucherKinds 按下标一一对应：每个 op 只放行它自己的路径和单据类型。
+        internal static readonly string[] VoucherOps = new string[] { VoucherHeadFix.Op, VoucherSoContract.Op };
+        internal static readonly string[] VoucherPaths = new string[] { VoucherHeadFix.Path, VoucherSoContract.Path };
+        internal static readonly string[] VoucherKinds = new string[] { VoucherHeadFix.Kind, VoucherSoContract.Kind };
         // 带 archives 的 op：请求体 archive 必须在规则的 archives 里。
         internal static readonly string[] ArchiveOps = new string[] { "create", "delete" };
         // 客户档案的类型名（ArcKind.Customer 的 Name）。
@@ -138,7 +141,7 @@ namespace U8Co
             return text;
         }
 
-        // op：archives 是客户专用路由或 create / delete；vouchers 只有 head_fix。
+        // op：archives 是客户专用路由或 create / delete；vouchers 是 VoucherOps（head_fix、so_contract）。
         static string OpOf(Dictionary<string, object> obj, string at, string type)
         {
             string text = NeedText(obj, "op", at);

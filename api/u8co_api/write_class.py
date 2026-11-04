@@ -26,6 +26,8 @@ RULES: dict[str, tuple[str | None, str | dict[str, str]]] = {
     "vouchers/update": (None, "update"),
     # 历史发货单表头修正：独立 op，放行 update 不连带放行；type 取请求体（目前只有 dispatch）。
     "vouchers/head_fix": (None, "head_fix"),
+    # 销售订单合同号回写：独立 op，放行 update 不连带放行；type 取请求体（目前只有 sale_order）。
+    "vouchers/so_contract": (None, "so_contract"),
     "vouchers/delete": (None, "delete"),
     "vouchers/close": (None, {"close": "close", "open": "open"}),
     "vouchers/generate": (None, "generate"),

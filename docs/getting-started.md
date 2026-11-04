@@ -390,6 +390,7 @@ doc = client.load_voucher(call, "sale_order")
 | `close_voucher(call, kind, action, line_ids)` | 关闭、打开 |
 | `lock_voucher(call, kind, action)` | 销售订单锁定、解锁 |
 | `voucher_head_fix(call, HeadFix(kind, fields, expect))` | 历史发货单表头修正（`call.doc_id` 是发货单 id；`fields` 键 `addr_code`、`person_code`，`expect` 给当前值；回滚时带正向响应的 `undo`） |
+| `voucher_so_contract(call, SoContract(kind, contract_no, expect, customer_contract_no=None))` | 销售订单合同号回写（`call.doc_id` 是订单主键；`expect` 必须给 `contract_no`、`customer_contract_no` 两个键的当前值，`None` 或空串表示当前为空；409 `state_mismatch` 时 `U8CoStateMismatch.current` 是当前原值） |
 | `generate_voucher(call, VoucherGen)` | 参照生单 |
 | `post_openings(call, module="pu", action="post")` | 期初记账（`action="unpost"` 取消） |
 | `openings_arap(call, side, action, doc_id=None, **create)` | 应收（`side="ar"`）/ 应付（`"ap"`）期初单据：`action="create"` 时以关键字给出 `partner`、`amount`、`account`（可选 `department`、`person`、`digest`、`currency`、`exch_rate`）；`delete`、`verify`、`unverify` 只给 `doc_id`。字段组合不对时本地抛出 `ValueError` |

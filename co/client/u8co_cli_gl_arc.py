@@ -10,6 +10,8 @@ from co.client.u8co_client import KIND_NAMES, U8Call, U8CoClient
 from co.client.u8co_kinds import NOTE_KINDS  # 票据列表
 from co.client.u8co_cli_head_fix import HANDLERS as HEAD_FIX_HANDLERS  # 历史发货单表头修正
 from co.client.u8co_cli_head_fix import add_commands as add_head_fix_commands
+from co.client.u8co_cli_so_contract import HANDLERS as SO_CONTRACT_HANDLERS  # 销售订单合同号回写
+from co.client.u8co_cli_so_contract import add_commands as add_so_contract_commands
 from co.client.u8co_cli_lock import HANDLERS as LOCK_HANDLERS  # 锁定、解锁
 from co.client.u8co_cli_lock import add_commands as add_lock_commands
 from co.client.u8co_cli_openings import HANDLERS as OPENINGS_HANDLERS  # 期初记账
@@ -52,6 +54,7 @@ def add_commands(sub: Any) -> None:
     _list_commands(sub)
     add_lock_commands(sub)
     add_head_fix_commands(sub)
+    add_so_contract_commands(sub)
     add_openings_commands(sub)
     add_periods_commands(sub)
     add_ia_commands(sub)
@@ -331,6 +334,7 @@ HANDLERS = {
 HANDLERS.update({f"gl-{op}": _cmd_gl_key for op in GL_OPS})
 HANDLERS.update(LOCK_HANDLERS)
 HANDLERS.update(HEAD_FIX_HANDLERS)
+HANDLERS.update(SO_CONTRACT_HANDLERS)
 HANDLERS.update(OPENINGS_HANDLERS)
 HANDLERS.update(PERIODS_HANDLERS)
 HANDLERS.update(IA_HANDLERS)

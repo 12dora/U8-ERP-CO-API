@@ -21,6 +21,8 @@ namespace U8Co
             "archives/customer_address_add", "archives/customer_address_delete",
             // 历史发货单表头修正（VoucherHeadFix）。
             "vouchers/head_fix",
+            // 销售订单合同号回写（VoucherSoContract）。
+            "vouchers/so_contract",
             "arap/writeoff", "arap/writeoff/cancel", "arap/writeoff/auto", "arap/voucher", "arap/voucher/delete", "arap/merge",
             "openings/post", "openings/arap", "periods/close", "ia/post", "ia/period_end",
             // 取消应收冲应付 / 应付冲应收 / 并账（ArapProcCancel）。
