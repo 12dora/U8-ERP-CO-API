@@ -13,6 +13,7 @@ from u8co_api.co_gen_transfer import TRANSFER_GEN_HELP
 from u8co_api.co_models_bom import BOM_UPDATE_HELP
 from u8co_api.co_models_mo_update import MO_UPDATE_HELP
 from u8co_api.co_return_apply import APPLY_GENERATE_HELP, APPLY_UPDATE_HELP
+from u8co_api.co_sale_pins import SALE_PINS_HELP
 
 # 期初结存单不能修改，不在名单里（co_models_stock_opening.refuse_no_update）。
 UPDATE_TYPE_HELP = field_doc(
@@ -43,6 +44,7 @@ UPDATE_HEAD_HELP = "\n\n".join(
             ),
         ),
         QM_UPDATE_HELP,
+        SALE_PINS_HELP,
     )
 )
 UPDATE_LINES_HELP = "\n\n".join(
@@ -133,6 +135,7 @@ GENERATE_HEAD_HELP = "\n\n".join(
             ),
         ),
         QM_GEN_HELP,
+        SALE_PINS_HELP,
         RED_SALE_HELP,
         TRANSFER_GEN_HELP,
         SETTLE_GEN_HELP,

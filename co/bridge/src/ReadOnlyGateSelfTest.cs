@@ -10,7 +10,8 @@ namespace U8Co
     // 拒绝发生在解密之前（口令故意写成解不开的值，放行时是 400 口令无法解密）。名单外账套不受影响，读路由照常通过。
     // readOnlyExceptions 只放行规则指定的 archives/<op>（审计 policy 记 read_only_exception）；
     // archives/update、新增、删除、其它操作员、其它账套、vouchers/update 伪造成 archives 仍拒绝。
-    // 三条客户专用路由与 op=create / delete + archives 的规则见 ReadOnlyExceptionSelfTest（由 CheckExceptionGate 调用）。
+    // 三条客户专用路由与 op=create / delete + archives 的规则见 ReadOnlyExceptionSelfTest，单据 (op, voucher) 登记表见
+    // ReadOnlyVoucherOpsSelfTest（都由 CheckExceptionGate 调用）。
     // 写入策略在放行之后仍判定。配置校验错误在加载时抛出。不连库、不建 COM、不登录。
     // 由 SelfTest.RunWritePolicy 调用。
     internal static class ReadOnlyGateSelfTest
@@ -242,6 +243,7 @@ namespace U8Co
             ExpectPolicyDeny();
             CheckExceptionHealth();
             ReadOnlyExceptionSelfTest.Run();
+            ReadOnlyVoucherOpsSelfTest.Run();
         }
 
         static void CheckExceptionHealth()

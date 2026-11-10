@@ -68,9 +68,9 @@ def test_head_fix_parses_and_summarises() -> None:
 
 @pytest.mark.parametrize(
     "op",
-    ("update", "create", "delete", "customer_person", "customer_address_add", "list", "Head_fix", "head_fix ", ""),
+    ("delete", "lock", "customer_person", "customer_address_add", "list", "Head_fix", "head_fix ", "Create", ""),
 )
-def test_vouchers_allows_only_head_fix(op: str) -> None:
+def test_vouchers_allows_only_registered_ops(op: str) -> None:
     _exits(json.dumps([{**_ITEM_FIX, "op": op}]), _RO, "type=vouchers 时只能是 head_fix")
 
 
@@ -115,7 +115,7 @@ def test_load_settings_stops_on_unopened_voucher_op(monkeypatch) -> None:
     monkeypatch.setenv("U8CO_TRUST_FILE", "")
     monkeypatch.setenv("U8CO_ACCOUNTS", "803,801")
     monkeypatch.setenv("U8CO_READONLY_ACCOUNTS", "803")
-    monkeypatch.setenv("U8CO_READONLY_EXCEPTIONS", json.dumps([{**_ITEM_FIX, "op": "update"}]))
+    monkeypatch.setenv("U8CO_READONLY_EXCEPTIONS", json.dumps([{**_ITEM_FIX, "op": "delete"}]))
     with pytest.raises(SystemExit, match="type=vouchers 时只能是 head_fix"):
         load_settings()
 
@@ -185,12 +185,12 @@ def test_head_fix_operator_matches_without_regard_to_case() -> None:
     fake = FakeBridge()
     ok = _gated(fake, read_only_exceptions=_rules()).post(_HEAD_FIX, json=_fix(operator="SVC01"))
     assert ok.status_code == 200, ok.text
-    padded = {"acc": "803", "operator": " svc01"}
+    padded = {"acc": "803", "operator": " svc01", "type": "dispatch"}
     assert allows(_rules(), "co:vouchers/head_fix", padded) is False
 
 
 def test_allows_matches_the_exact_path_only() -> None:
-    payload = {"acc": "803", "operator": "svc01"}
+    payload = {"acc": "803", "operator": "svc01", "type": "dispatch"}
     rules = _rules()
     assert allows(rules, "co:vouchers/head_fix", payload) is True
     for action in (
@@ -205,8 +205,10 @@ def test_allows_matches_the_exact_path_only() -> None:
     ):
         assert allows(rules, action, payload) is False, action
     assert allows((), "co:vouchers/head_fix", payload) is False
-    # 请求体里的 type / archive 不影响放行判定（路径才是依据）。
-    assert allows(rules, "co:vouchers/head_fix", {**payload, "type": "sale_order", "archive": "customer"}) is True
+    # 请求体 type 须是 head_fix 固定的 dispatch（与桥一致）；archive 不影响放行判定。
+    assert allows(rules, "co:vouchers/head_fix", {**payload, "archive": "customer"}) is True
+    assert allows(rules, "co:vouchers/head_fix", {**payload, "type": "sale_order"}) is False
+    assert allows(rules, "co:vouchers/head_fix", {"acc": "803", "operator": "svc01"}) is False
 
 
 def test_head_fix_dry_run_passes_the_gate() -> None:

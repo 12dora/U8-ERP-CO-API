@@ -26,7 +26,13 @@ namespace U8Co
                 {
                     throw new BridgeException(409, "u8_rejected", err);
                 }
-                return CoRows.Pack(kind, id, snap, doms);
+                ApiResult result = CoRows.Pack(kind, id, snap, doms);
+                // 扩展自定义项（销售订单、发货单的 <表>_extradefine）和约定字段的主表列另查后并进表头、表体。
+                Dictionary<string, object> head = result.Body["head"] as Dictionary<string, object>;
+                System.Collections.IList lines = result.Body["lines"] as System.Collections.IList;
+                SaleExtraRead.Merge(ctx.Conn, kind, id, head, lines);
+                SaleExtraRead.MergeBase(ctx.Conn, kind, id, head, lines);
+                return result;
             }
             finally
             {
@@ -56,12 +62,14 @@ namespace U8Co
                 SaSession.OpenSa(ctx.Conn, ctx.Session.Login, SaSession.SaVt(kind), out sys, out co);
                 string card = kind.SaCard == null || kind.SaCard.Length == 0 ? "17" : kind.SaCard;
                 SoDom.Templates(co, ctx.Conn, card, ctx.Item, doms);
+                SalePins pins = SalePins.ForOrder(ctx.Conn, LoginDate(ctx), head, lines);
+                pins.MarkDom(SoDom.Has(doms[0]), SoDom.Has(doms[1]));
                 SoDom.Apply(ctx.Conn, doms, head, lines);
                 // Save 不算价税。按单行 BodyCheck 回写单价、金额和本币金额。
                 SaleCalc.ForCreate(co, doms[0], doms[1], lines);
                 SoSave.Stamp(ctx, sys, doms[0], card);
                 string code;
-                int id = SoSave.SaveNew(ctx.Conn, co, doms, ctx.Item, out code);
+                int id = SoSave.SaveNew(ctx.Conn, co, doms, ctx.Item, pins, out code);
                 return Created(ctx, kind, id, code);
             }
             finally
@@ -244,6 +252,12 @@ namespace U8Co
             {
                 AdoXml.Close(conn);
             }
+        }
+
+        static string LoginDate(WorkContext ctx)
+        {
+            string date = ctx.Item.Date == null ? "" : ctx.Item.Date.Trim();
+            return date.Length > 0 ? date : DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         }
 
         static int IdByCode(object conn, string code)

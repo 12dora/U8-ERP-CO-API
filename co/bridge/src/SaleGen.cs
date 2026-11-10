@@ -16,7 +16,9 @@ namespace U8Co
             + "editprop,cmemo,ccloser,iswfcontrolled,iverifystate,corufts,csocode";
         const string BodySkip = "autoid,dlid,idlsid,id,editprop,ufts,corufts,cbsysbarcode,ifhquantity,ifhnum,"
             + "ifhmoney,ikpquantity,ikpnum,ikpmoney,foutquantity,cscloser";
-        const string HeadKeys = "ddate,cmemo,cwhcode,cdepcode,cpersoncode,cshipaddress";
+        // caddcode、chdefine1–4（DispatchList_extradefine）和 cdefine1–2 是 r50 约定字段，保存后回读（SalePins）。
+        const string HeadKeys = "ddate,cmemo,cwhcode,cdepcode,cpersoncode,cshipaddress,caddcode,"
+            + "chdefine1,chdefine2,chdefine3,chdefine4";
         const string LineKeys = "cwhcode,cbatch,cmemo";
         const string InvHeadKeys = "cvouchtype,ddate,cmemo";
         const string InvLineKeys = "cmemo";
@@ -85,14 +87,18 @@ namespace U8Co
             object[] doms = new object[2];
             try
             {
+                // 约定字段：收货地址须属于订单客户，类型长度按列目录；保存后回读（SalePins）。
+                SalePins pins = SalePins.ForDispatch(ctx.Conn, LoginDate(ctx), sourceId, head);
                 srcHead = LoadRef(ctx.Conn, RefHead, sourceId, "参照视图没有该销售订单");
                 SaSession.OpenSa(ctx.Conn, ctx.Session.Login, SaSession.SaVt(kind), out sys, out co);
                 string card = kind.SaCard == null || kind.SaCard.Length == 0 ? "01" : kind.SaCard;
                 SoDom.Templates(co, ctx.Conn, card, ctx.Item, doms);
-                soCode = FillHead(ctx, doms, HeadFillOf(sys, srcHead, head, soCode, card));
+                HeadFill fill = HeadFillOf(sys, srcHead, head, soCode, card);
+                fill.Pins = pins;
+                soCode = FillHead(ctx, doms, fill);
                 FillLines(ctx, co, doms, head, soCode, plan);
                 string code;
-                int id = SoSave.SaveDispatch(ctx.Conn, co, doms, ctx.Item, out code);
+                int id = SoSave.SaveDispatch(ctx.Conn, co, doms, ctx.Item, pins, out code);
                 return AfterSave(ctx, kind, id, code, Echo(IdSql, "DLID", "sale_order", sourceId));
             }
             finally
@@ -117,8 +123,13 @@ namespace U8Co
                 code = DomRows.Get(srcRows[0], "csocode").Trim();
             }
             DomRows.CopyInto(doms[0], row, srcRows[0], HeadSkip);
+            if (fill.Pins != null)
+            {
+                List<string> schema = DomRows.Schema(doms[0]);
+                fill.Pins.MarkDom(delegate(string name) { return InSchema(schema, name); }, null);
+            }
             // 表头仓库只作表体缺省，不写进发货单表头。
-            ApplyFields(doms[0], row, fill.Head, true, true);
+            ApplyFields(doms[0], row, fill.Head, true, true, fill.Pins);
             if (TextOf(fill.Head, "ddate").Length == 0)
             {
                 DomRows.Set(doms[0], row, "ddate", LoginDate(ctx));
@@ -340,11 +351,12 @@ namespace U8Co
 
         static void ApplyFields(object dom, object row, Dictionary<string, object> fields, bool head)
         {
-            ApplyFields(dom, row, fields, head, false);
+            ApplyFields(dom, row, fields, head, false, null);
         }
 
-        // skipWh：发货单表头的 cwhcode 只是行仓库的缺省值。表头字段必须在行集 schema 里，否则不能写上去。
-        static void ApplyFields(object dom, object row, Dictionary<string, object> fields, bool head, bool skipWh)
+        // skipWh：发货单表头的 cwhcode 只是行仓库的缺省值。表头字段必须在行集 schema 里，否则不能写上去；
+        // 约定字段（pins 非空）中的扩展自定义项和 schema 里没有的列除外，Save 之后由桥写。
+        static void ApplyFields(object dom, object row, Dictionary<string, object> fields, bool head, bool skipWh, SalePins pins)
         {
             if (fields == null)
             {
@@ -361,7 +373,12 @@ namespace U8Co
                 {
                     continue;
                 }
-                if (head && !InSchema(schema, pair.Key))
+                bool inSchema = !head || InSchema(schema, pair.Key);
+                if (OffPin(pins, pair.Key, head, inSchema))
+                {
+                    continue;
+                }
+                if (!inSchema)
                 {
                     throw BridgeException.BadField(FieldPath.Join("head", pair.Key), "不能设置字段 " + pair.Key);
                 }
@@ -372,6 +389,11 @@ namespace U8Co
                 }
                 DomRows.Set(dom, row, pair.Key, text);
             }
+        }
+
+        static bool OffPin(SalePins pins, string key, bool head, bool inSchema)
+        {
+            return head && pins != null && SalePins.OffDom(SalePins.Dispatch, key.ToLowerInvariant(), true, inSchema);
         }
 
         static bool SkipField(string key, bool head, bool skipWh)

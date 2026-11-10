@@ -65,7 +65,7 @@
 
 | 字段 | 说明 |
 | --- | --- |
-| `acc` | 三位账套号。必须在 API 的账套白名单（`U8CO_ACCOUNTS`）和桥的 `allowedAccounts` 里，否则 403 `account_not_allowed`，不登录 U8。只读账套（API `U8CO_READONLY_ACCOUNTS`、桥 `readOnlyAccounts`）的写路由 403 `account_read_only`（[configuration.md](configuration.md)） |
+| `acc` | 三位账套号。必须在 API 的账套白名单（`U8CO_ACCOUNTS`）和桥的 `allowedAccounts` 里，否则 403 `account_not_allowed`，不登录 U8。只读账套（API `U8CO_READONLY_ACCOUNTS`、桥 `readOnlyAccounts`）的写路由 403 `account_read_only`；只读例外（`U8CO_READONLY_EXCEPTIONS` / `readOnlyExceptions`）按账套、操作员精确放行档案 `archives/<op>` 与单据 `vouchers/<op>`，单据项另须请求体 `type` 等于该项的 `voucher`（登记表：`head_fix` 发货单，`so_contract`、`create`、`update`、`close` 销售订单，`verify` 销售订单或发货单，`generate` 发货单参照销售订单），读路由不受限（[configuration.md](configuration.md) 第 3 节「只读例外」） |
 | `year` | 四位年度，即账套库年度（数据库名 `UFDATA_<账套>_<年度>` 里的年度），不一定等于当前会计年度。API 缺省取 `date` 的年份；账套库年度不同时要显式传 |
 | `operator` | U8 操作员编码，1 到 20 个字符，不含空白、引号或分号 |
 | `password` | 仅 API。U8 操作员口令，1 到 128 个字符，只在本次请求里使用，不保存、不写审计 |
@@ -252,7 +252,7 @@
 | `merge_sources` | 仅合并检验（`BMERGECHECKFLAG=1`）的产品检验单：每个合并来源（`QMMergeCheckDetail`）一项：`source_line_id`（来源 `AUTOID`，参照生成产成品入库时用）、`mo_code`、`mo_seq`、`mo_detail_id`（`MoDId`）、`inspect_code`（来源报检单号）、`qualified`（合格）、`concession`（让步接收）、`stocked`（累计入库）、`remaining`（合格 + 让步 − 累计入库，不小于 0）、`done`（U8 已标为入库完毕，`BPROINFLAG=1`）。非合并检验没有这个键 |
 | `version` | 仅物料清单：版本号 |
 
-销售订单和发货单的读取由 U8 按操作员的数据权限过滤。收付款单和应收应付单的主键对应的行若是别的 `cFlag` / `cVouchType`（例如供应商退款），按不存在处理，404。
+销售订单和发货单的读取由 U8 按操作员的数据权限过滤。两者另带扩展自定义项：桥查 `SO_SOMain_extradefine` / `SO_SODetails_extradefine`（订单）、`DispatchList_extradefine` / `DispatchLists_extradefine`（发货单），把其中的列（小写，如表头 `chdefine3`、表体 `cbdefine5`）并进 `head` 和对应的 `lines` 行（按 `iSOsID` / `iDLsID`）；U8 已返回非空同名值的不覆盖，账套没有扩展表时不加。预演 `docs` 同样。另外，§7「销售订单的落库核对字段」里的主表列（订单表头 `cgatheringplan`、`caddcode`、`cdefine1`、`cdefine2`，表体 `cunitid`、`inum`、`cwhcode`；发货单表头 `caddcode`、`cdefine1`、`cdefine2`）按库里实有的列另查，补进组件没带或为空的键，只并进 U8 已返回的行。收付款单和应收应付单的主键对应的行若是别的 `cFlag` / `cVouchType`（例如供应商退款），按不存在处理，404。
 
 **报检单**（QM01、QM02、QM11）只取固定的一组列（列名同 U8 单据模板）：
 
@@ -388,7 +388,7 @@ U8 单据卡片上的「附件」登记在通用附件表 `VoucherAccessories`�
 
 | 类型 | 表头 | 表体 |
 | --- | --- | --- |
-| `sale_order` | `ccuscode`、`cstcode`、`cdepcode`、`cpersoncode`、`cbustype`、`cexch_name`、`iexchrate`、`itaxrate`、`ddate`、`cmemo`、`ccusoaddress`、`cshipaddress`、`cscode`、`cpaycode`、`dpredatebt`、`dpremodatebt` | `cinvcode`、`iquantity`、`inum`、`cunitid`、`cgroupcode`、`igrouptype`、`ccomunitcode`、`iinvexchrate`、`iquotedprice`、`iunitprice`、`itaxunitprice`、`imoney`、`itax`、`isum`、`inatunitprice`、`inatmoney`、`inattax`、`inatsum`、`inatdiscount`、`idiscount`、`kl`、`kl2`、`itaxrate`、`dpredate`、`dpremodate`、`cmemo` |
+| `sale_order` | `ccuscode`、`cstcode`、`cdepcode`、`cpersoncode`、`cbustype`、`cexch_name`、`iexchrate`、`itaxrate`、`ddate`、`cmemo`、`ccusoaddress`、`cshipaddress`、`cscode`、`cpaycode`、`dpredatebt`、`dpremodatebt`、`cgatheringplan`（收付款协议）、`caddcode`（收货地址编码） | `cinvcode`、`iquantity`、`inum`、`cunitid`、`cgroupcode`、`igrouptype`、`ccomunitcode`、`iinvexchrate`、`iquotedprice`、`iunitprice`、`itaxunitprice`、`imoney`、`itax`、`isum`、`inatunitprice`、`inatmoney`、`inattax`、`inatsum`、`inatdiscount`、`idiscount`、`kl`、`kl2`、`itaxrate`、`dpredate`、`dpremodate`、`cmemo`、`cwhcode`（预发货仓库）、`cbdefine5`（表体扩展自定义项 5，在 `SO_SODetails_extradefine`） |
 | `purchase_order` | `cvencode`、`cdepcode`、`cpersoncode`、`cptcode`、`cbustype`、`cexch_name`、`nflat`、`itaxrate`、`dpodate`、`cmemo`、`darrivedate`（只作行计划到货日的缺省） | `cinvcode`、`iquantity`、`iunitprice`、`itaxprice`、`ipertaxrate`、`darrivedate`、`cbmemo`、`cunitid`、`inum` |
 | `other_in` / `other_out` | `cwhcode`、`crdcode`、`cdepcode`、`cpersoncode`、`ddate`、`cmemo`、`cvencode`、`ccuscode`、`citemcode` | `cinvcode`、`iquantity`、`inum`、`iunitcost`、`iprice`、`cbatch`、`cposition`、`cbmemo`、`dmadedate`、`dvdate`、`imassdate`、`cmassunit`、`cassunit`、`iinvexchrate` |
 | `stock_opening`（不能修改） | `cwhcode`、`crdcode`、`cdepcode`、`cpersoncode`、`ddate`（不用）、`cmemo`、`cvencode` | `cwhcode`（覆盖表头）、`cinvcode`、`iquantity`、`inum`、`iunitcost`、`iprice`、`cbatch`、`cposition`、`dmadedate`、`dvdate`、`imassdate`、`cmassunit`、`cassunit`、`iinvexchrate`、`citem_class`、`citemcode` |
@@ -401,6 +401,17 @@ U8 单据卡片上的「附件」登记在通用附件表 `VoucherAccessories`�
 | `purchase_in`（无来源） | `cwhcode`、`crdcode`、`cdepcode`、`cpersoncode`、`ddate`、`cmemo`、`cvencode`、`cptcode` | `cinvcode`、`iquantity`、`inum`、`iunitcost`、`iprice`、`ioritaxcost`、`itaxrate`、`cbatch`、`cposition`、`cbmemo`、`dmadedate`、`dvdate`、`imassdate`、`cmassunit`、`cassunit`、`iinvexchrate` |
 
 修改用同一份名单。金额、价税、辅数量由桥计算（U8 的业务组件保存时不重算），算法见 `u8-notes.md`「金额」。有计量单位组的存货还要辅计量，缺了 U8 会拒绝。
+
+#### 销售订单的落库核对字段
+
+表头 `cgatheringplan`、`caddcode`、`cdefine1`、`cdefine2`，表体 `cbdefine5`、`cunitid`、`inum`、`cwhcode`（新增和修改都适用；修改时只核对请求里列出的，空串表示清空）：
+
+- 保存前校验，不符 400 `bad_request`（`field` 为请求字段路径，如 `lines.0.cbdefine5`）：列必须存在（表或列不在本账套 400「账套的 SO_SODetails 没有列 cWhCode」「账套没有扩展自定义项 cbdefine5（表 SO_SODetails_extradefine）」）；文本不超过列宽（按字符，`INFORMATION_SCHEMA`），数值列要能按数值解析（与计算路径同一解析器，认指数写法如 `1E+01`），日期列要是 `yyyy-MM-dd`。编码：`cgatheringplan` 须在收付款协议档案 `AA_Agreement`，已停用（停用日期不晚于登录日期）400「收付款协议已停用：X」；`caddcode` 须是表头客户（修改时为请求的 `ccuscode`，没给取订单客户；新增没给 `ccuscode` 时 400）在 `CusDeliverAdd` 里的编码；`cwhcode` 须在仓库档案；`cunitid` 须在计量单位档案且属于该行存货的计量单位组；单计量存货（`iGroupType=0`）不能设置 `cunitid`、`inum`。
+- 参与 U8 计算的 `cunitid`、`inum`（数量、换算率、金额）和 `cgatheringplan`（收付款计划、到期日）只交给 U8 组件：本账套模板里没有时保存前 400「本账套的单据模板没有 inum：它参与 U8 的计算，只能由 U8 组件保存，不能设置」，桥不补写。
+- 计量组（数量 `iquantity`、件数 `inum`、换算率 `iinvexchrate`、计量单位 `cunitid`）：新增订单的每一行、修改的 `op=add` 行，以及 `op=update` 行带了 `iquantity`、`inum`、`iinvexchrate`、`cunitid`、`cgroupcode`、`igrouptype`、`ccomunitcode` 或 `cinvcode` 之一的，都先走 U8 组件的单行 `BodyCheck` 重算再保存（只改换算率或单位也重算；换单位而没给换算率时按单位档案重填换算率、按数量重算件数）。给了数量就按数量算，只给件数才按件数算。同时给了数量、件数、换算率而 |数量 − 件数 × 换算率| 大于数量小数位半个单位时保存前 400「数量 100 不等于件数 7 × 换算率 10」（`field` 为 `lines.N`）。保存后、提交前逐行核对，不符回滚 409 `u8_rejected`「U8 保存后 lines.0 的计量不一致：…」：请求给了的数量、件数、换算率必须原样落库（例如固定换算率 10 时同时送 `iquantity:100`、`inum:7`，U8 按数量算出件数 10，409「件数请求 7，保存 10」，不会悄悄改掉）；有换算的存货单位须属于存货的计量单位组、换算率大于 0，固定换算（`iGroupType=1`）时等于单位档案的换算率；固定和浮动换算（2）都要 数量 = 件数 × 换算率：请求明确给了其中两个或三个时，容差只取数量小数位（`AccInformation` 的 `iStrsQuanDecDgt`）的半个单位（`|数量 − 件数 × 换算率| ≤ 0.5 × 10^(−数量小数位)`，decimal，无额外容差）；只给了其中一个、由组件算出另一个时，把算出值按被算字段自己的小数位（件数 `iNumDecDgt` 或数量）用 `AwayFromZero` 舍入后须与落库值相等（不容差）。
+- 扩展自定义项不进 DOM；模板里没有的纯标注主表列（`caddcode`、`cdefine1`、`cdefine2`、`cwhcode`）同样不进 DOM（不再报「未知字段」）。这些由桥在 `Save` 之后、提交之前在同一事务里写入（日期列按列的实际类型显式转换：`date` 列 `CONVERT(date, ?, 23)`，`datetime` / `smalldatetime` 列 `CONVERT(datetime, CONVERT(date, ?, 23))`，`datetime2` 列 `CAST(CONVERT(date, ?, 23) AS datetime2)`；只收 `yyyy-MM-dd`，超出列类型日期范围（`datetime` 早于 1753-01-01，`smalldatetime` 1900-01-01 至 2079-06-06 之外）保存前 400）；之后逐项回读，与请求不同（数值按数值、日期按日期、文本去首尾空白后不分大小写）回滚 409 `u8_rejected`「U8 保存后 lines.0.cbdefine5 与请求不一致：请求 X，保存 Y」，`field` 为字段路径。U8 组件已自行提交时 504 `outcome_unknown`。见 `u8-notes.md`「扩展自定义项表与「落库字段」核对」。
+- `caddcode` 不带出地址文本 `cshipaddress`，需要时一并送。
+- 预演（`dry_run`）的 `docs` 和 `vouchers/load` 的表头、表体另带扩展自定义项列（小写，如 `cbdefine5`、`chdefine3`），见 §「读取」。
 
 必填项与缺省：
 
@@ -920,7 +931,7 @@ U8 不让改已审核、已有下游单据的销售订单（`vouchers/update` �
 
 | 目标 | 来源 | `lines` | 剩余数量 | 表头可写 | 行可写 |
 | --- | --- | --- | --- | --- | --- |
-| `dispatch` | 销售订单 | 1 到 200 行，必填 | `iQuantity - isnull(iFHQuantity,0)` | `ddate`、`cmemo`、`cwhcode`、`cdepcode`、`cpersoncode`、`cshipaddress`、`cdefine1`…`16` | `cwhcode`、`cbatch`、`cmemo`、`cdefine22`…`37`、`cfree1`…`10` |
+| `dispatch` | 销售订单 | 1 到 200 行，必填 | `iQuantity - isnull(iFHQuantity,0)` | `ddate`、`cmemo`、`cwhcode`、`cdepcode`、`cpersoncode`、`cshipaddress`、`caddcode`（覆盖订单的收货地址编码）、`cdefine1`…`16`、`chdefine1`…`4`（表头扩展自定义项，在 `DispatchList_extradefine`） | `cwhcode`、`cbatch`、`cmemo`、`cdefine22`…`37`、`cfree1`…`10` |
 | `sale_invoice` | 发货单 | 同上，`source_line_id` 是 `iDLsID` | `iQuantity - isnull(iSettleQuantity,0) - isnull(fretqtywkp,0)`（扣除未开票退货，同 U8 视图 `sale_DispToSaleVouchJS_B`） | `cvouchtype`（`26` 专用或 `27` 普通，缺省 26，其他值 400「该发票类型不支持」）、`ddate`、`cmemo`、`cdefine1`…`16` | `cmemo`、`cdefine22`…`37` |
 | `sale_invoice`（`source_type: "sale_return"`） | 退货单（红字发货单，`id` 是 `DLID`），生成红字发票 | 可省略（全部有剩余的退货行按剩余数量）；带了是 1 到 200 行，`source_line_id` 是退货行 `iDLsID`，`quantity` 填正数 | `abs(iQuantity) - abs(isnull(iSettleQuantity,0))` | 同蓝字发票；`cvouchtype` 省略时取原蓝字发票（退货行 `iCorID` 上的发票）的类型，没有则 26 | `cmemo`、`cdefine22`…`37` |
 | `sale_invoice`（`source_type: "sale_invoice"`） | 已复核的蓝字销售发票（`id` 是 `SBVID`），红冲 | 可省略（全部有剩余的蓝字行按剩余数量）；带了是 1 到 200 行，`source_line_id` 是蓝字发票行 `AutoID`，`quantity` 填正数 | 蓝字行数量 − 已红冲数量（指向该行的红字行合计） | `cvouchtype`（只能同蓝字）、`ddate`（不早于蓝字发票）、`cmemo`、`cdefine1`…`16` | `cmemo`、`cdefine22`…`37`。见 §35「红冲蓝字销售发票」 |
@@ -964,6 +975,7 @@ U8 不让改已审核、已有下游单据的销售订单（`vouchers/update` �
 ### 销售
 
 - 发货单：仓库必填（行上的 `cwhcode`，否则表头，否则来源行），都没有 400「必须指定仓库」。
+- 发货单（参照销售订单）的落库核对字段：表头 `caddcode`、`cdefine1`、`cdefine2`、`chdefine1`…`4`。`caddcode` 缺省照抄订单；给了就覆盖，须是订单客户在 `CusDeliverAdd` 里的编码，否则 400「收货地址编码 X 不是客户 C 的收货地址」（`field` 为 `head.caddcode`；地址文本 `cshipaddress` 不随之改变，需要时一并送）。类型、长度、存在性校验，扩展自定义项由桥在保存后写入 `DispatchList_extradefine`，以及保存后的回读核对，规则同 §7「销售订单的落库核对字段」。
 - 销售发票：同一张发票的行须来自同一客户；来源发货单已关闭或是期初时拒绝。
 - 红字销售发票（`source_type: "sale_return"`）：退货单须是红字发货单（否则 400「该单据不是退货单（红字发货单）」）、非期初（400「不支持期初退货单」）、已审核、未关闭，且是已开票退货（`bneedbill=1`，否则 409「退货单是未开票退货（bneedbill=0），不开红字发票」：未开票退货冲减的是原发货行的未开票数量，不需要红票）；行未关闭，没有可开票数量 409「退货单没有可开票数量」。销售组件用红字 VT 1（26）/ 3（27），卡片同蓝字（07 / 13）。桥先试 `GetNegaVouchData`，U8 生成的表体不含全部请求行时改按参照视图（`Sales_FHD_T` / `Sales_FHD_W`）组装；表头 `bReturnFlag=1`、`iDisp=1`、`sbvid=""`，行 `iDLsID` 是退货行、`cbdlcode` 是退货单号，数量写负的本次数量，金额按比例后由 U8 按数量重算。可开票数量在事务里加 `UPDLOCK`、`HOLDLOCK` 重读；保存后在同一事务里核对：新发票行数、全为负数量且合计等于请求，退货行 `iSettleQuantity` 减了本次数量（更负），挂订单的订单行 `iKPQuantity` 净减本次数量；不符回滚并 409 `u8_rejected`。红字发票不能修改，可复核、弃复、删除（§6、§9）。
 - 退货单（红字发货单）：来源须是蓝字发货单（`bReturnFlag=0`、`cVouchType=05`，否则 400「仅支持参照蓝字发货单」）、非期初（400「不支持期初发货单」）、已审核、未关闭，行未关闭。`quantity` 填正数。一张退货单要么是未开票退货（表头 `bneedbill=0`），要么是已开票退货（`bneedbill=1`）：`head.invoiced` 为 false 时每行不超过未开票可退、为 true 时不超过已开票可退（否则 409「超过未开票可退数量」/「超过已开票可退数量」）；省略时全部行都在未开票可退内则按未开票，否则全部在已开票可退内则按已开票，都不行 409 `state_mismatch`，请按 `invoiced` 拆成两张。桥让 U8 按原发货单生成整张红字单（`GetNegaVouchData`），只留请求的行，改为新增，数量改为负的本次退货数，金额按比例缩放后由 U8 按数量和单价重算；`iCorID` / `cCorCode` 指回原发货行和原单号，原行有订单关联时挂上 `iSOsID`、`csocode`、`cordercode`、`iorderrowno`。保存后在同一事务里核对：新单行数、每行负数量与合计；原发货行 `iRetQuantity` 与 `fretqtywkp`（未开票）或 `fretqtyykp`（已开票）加了本次数量；挂订单的销售订单行 `fretquantity` 加、`iFHQuantity` 减了本次数量（同一订单行按合计）。不符回滚并 409 `u8_rejected`，审计 `detail` 记基准值和实际值。
@@ -2323,7 +2335,7 @@ API 的缺省 `hint`（表在 `api/u8co_api/errors.py`；表里没有的码没�
 | 400 | `write_limit` | 写入策略的行数（`field=lines`）或金额上限，`detail` 带 `max`、`actual` |
 | 401 | `unauthorized` | 签名、时间、随机数或来源 IP 不对，不说明是哪一项 |
 | 403 | `account_not_allowed` | 账套不在 `allowedAccounts` |
-| 403 | `account_read_only` | 账套在 `readOnlyAccounts` 里，写路由（含预演和幂等重放）一律拒绝，登录 U8 之前判定 |
+| 403 | `account_read_only` | 账套在 `readOnlyAccounts` 里，写路由（含预演和幂等重放）一律拒绝，登录 U8 之前判定；命中 `readOnlyExceptions`（档案 op，或单据 op + `voucher`）的除外 |
 | 403 | `feature_disabled` | 第二级写入（复现 U8 界面 SQL 的写入）而桥的 `enableReplicatedWrites` 未打开（缺省），账套在 `testAccounts` 里也一样；登录 U8 之前拒绝 |
 | 403 | `test_account_only` | 第二级写入的账套不在 `testAccounts` 里（含预演），登录 U8 之前拒绝。第二级写入包括：月末结账（`periods/close`，§31）、存货核算记账和期末处理（`ia/post`、`ia/period_end`，§32）、期初记账和期初单据（`openings/post`、`openings/arap`，§29）、库存期初结存单、坏账、汇兑损益、应付票据、总账取消记账和自动转账（§14）。完整清单见 limitations.md；采购手工结算是第一级写入 |
 | 403 | `write_not_allowed` | 写入策略没有放行这个账套的这类写入，`detail` 带 `type`、`op`；登录 U8 之前拒绝（见 configuration.md） |
@@ -2366,7 +2378,7 @@ API 把桥的错误码原样带上，HTTP 状态按下表：
 | 401 | `unauthorized` | 缺少或无效的访问令牌，带 `WWW-Authenticate: Bearer` |
 | 403 | `forbidden` | 令牌没有所需权限 |
 | 403 | `account_not_allowed` | 账套不在 API 的白名单，不访问桥 |
-| 403 | `account_read_only` | 账套在 `U8CO_READONLY_ACCOUNTS` 里，写路由不访问桥 |
+| 403 | `account_read_only` | 账套在 `U8CO_READONLY_ACCOUNTS` 里，写路由不访问桥；命中 `U8CO_READONLY_EXCEPTIONS`（档案 op，或单据 op + `voucher`）的除外 |
 | 403 | `operator_forbidden` | 登录操作员不在信任项 `operators` 允许的范围内（`allow` 未列出或在 `deny` 里），不访问桥；错误体带 `field: "operator"` |
 | 403 | `mgmt_forbidden` | 令牌没有经营管理权限（§17） |
 | 403、503、400 | 写入策略各码 | 配置了 `U8CO_WRITE_POLICY_FILE` 时 API 在调桥之前按同样的规则拒绝，码和消息与桥相同（不含 `write_quota`、`u8_license_hold`，那两项只在桥上） |

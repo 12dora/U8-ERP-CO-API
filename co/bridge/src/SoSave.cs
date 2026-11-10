@@ -5,7 +5,8 @@ namespace U8Co
 {
     internal static class SoSave
     {
-        public static int SaveNew(object conn, object co, object[] doms, WorkItem item, out string savedCode)
+        // pins：约定字段（SalePins），Save 之后、提交之前补写并回读；可为 null。
+        public static int SaveNew(object conn, object co, object[] doms, WorkItem item, SalePins pins, out string savedCode)
         {
             bool open = false;
             savedCode = "";
@@ -35,6 +36,7 @@ namespace U8Co
                 {
                     id = CoRows.AsId(SoDom.Attr(doms[0], "ID"));
                 }
+                SalePins.Settle(conn, item, pins, id, code);
                 DocMark.Created(conn, "sale_order", id, code);
                 CoTrans.CommitSeen(conn);
                 open = false;
@@ -187,7 +189,7 @@ namespace U8Co
             }
         }
 
-        public static void SaveModify(object conn, object co, object[] doms, WorkItem item)
+        public static void SaveModify(object conn, object co, object[] doms, WorkItem item, SalePins pins)
         {
             bool open = false;
             try
@@ -206,6 +208,7 @@ namespace U8Co
                     open = false;
                     throw new BridgeException(409, "u8_rejected", msg);
                 }
+                SalePins.Settle(conn, item, pins, 0, "");
                 CoTrans.CommitSeen(conn);
                 open = false;
             }
@@ -219,7 +222,15 @@ namespace U8Co
         // 发货单取号只走 GetVoucherNO。号在参数槽里，返回值不一定是布尔。
         public static int SaveDispatch(object conn, object co, object[] doms, WorkItem item, out string savedCode)
         {
-            return SaveFresh(conn, co, doms, item, Fresh("cDLCode", "DLID", "没有生成发货单号", false, "dispatch"), out savedCode);
+            return SaveDispatch(conn, co, doms, item, null, out savedCode);
+        }
+
+        // 参照订单生单带约定字段（SalePins）。
+        public static int SaveDispatch(object conn, object co, object[] doms, WorkItem item, SalePins pins, out string savedCode)
+        {
+            FreshSpec spec = Fresh("cDLCode", "DLID", "没有生成发货单号", false, "dispatch");
+            spec.Pins = pins;
+            return SaveFresh(conn, co, doms, item, spec, out savedCode);
         }
 
         // 销售发票同样 GetVoucherNO(head, no, err) → cSBVCode，Save 第三参 (short)0。表头必须带空的 sbvid。
@@ -275,6 +286,7 @@ namespace U8Co
                 {
                     id = CoRows.AsId(SoDom.Attr(doms[0], spec.IdAttr));
                 }
+                SalePins.Settle(conn, item, spec.Pins, id, no);
                 DocMark.Created(conn, spec.KindName, id, no);
                 CoTrans.CommitSeen(conn);
                 open = false;
@@ -375,6 +387,7 @@ namespace U8Co
             internal string EmptyMsg;
             internal bool PinSbvid;
             internal string KindName;
+            internal SalePins Pins;
         }
     }
 

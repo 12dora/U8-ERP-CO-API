@@ -64,7 +64,7 @@ def test_both_voucher_ops_can_be_listed_together() -> None:
     assert [(item.type, item.op) for item in rules] == [("vouchers", "head_fix"), ("vouchers", "so_contract")]
 
 
-@pytest.mark.parametrize("op", ("update", "create", "delete", "customer_person", "So_contract", "so_contract ", ""))
+@pytest.mark.parametrize("op", ("delete", "lock", "customer_person", "So_contract", "so_contract ", ""))
 def test_vouchers_rejects_other_ops(op: str) -> None:
     _exits(json.dumps([{**_ITEM_SO, "op": op}]), _RO, "type=vouchers 时只能是 head_fix、so_contract")
 
@@ -184,10 +184,11 @@ def test_allows_matches_the_exact_path_and_the_body_type() -> None:
         assert allows(rules, "co:vouchers/so_contract", {"acc": "803", "operator": "svc01", **bad}) is False, bad
 
 
-def test_head_fix_keeps_its_path_only_decision() -> None:
-    # 请求体 type 的检查只加给 so_contract；head_fix 仍只看路径（它的 type 由请求模型和桥限定为 dispatch）。
+def test_head_fix_also_checks_its_fixed_body_type() -> None:
+    # head_fix 与 so_contract 同在登记表里：请求体 type 须是它固定的 dispatch（与桥 ReadOnlyVoucherOps 一致）。
     rules = parse_exceptions(json.dumps([_ITEM_HEAD]), _RO)
-    assert allows(rules, "co:vouchers/head_fix", {"acc": "803", "operator": "svc01"}) is True
+    assert allows(rules, "co:vouchers/head_fix", {"acc": "803", "operator": "svc01", "type": "dispatch"}) is True
+    assert allows(rules, "co:vouchers/head_fix", {"acc": "803", "operator": "svc01"}) is False
 
 
 def test_covers_rejects_a_hand_built_rule_with_the_wrong_type() -> None:

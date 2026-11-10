@@ -170,7 +170,7 @@ namespace U8Co
             // 表头主键属性必须在，值为空串。
             DomRows.Set(doms[0], row, "dlid", "", schema);
             DomRows.Set(doms[0], row, "cdlcode", "", schema);
-            ApplyFields(doms[0], row, head, true, true);
+            ApplyFields(doms[0], row, head, true, true, null);
             DomRows.Set(doms[0], row, "ddate", TextOf(head, "ddate").Length > 0 ? TextOf(head, "ddate") : LoginDate(ctx), schema);
             DomRows.Set(doms[0], row, "cvouchtype", "05", schema);
             DomRows.Set(doms[0], row, "breturnflag", "1", schema);

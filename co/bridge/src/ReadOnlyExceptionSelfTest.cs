@@ -7,8 +7,9 @@ namespace U8Co
 {
     // --selftest 的只读例外泛化部分（ReadOnlyGate 的另一半，由 ReadOnlyGateSelfTest 调用）：
     // 客户专用路由（ArcCustomerOps.Ops：customer_person / customer_fields / customer_address / customer_address_add /
-    // customer_address_delete）各自只放行自己的路径；type=vouchers 的规则只放行 op=head_fix（路径恰为 vouchers/head_fix、
-    // 请求体 type=dispatch）和 op=so_contract（路径恰为 vouchers/so_contract、请求体 type=sale_order），两者互不放行，
+    // customer_address_delete）各自只放行自己的路径；type=vouchers 的 op=head_fix（路径恰为 vouchers/head_fix、
+    // 请求体 type=dispatch）和 op=so_contract（路径恰为 vouchers/so_contract、请求体 type=sale_order）互不放行
+    // （登记表 ReadOnlyVoucherOps 的其余 op 见 ReadOnlyVoucherOpsSelfTest），
     // archives 键不能用在它们和客户专用路由上；
     // op=create / delete（ConfigRulesReadOnly.ArchiveOps）必须带 archives（每项须在该 op 的可开放集合里），
     // 只放行 archives/<op> 且请求体 archive 在规则里；archives 用在其它 op、未知档案类型启动即报错。
@@ -206,7 +207,8 @@ namespace U8Co
             }
         }
 
-        // type=vouchers：只允许 head_fix，不能带 archives；type 只能是 archives 或 vouchers；archives 的 op 不能是 head_fix。
+        // type=vouchers：op 只能是登记表里的（create 等须写 voucher），不能带 archives；type 只能是 archives 或 vouchers；
+        // archives 的 op 不能是 head_fix。
         static void CheckVoucherConfig()
         {
             string[] ro = new string[] { Listed };
@@ -215,9 +217,10 @@ namespace U8Co
                 && rules[0].Op == VoucherHeadFix.Op && rules[0].Archives == null);
             ExpectError("roex3 archives on head_fix", VoucherRule(VoucherHeadFix.Op, new object[] { ArcKindRwMore.District }),
                 ro, "只能用于");
-            ExpectError("roex3 op update", VoucherRule("update", null), ro, VoucherHeadFix.Op);
+            ExpectError("roex3 op update no voucher", VoucherRule("update", null), ro, "必须给出");
+            ExpectError("roex3 op delete", VoucherRule("delete", null), ro, VoucherHeadFix.Op);
             ExpectError("roex3 op archives op", VoucherRule(ArcCusAddr.Op, null), ro, VoucherHeadFix.Op);
-            ExpectError("roex3 op create", VoucherRule("create", null), ro, VoucherHeadFix.Op);
+            ExpectError("roex3 op create no voucher", VoucherRule("create", null), ro, "必须给出");
             Dictionary<string, object> badType = VoucherRule(VoucherHeadFix.Op, null);
             badType["type"] = "voucher";
             ExpectError("roex3 unknown type", badType, ro, "目前只允许");

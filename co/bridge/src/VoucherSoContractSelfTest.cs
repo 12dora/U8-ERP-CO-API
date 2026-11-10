@@ -245,11 +245,11 @@ namespace U8Co
 
         static void CheckReadOnlyTable()
         {
-            int at = Array.IndexOf(ConfigRulesReadOnly.VoucherOps, VoucherSoContract.Op);
-            Expect("wiring readonly table", at >= 0 && ConfigRulesReadOnly.VoucherPaths[at] == VoucherSoContract.Path
-                && ConfigRulesReadOnly.VoucherKinds[at] == VoucherSoContract.Kind);
-            Expect("wiring readonly aligned", ConfigRulesReadOnly.VoucherPaths.Length == ConfigRulesReadOnly.VoucherOps.Length
-                && ConfigRulesReadOnly.VoucherKinds.Length == ConfigRulesReadOnly.VoucherOps.Length);
+            ReadOnlyVoucherOps.Row row = ReadOnlyVoucherOps.Find(VoucherSoContract.Op);
+            Expect("wiring readonly table", row != null && ReadOnlyVoucherOps.Root + row.Op == VoucherSoContract.Path
+                && row.Fixed && row.Kinds.Length == 1 && row.Kinds[0] == VoucherSoContract.Kind);
+            Expect("wiring readonly ops", Array.IndexOf(ConfigRulesReadOnly.VoucherOps, VoucherSoContract.Op) >= 0
+                && ConfigRulesReadOnly.VoucherOps.Length == ReadOnlyVoucherOps.Rows.Length);
         }
 
         static void Plan(string name, SoContractAsk ask, SoContractSnap snap, bool changed, bool set1, bool set2)

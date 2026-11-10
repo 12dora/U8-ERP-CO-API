@@ -1,7 +1,7 @@
 """只读例外（U8CO_READONLY_EXCEPTIONS）：解析失败让进程起不来；路由、账套、操作员（create 另看 archive）命中才穿过闸门。
 type=archives：op 为 customer_person、customer_fields、customer_address、customer_address_add、customer_address_delete、
-create、delete（后两者须列 archives：create 可列 district_class、customer，delete 只有 district_class）；type=vouchers：op 只能是 head_fix（见
-test_readonly_exceptions_vouchers）。假桥，不访问网络。
+create、delete（后两者须列 archives：create 可列 district_class、customer，delete 只有 district_class）；type=vouchers：op 只能是登记表里的（见
+test_readonly_exceptions_vouchers、test_readonly_exceptions_voucher_ops）。假桥，不访问网络。
 """
 
 from __future__ import annotations

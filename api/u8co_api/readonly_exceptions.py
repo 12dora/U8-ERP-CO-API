@@ -9,11 +9,15 @@ op=create、delete 必须写 archives：非空的档案种类列表，每项都�
 其它 op 不能写 archives。地区分类的 delete 与 create 成对开放，用来回滚刚新增的档案；客户只开放新增
 （EAI 新增是 INSERT，不经清银行账号的 diffedit），不开放删除，新增错的客户用 customer_fields 写停用日期；
 customer_address_delete 与 customer_address_add 同理成对。
-type=vouchers：op 只能是 head_fix（历史发货单表头修正）或 so_contract（销售订单合同号回写），
-请求路径必须恰好是 vouchers/<op>，so_contract 还要求请求体 type 是 sale_order；也不能写 archives。
+type=vouchers：op 与单据类型 voucher 只能是登记表 readonly_voucher_ops.VOUCHER_OPS 里的一对（head_fix 发货单、
+so_contract / create / update / close 销售订单、verify 销售订单或发货单、generate 发货单参照销售订单），一项一对；
+create、update、close、verify、generate 必须写 voucher，head_fix、so_contract 的单据类型固定，voucher 可省（写了须一致）。
+请求路径必须恰好是 vouchers/<op>，请求体 type 必须等于 voucher（区分大小写），按 action 映射的写入分类 op 须在该行里
+（verify 含审核、弃审；close 只有关闭），generate 的 source_type 须是 sale_order（可省）；也不能写 archives。
+type=archives 不能写 voucher。
 账套必须是 U8CO_READONLY_ACCOUNTS 的子集。未知键、其它 type/op、不合规的操作员编码一律让进程起不来。
-操作员比较不区分大小写，不去首尾空白。archives/update（含客户）、其它档案的 create / delete、客户的 delete、
-vouchers/update 等其余写路由在只读账套上仍一律 403。
+操作员比较只忽略 ASCII 字母大小写（非 ASCII 字符逐字比较，与桥一致），不去首尾空白。archives/update（含客户）、其它档案的 create / delete、客户的 delete、
+没列出的单据类型、vouchers/delete、vouchers/lock、旧版审核路由等其余写路由在只读账套上仍一律 403。
 """
 
 from __future__ import annotations
@@ -23,8 +27,10 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
+from u8co_api.readonly_voucher_ops import VOUCHER_OPS, voucher_covers, voucher_of
+
 ENV = "U8CO_READONLY_EXCEPTIONS"
-_KEYS = frozenset(("accounts", "operators", "type", "op", "archives"))
+_KEYS = frozenset(("accounts", "operators", "type", "op", "archives", "voucher"))
 _REQUIRED = ("accounts", "operators", "type", "op")
 _ARCHIVES = "archives"
 _VOUCHERS = "vouchers"
@@ -41,10 +47,8 @@ _OPS = {
         "customer_address_delete",
         *_ARCHIVE_OPS,
     ),
-    _VOUCHERS: ("head_fix", "so_contract"),
+    _VOUCHERS: tuple(VOUCHER_OPS),
 }
-# 放行时请求体 type 必须等于该值的 (type, op)：路径之外再收一道单据类型（与桥 ReadOnlyGate 一致）。
-_BODY_TYPE = {(_VOUCHERS, "so_contract"): "sale_order"}
 # type → 请求动作前缀：路径必须恰好是 <前缀><op>。
 _PREFIX = {_ARCHIVES: "co:archives/", _VOUCHERS: "co:vouchers/"}
 # op 为 create、delete 时 archives 可以列出的档案种类（代码里的封闭集合，配置只能从中选）。与桥
@@ -54,11 +58,12 @@ DELETE_ARCHIVES = frozenset(("district_class",))
 _ELIGIBLE = {_CREATE: CREATE_ARCHIVES, _DELETE: DELETE_ARCHIVES}
 _SIZE = 65536
 _ACCOUNT = re.compile(r"^[0-9]{3}\Z")
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 
 
 @dataclass(frozen=True)
 class ReadOnlyException:
-    """一条只读例外。operators 保留配置原文，匹配时操作员不区分大小写。"""
+    """一条只读例外。operators 保留配置原文，匹配时操作员只忽略 ASCII 大小写（ascii_fold）。"""
 
     accounts: tuple[str, ...]
     operators: tuple[str, ...]
@@ -66,22 +71,24 @@ class ReadOnlyException:
     op: str
     # 只有 op 为 create、delete 时有：允许写入的档案种类。
     archives: tuple[str, ...] | None = None
+    # 只有 type=vouchers 有：配置的单据类型；head_fix、so_contract 省略时为 None（取固定的那一种）。
+    voucher: str | None = None
 
     def matches(self, acc: str, operator: str) -> bool:
         if acc not in self.accounts:
             return False
-        who = operator.casefold()
-        return who in {item.casefold() for item in self.operators}
+        who = ascii_fold(operator)
+        return who in {ascii_fold(item) for item in self.operators}
 
-    def covers(self, payload: dict) -> bool:
-        """op 须是该 type 可开放的 op（直接构造的 op=update 等一律不放行）；op 为 create、delete 时请求体的 archive
-        须在 archives 里；vouchers/so_contract 的请求体 type 须是 sale_order；其它 op 没有这一层限制。"""
+    def covers(self, payload: dict, action: str | None = None) -> bool:
+        """op 须是该 type 可开放的 op（直接构造的 op=delete 等一律不放行）；type=vouchers 按登记表看路径、请求体 type、
+        写入分类 op 和生单来源（action 省略时按 vouchers/<op>）；archives 的 create、delete 另看请求体 archive。"""
         if self.op not in _OPS.get(self.type, ()):
             return False
-        required = _BODY_TYPE.get((self.type, self.op))
-        if required is not None and _text(payload.get("type")) != required:
-            return False
-        if self.type != _ARCHIVES or self.op not in _ARCHIVE_OPS:
+        if self.type == _VOUCHERS:
+            path = action or _PREFIX[_VOUCHERS] + self.op
+            return self.archives is None and voucher_covers(self.op, self.voucher, path, payload)
+        if self.op not in _ARCHIVE_OPS:
             return True
         # 解析器保证这两个 op 一定有 archives 且都可开放；对象被直接构造成没有、或列了不可开放的种类时，一律不放行。
         archive = _text(payload.get("archive"))
@@ -96,6 +103,8 @@ class ReadOnlyException:
         }
         if self.archives is not None:
             found["archives"] = list(self.archives)
+        if self.voucher is not None:
+            found["voucher"] = self.voucher
         return found
 
 
@@ -110,14 +119,14 @@ def parse_exceptions(raw: str, read_only: tuple[str, ...]) -> tuple[ReadOnlyExce
 
 
 def allows(exceptions: tuple[ReadOnlyException, ...], action: str, payload: dict) -> bool:
-    """路由必须恰好是 archives/<op> 或 vouchers/<op>（head_fix、so_contract），
-    且任一同 type、op 例外的账套、操作员命中才放行。archives 的 create、delete 另看请求体 archive。"""
+    """路由必须恰好是 archives/<op> 或 vouchers/<op>，且任一同 type、op 例外的账套、操作员命中才放行。
+    archives 的 create、delete 另看请求体 archive；vouchers 另看请求体 type、action 与生单来源（readonly_voucher_ops）。"""
     if not exceptions:
         return False
     acc = _text(payload.get("acc"))
     operator = _text(payload.get("operator"))
     return any(
-        action == _PREFIX.get(item.type, "") + item.op and item.matches(acc, operator) and item.covers(payload)
+        action == _PREFIX.get(item.type, "") + item.op and item.matches(acc, operator) and item.covers(payload, action)
         for item in exceptions
     )
 
@@ -154,6 +163,7 @@ def _one(where: str, raw: object, read_only: tuple[str, ...]) -> ReadOnlyExcepti
         type=type_,
         op=op,
         archives=_archives(where, type_, op, raw),
+        voucher=_voucher(where, type_, op, raw),
     )
 
 
@@ -183,6 +193,23 @@ def _archives(where: str, type_: str, op: str, item: dict) -> tuple[str, ...] | 
     return found
 
 
+def _voucher(where: str, type_: str, op: str, item: dict) -> str | None:
+    # type=vouchers：单据类型须在登记表该 op 的那一行里；单据类型固定的 op 可省。其它 type 不能写这个键（null 也不行）。
+    if type_ != _VOUCHERS:
+        if "voucher" in item:
+            raise SystemExit(f"{where}.voucher 只能用于 type=vouchers")
+        return None
+    row = VOUCHER_OPS[op]
+    if "voucher" not in item:
+        if row.fixed:
+            return None
+        raise SystemExit(f"{where}.voucher 在 op={op} 时必须给出")
+    voucher = item["voucher"]
+    if not isinstance(voucher, str) or voucher_of(op, voucher) is None:
+        raise SystemExit(f"{where}.voucher 在 op={op} 时只能是 {'、'.join(row.kinds)}")
+    return voucher
+
+
 def _accounts(where: str, raw: object, read_only: tuple[str, ...]) -> tuple[str, ...]:
     found = _strings(where, raw, "accounts", False)
     for acc in found:
@@ -209,7 +236,7 @@ def _strings(where: str, raw: object, key: str, ignore_case: bool) -> tuple[str,
     for item in raw:
         if not isinstance(item, str) or not item:
             raise SystemExit(f"{where}.{key} 里的项必须是非空字符串")
-        token = item.casefold() if ignore_case else item
+        token = ascii_fold(item) if ignore_case else item
         if token in seen:
             raise SystemExit(f"{where}.{key} 有重复的项: {item}")
         seen.add(token)
@@ -222,6 +249,12 @@ def _operator_code(code: str) -> bool:
     if not code or len(code) > 20:
         return False
     return all(ch > " " and ch not in "';\"\\" and unicodedata.category(ch) != "Cc" for ch in code)
+
+
+def ascii_fold(code: str) -> str:
+    """操作员比较的唯一规则（与桥 ReadOnlyGate.AsciiIgnoreCase 一致）：只把 A–Z 折成 a–z，其余字符（含非 ASCII）逐字比较。
+    不用 casefold：它把 ß 折成 ss 等，桥做不到，两侧会不一致。"""
+    return code.translate(_ASCII_LOWER)
 
 
 def _text(value: object) -> str:

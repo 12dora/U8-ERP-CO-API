@@ -379,6 +379,15 @@ U8 的退回先 `Ap_Proc_CancelNo`（`CL` / `AR`，处理号 `CLAR` 补零到 17
 - 并发与回读：行锁 `UPDLOCK, ROWLOCK`，`UPDATE … WHERE ID=? AND ufts=<读到的值>`；单据锁同修改销售订单（`sale_order:<id>`）；写后同一事务内回读，ufts 没变而值不对 409 `state_mismatch`（没写），ufts 变了而值不对 504 `outcome_unknown`。预演（validate）跑完全部检查后回滚。
 - 权限：功能权限是销售订单卡片 `SA_17voucher` 的「变更」按钮所需的「销售订单变更」`SA03010105`（已在测试账套上按 `AA_FormButtonAuths` 与 `UA_Auth_lang` 核对；`SA03010113` 是「销售订单弃审」）；数据权限按订单表头客户、部门、业务员、销售类型。
 
+### 扩展自定义项表与「落库字段」核对（销售订单新增、修改，发货单参照订单生单）
+
+- 扩展自定义项不在单据主表里，在 `<表名>_extradefine`：表头 `chdefine1`–`16`、表体 `cbdefine1`–`16`，与 `cdefine1`–`16`（表头）、`cdefine22`–`37`（表体，在主表里）是两套。与销售有关的四张表和主键：`SO_SOMain_extradefine`（`ID`）、`SO_SODetails_extradefine`（`iSOsID`）、`DispatchList_extradefine`（`DLID`）、`DispatchLists_extradefine`（`iDLsID`），一行对应主表一行，主表行没有扩展项值时可以没有这一行。质量单据的同类表见「质量单据新增」：那里 U8 组件按模板字段名自己写扩展表；销售 CO 的 `Save` 是否同样写 `SO_SODetails_extradefine` / `DispatchList_extradefine`，**未在 U8 上验证**。
+- 列是否存在因账套而异：扩展表和其中的列随自定义项设置建出，空账套可能没有这张表。桥不写死列宽和类型，运行时按 `INFORMATION_SCHEMA.COLUMNS` 取（文本按字符计长度，数值、日期按类型解析）；表或列不存在时 400，消息写明表名和列名。
+- 读出：`GetVoucherData` 和参照视图带不带扩展项取决于 `voucherextendinfo` 的设置，不可靠。`vouchers/load` 和预演的 `docs` 由桥另查上面四张表，把扩展列（小写列名）并进表头、表体；已有非空值时不覆盖。`vouchers/load` 另按约定字段的主表列（库里实有的列）查一次表头和表体，补上组件 DOM 没带的值（只并进组件返回的行）。
+- 桥的做法（r50 字段约定）：扩展自定义项一律不放进 DOM，`Save` 之后、提交之前在同一事务里由桥写入（有行 `UPDATE`，没有行 `INSERT` 主键和该列），不依赖组件。纯标注的主表列（`cAddCode`、`cDefine1`/`2`、表体 `cWhCode`）在模板（行集 schema）里有就交给组件，没有的同样在 `Save` 之后由桥 `UPDATE`。参与 U8 计算的列只走组件：`cUnitID`、`iNum`（数量、换算率、金额）和 `cGatheringPlan`（U8 保存时按协议生成收付款计划和到期日），模板里没有时保存前 400，桥从不用 SQL 补写；`Save` 不重算数量、件数和换算率，所以计量组可能变的行（新增的每一行；修改时带了数量、件数、换算率、单位、单位组或存货的行，只改换算率或单位也算）先走单行 `BodyCheck`（给了数量按 `iquantity`，只给件数按 `inum`）；换单位而没给换算率时按单位档案重填换算率。保存后对这些行逐行核对：请求给了的 `iQuantity` / `iNum` / `iInvExchRate` 原样落库（`BodyCheck` 按一个键算会改掉另一个，不许悄悄替换）；有换算的存货单位属于存货的计量单位组、换算率大于 0，固定换算时等于单位档案的换算率；固定和浮动换算都要 `|iQuantity − iNum × iInvExchRate|`：请求明确给了其中两个或三个时不超过数量小数位（`iStrsQuanDecDgt`）的半个单位（`|iQuantity − iNum × iInvExchRate| ≤ 0.5 × 10^(−数量小数位)`，decimal，无额外容差）；只给了一个、由组件算出另一个时，把算出值按被算字段自己的小数位（件数 `iNumDecDgt` 或数量）用 `AwayFromZero` 舍入后须与落库值相等（不容差）。件数等请求数值与计算路径同一解析，认指数写法（如 `1E+01`）。未实测：浮动换算时 `BodyCheck(iquantity)` 是保留换算率重算件数还是保留件数重算换算率；两种结果都由保存后核对兜住。日期类型的扩展列按列的实际类型写入：`date` 列 `CONVERT(date, ?, 23)`，`datetime` / `smalldatetime` 再包 `CONVERT(datetime, …)`，`datetime2` 用 `CAST(CONVERT(date, ?, 23) AS datetime2)`（不经 `datetime`，否则 1753 年以前的日期溢出）；只收 `yyyy-MM-dd`，不依赖会话的日期格式。之后逐项回读，与请求值不同（数值按数值、日期按日期、文本去首尾空白后不分大小写比较）回滚 409 `u8_rejected`，消息写明字段路径、请求值和保存值。组件已自行结束事务时（`@@TRANCOUNT` 为 0）不再补写，504 `outcome_unknown`。
+- 新增订单的表体行按 `SO_SODetails` 的 `iRowNo, iSOsID` 顺序与请求行一一对应（行数和存货编码都要对上）；修改时 `op=update` 行按 `line_id`，`op=add` 行是保存后新出现的 `iSOsID`，按同一顺序对应。
+- 哪些列组件会落库、哪些要桥补写，以测试账套上的实测为准（`api-reference.md` 列出的实测 SQL）；桥的回读保证了两种情况下结果都与请求一致，否则整单回滚。
+
 ## 7. 采购
 
 登录 `PU`。先初始化 `Info_PU.ClsS_Infor`，再 `VoucherCO_PU.Init`。

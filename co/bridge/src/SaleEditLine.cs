@@ -39,7 +39,7 @@ namespace U8Co
             RenewUnits(bag, row, op, clean);
             Write(bag.Doms[1], row, clean);
             DomRows.Set(bag.Doms[1], row, "editprop", "M");
-            if (!op.Num && !op.Qty && !op.TaxPrice && !op.UnitPrice && !op.TaxRate && !op.Inv)
+            if (!NeedsCalc(op))
             {
                 return;
             }
@@ -258,6 +258,8 @@ namespace U8Co
             op.TaxPrice = HasKey(op.Fields, "itaxunitprice");
             op.UnitPrice = HasKey(op.Fields, "iunitprice");
             op.TaxRate = HasKey(op.Fields, "itaxrate");
+            // 换算率、计量单位或单位组：计量组可能变，同样要重算（SalePinsGroup 保存后核对）。
+            op.Group = SalePins.TouchesGroup(op.Fields);
         }
 
         static Dictionary<string, object> Strip(Dictionary<string, object> map)
@@ -287,83 +289,6 @@ namespace U8Co
                 }
             }
             return have;
-        }
-
-        // 存货编码没变就保留原行的单位和换算率。
-        static void RenewUnits(EditBag bag, object row, LineOp op, Dictionary<string, string> clean)
-        {
-            if (!op.Inv || SameInv(clean, row))
-            {
-                return;
-            }
-            DropAttrs(bag.Doms[1], row);
-            SeedQty(clean, row);
-            List<Dictionary<string, string>> one = new List<Dictionary<string, string>>();
-            one.Add(clean);
-            bool keepPre = HasKey(op.Fields, "dpremodate");
-            bool keepPreDate = HasKey(op.Fields, "dpredate");
-            SoUnits.Fill(bag.Ctx.Conn, bag.Schema, one, bag.HeadVals);
-            if (!keepPre)
-            {
-                clean.Remove("dPreMoDate");
-            }
-            if (!keepPreDate)
-            {
-                clean.Remove("dPreDate");
-            }
-        }
-
-        static void DropAttrs(object dom, object row)
-        {
-            for (int i = 0; i < UnitAttrs.Length; i++)
-            {
-                DomRows.Set(dom, row, UnitAttrs[i], null);
-            }
-        }
-
-        static bool SameInv(Dictionary<string, string> clean, object row)
-        {
-            string sent = SentCode(clean, "cinvcode");
-            if (sent.Length == 0)
-            {
-                return true;
-            }
-            return string.Equals(sent, DomRows.Get(row, "cinvcode").Trim(), StringComparison.OrdinalIgnoreCase);
-        }
-
-        static string SentCode(Dictionary<string, string> clean, string name)
-        {
-            string value;
-            if (clean == null || !clean.TryGetValue(name, out value) || value == null)
-            {
-                return "";
-            }
-            return value.Trim();
-        }
-
-        static void SeedQty(Dictionary<string, string> clean, object row)
-        {
-            string have;
-            if (clean.TryGetValue("iquantity", out have) && have != null && have.Trim().Length > 0)
-            {
-                return;
-            }
-            string qty = DomRows.Get(row, "iquantity").Trim();
-            if (qty.Length > 0)
-            {
-                clean["iquantity"] = qty;
-            }
-        }
-
-        static void TouchCalc(object co, object[] doms, object row, LineOp op)
-        {
-            SalePrices flags = SaleCalc.Flags(op.TaxPrice, op.UnitPrice, op.TaxRate);
-            if (op.Num)
-            {
-                SaleCalc.RecalcNum(co, doms[0], doms[1], row, flags);
-                return;
-            }
-            SaleCalc.Recalc(co, doms[0], doms[1], row, flags);
         }
 
         // 新增行必须克隆已装入的行。空 z:row 缺少 U8 保存要的属性。
@@ -487,6 +412,7 @@ namespace U8Co
             public bool TaxPrice;
             public bool UnitPrice;
             public bool TaxRate;
+            public bool Group;
         }
 
     }

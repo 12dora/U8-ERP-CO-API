@@ -58,6 +58,7 @@ namespace U8Co
             internal Dictionary<string, object> Head;
             internal string SoCode;
             internal string Card;
+            internal SalePins Pins;
         }
 
         sealed class LineFill

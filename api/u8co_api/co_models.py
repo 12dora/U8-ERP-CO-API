@@ -27,6 +27,7 @@ from u8co_api.co_pu_settle_man import LINES_MAX as SETTLE_LINES_MAX
 from u8co_api.co_pu_settle_man import SETTLE_CREATE_HELP, check_settle_create
 from u8co_api.co_return_apply import CREATE_HELP as RETURN_APPLY_CREATE_HELP
 from u8co_api.co_return_apply import check_return_apply_create
+from u8co_api.co_sale_pins import check_sale_order_pins
 from u8co_api.co_srcless import check_srcless_create
 from u8co_api.co_stmisc import check_stmisc_lines
 
@@ -145,6 +146,8 @@ class CoCreateIn(CoAuth):
         check_stmisc_lines(self.type, self.lines)
         check_qm_other_create(self.type, self.head, self.lines)
         check_return_apply_create(self.type, self.head, self.lines)  # 退货申请单参照蓝字发货单行
+        if self.type == "sale_order":
+            check_sale_order_pins(self.head, self.lines)  # 落库核对字段的形状（co_sale_pins）
         return self
 
 

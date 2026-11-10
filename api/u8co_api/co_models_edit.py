@@ -41,6 +41,7 @@ from u8co_api.co_models_edit_help import (
 from u8co_api.co_models_mo_update import check_mo_update
 from u8co_api.co_models_wf import CoLoadState
 from u8co_api.co_models_stock_opening import refuse_no_update
+from u8co_api.co_sale_pins import check_dispatch_gen_pins, check_sale_order_pins
 from u8co_api.co_stmisc import check_stmisc_lines
 
 _OUT = ConfigDict(extra="ignore")
@@ -270,6 +271,8 @@ class CoUpdateIn(CoAuth):
             return self
         if self.head:
             _blocked(list(self.head), self.type)
+        if self.type == "sale_order":
+            check_sale_order_pins(self.head, self.lines, edit=True)  # 落库核对字段的形状（co_sale_pins）
         if self.lines:
             _check_rows(self.lines, self.type)
             check_dispatch_adds(self.type, self.lines)  # 发货单新增行
@@ -336,6 +339,15 @@ class CoGenerateIn(CoAuth):
     )
     dry_run: DryRunFlag = False
 
+    @field_validator("source_type", mode="before")
+    @classmethod
+    def _no_null_source(cls, value: object) -> object:
+        # 显式写 null 与省略不同：省略取缺省来源，null 400（与桥 RequestsGuard.SourceFor 一致）。转发时 exclude_none
+        # 会抹掉 null，只读例外的来源判定就分不清两者，所以在模型里先拒绝。
+        if value is None:
+            raise ValueError("source_type 不能是 null，省略即用缺省来源")
+        return value
+
     @model_validator(mode="after")
     def _checked(self) -> CoGenerateIn:
         source = source_of(self.type, self.source_type)
@@ -360,6 +372,8 @@ class CoGenerateIn(CoAuth):
             return self
         if self.head and self.type not in ("purchase_invoice", "arrival"):
             _blocked(list(self.head), self.type)
+        if self.type == "dispatch":
+            check_dispatch_gen_pins(self.head)  # 落库核对字段的形状（co_sale_pins）
         if self.lines is not None or not lines_optional(self.type, source):  # 参照到货单的采购入库 lines 可省
             _need_lines(self.lines, self.type)
         _check_special(self.type, source, self.head, self.lines or [])

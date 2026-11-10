@@ -35,25 +35,49 @@ namespace U8Co
             return flags;
         }
 
-        // 顺序：iquantity，调用方给的价格键，若改了税率再 itaxrate 并再算一次价格。
+        // 顺序：数量键，定价键，若改了税率再 itaxrate 并再算一次价格。
         public static void Recalc(object co, object headDom, object bodyDom, object row, SalePrices flags)
         {
-            Check(co, headDom, bodyDom, row, "iquantity", true);
-            Prices(co, headDom, bodyDom, row, flags, false);
+            Anchored(co, headDom, bodyDom, row, flags, "iquantity");
         }
 
-        // 件数是数量键：BodyCheck(inum) 回写 iquantity，再按价格键算金额。
+        // 件数是数量键：BodyCheck(inum) 回写 iquantity，再按定价键算金额。
         public static void RecalcNum(object co, object headDom, object bodyDom, object row, SalePrices flags)
         {
-            Check(co, headDom, bodyDom, row, "inum", true);
-            Prices(co, headDom, bodyDom, row, flags, true);
+            Anchored(co, headDom, bodyDom, row, flags, "inum");
         }
 
         // 表头汇率或币种变了：按行上已有的数量和价格重算，含未改动的行。
         public static void RecalcExisting(object co, object headDom, object bodyDom, object row)
         {
-            Check(co, headDom, bodyDom, row, "iquantity", true);
-            Prices(co, headDom, bodyDom, row, new SalePrices(), true);
+            Anchored(co, headDom, bodyDom, row, new SalePrices(), "iquantity");
+        }
+
+        // 数量键的 BodyCheck 会用无税单价把含税单价重算一遍（实测：改价被冲掉，只改数量时含税单价逐次漂移）。
+        // 先记下这次定价的键和值（调用方给的价格，否则行上原有的价格），数量算完放回去，再按它算金额。
+        static void Anchored(object co, object headDom, object bodyDom, object row, SalePrices flags, string qtyKey)
+        {
+            string key = Anchor(row, flags);
+            string value = key.Length > 0 ? DomRows.Get(row, key) : "";
+            Check(co, headDom, bodyDom, row, qtyKey, true);
+            if (value.Length > 0)
+            {
+                DomRows.Set(bodyDom, row, key, value);
+            }
+            Prices(co, headDom, bodyDom, row, flags, true);
+        }
+
+        static string Anchor(object row, SalePrices flags)
+        {
+            if (flags.TaxPrice)
+            {
+                return "itaxunitprice";
+            }
+            if (flags.UnitPrice)
+            {
+                return "iunitprice";
+            }
+            return PriceKey(row);
         }
 
         static void Prices(object co, object headDom, object bodyDom, object row, SalePrices flags, bool force)

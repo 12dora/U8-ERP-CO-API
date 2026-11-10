@@ -45,82 +45,10 @@ namespace U8Co
         {
             try
             {
-                CheckKeys();
-                CheckPassword();
-                CheckSignature();
-                CheckAuthorize();
-                CheckRules();
-                IdemSelfTest.Run();
-                PermSelfTest.Run();
-                LicenseSelfTest.Run();
-                MoCreateSelfTest.Run();
-                MoUpdateSelfTest.Run();
-                BomSelfTest.Run();
-                ArcGlSelfTest.Run();
-                VoucherLockSelfTest.Run();
-                StockMiscSelfTest.Run();
-                QmSelfTest.Run();
-                // 不良品处理单（QmRejSelfTest）。
-                QmRejSelfTest.Run();
-                ArcPartnerSelfTest.Run();
-                // 原因码档案（ArcReasonSelfTest）。
-                ArcReasonSelfTest.Run();
-                // 档案列表 keys_only、end_date / disabled（ArcListExtraSelfTest）。
-                ArcListExtraSelfTest.Run();
-                // 票据列表 ar_note / ap_note、单张读取 notes/get（NotesReadSelfTest）。
-                NotesReadSelfTest.Run();
-                // 单据与经营管理报表（RunVouchersAndReports）。
-                RunVouchersAndReports();
-                SrcLessSelfTest.Run();
-                // 写闸门与写入策略（RunWritePolicy）。
-                RunWritePolicy();
-                // 名称解析、幂等结果查询（ArcResolveSelfTest）。
-                ArcResolveSelfTest.Run();
-                // 单据搜索、批量读取（VoucherSearchSelfTest、LoadManySelfTest）。
-                VoucherSearchSelfTest.Run();
-                // order 为 desc 的降序分页（vouchers/search、order_execution）、stock/current 的 inv_unit（DescPagingSelfTest）。
-                DescPagingSelfTest.Run();
-                // 账龄分析 {INNER} 的 ? 顺序、default_credit_days（ReportsAgingSelfTest）。
-                ReportsAgingSelfTest.Run();
-                LoadManySelfTest.Run();
-                // 字段说明（MetaFieldsSelfTest）。
-                MetaFieldsSelfTest.Run();
-                GlPostSelfTest.Run();
-                // 期初记账 openings/post（OpeningPostSelfTest）。
-                OpeningPostSelfTest.Run();
-                // 外币核销（同币种同汇率）、自动核销按币种配对、预收行（ArapWriteoffSelfTest）。
-                ArapWriteoffSelfTest.Run();
-                // 应收应付其他处理与票据处理（RunArapProc）。
-                RunArapProc();
-                // 汇兑损益 arap/exchange_gain、取消（ArapExGainSelfTest）。
-                ArapExGainSelfTest.Run();
-                // 计提坏账准备 arap/bad_debt provision（ArapBadProvisionSelfTest）。
-                ArapBadProvisionSelfTest.Run();
-                // 坏账处理 arap/bad_debt 的请求、坏账发生 / 收回（ArapBadSelfTest）。
-                ArapBadSelfTest.Run();
-                // 凭证摘要 gl/vouchers/digest（GlDigestSelfTest）。
-                GlDigestSelfTest.Run();
-                // 应收 / 应付期初单据 openings/arap（OpeningsArapSelfTest）。
-                OpeningsArapSelfTest.Run();
-                // 应收 / 应付合并制单 arap/voucher ids（ArapVoucherSelfTest）。
-                ArapVoucherSelfTest.Run();
-                // 处理制单 arap/process/voucher（ArapProcVoucherSelfTest）。
-                ArapProcVoucherSelfTest.Run();
-                // 外币应收 / 应付单的行币种按科目定（ArapLineFxSelfTest）。
-                ArapLineFxSelfTest.Run();
-                // 库存期初结存 stock_opening（StockOpeningSelfTest：EAI storeqc 报文、返回解析、新单对应、闸门）。
-                StockOpeningSelfTest.Run();
-                // 月末结账 periods/close（PeriodCloseSelfTest）。
-                PeriodCloseSelfTest.Run();
-                // 存货核算记账、期末处理 ia/post、ia/period_end（IaSelfTest）。
-                IaSelfTest.Run();
-                // 账套体检 reports/account_readiness（ReportsReadinessSelfTest）。
-                ReportsReadinessSelfTest.Run();
-                // 登录复用与操作员固定写线程（RunLogins）。
-                RunLogins();
-                SqlScriptSelfTest.Run();
-                // 写预演（DryRunModes、DryRunReq、DryRunValue、meta）。
-                DryRunSelfTest.Run();
+                RunBasics();
+                RunVoucherWrites();
+                RunReadsAndLedger();
+                RunArapAndClose();
                 Console.WriteLine("selftest 通过");
                 return 0;
             }
@@ -128,6 +56,104 @@ namespace U8Co
             {
                 return Fail(ex);
             }
+        }
+
+        // 签名、授权、配置与生产、档案、质检等基础自检（从 Run 拆出，按领域分组控制函数长度）。
+        static void RunBasics()
+        {
+            CheckKeys();
+            CheckPassword();
+            CheckSignature();
+            CheckAuthorize();
+            CheckRules();
+            IdemSelfTest.Run();
+            PermSelfTest.Run();
+            LicenseSelfTest.Run();
+            MoCreateSelfTest.Run();
+            MoUpdateSelfTest.Run();
+            BomSelfTest.Run();
+            ArcGlSelfTest.Run();
+            VoucherLockSelfTest.Run();
+            StockMiscSelfTest.Run();
+            QmSelfTest.Run();
+            // 不良品处理单（QmRejSelfTest）。
+            QmRejSelfTest.Run();
+            ArcPartnerSelfTest.Run();
+            // 原因码档案（ArcReasonSelfTest）。
+            ArcReasonSelfTest.Run();
+            // 档案列表 keys_only、end_date / disabled（ArcListExtraSelfTest）。
+            ArcListExtraSelfTest.Run();
+            // 票据列表 ar_note / ap_note、单张读取 notes/get（NotesReadSelfTest）。
+            NotesReadSelfTest.Run();
+        }
+
+        // 单据、报表、无来源单据、生单约定字段与写闸门 / 写入策略。
+        static void RunVoucherWrites()
+        {
+            // 单据与经营管理报表（RunVouchersAndReports）。
+            RunVouchersAndReports();
+            SrcLessSelfTest.Run();
+            // 销售订单、发货单生单的约定字段与扩展自定义项（SalePinsSelfTest）。
+            SalePinsSelfTest.Run();
+            // 写闸门与写入策略（RunWritePolicy）。
+            RunWritePolicy();
+        }
+
+        // 名称解析、搜索与读取、字段说明、总账记账、期初记账。
+        static void RunReadsAndLedger()
+        {
+            // 名称解析、幂等结果查询（ArcResolveSelfTest）。
+            ArcResolveSelfTest.Run();
+            // 单据搜索、批量读取（VoucherSearchSelfTest、LoadManySelfTest）。
+            VoucherSearchSelfTest.Run();
+            // order 为 desc 的降序分页（vouchers/search、order_execution）、stock/current 的 inv_unit（DescPagingSelfTest）。
+            DescPagingSelfTest.Run();
+            // 账龄分析 {INNER} 的 ? 顺序、default_credit_days（ReportsAgingSelfTest）。
+            ReportsAgingSelfTest.Run();
+            LoadManySelfTest.Run();
+            // 字段说明（MetaFieldsSelfTest）。
+            MetaFieldsSelfTest.Run();
+            GlPostSelfTest.Run();
+            // 期初记账 openings/post（OpeningPostSelfTest）。
+            OpeningPostSelfTest.Run();
+        }
+
+        // 应收应付、期初、结账、存货核算、体检、登录复用、SQL 脚本与写预演。
+        static void RunArapAndClose()
+        {
+            // 外币核销（同币种同汇率）、自动核销按币种配对、预收行（ArapWriteoffSelfTest）。
+            ArapWriteoffSelfTest.Run();
+            // 应收应付其他处理与票据处理（RunArapProc）。
+            RunArapProc();
+            // 汇兑损益 arap/exchange_gain、取消（ArapExGainSelfTest）。
+            ArapExGainSelfTest.Run();
+            // 计提坏账准备 arap/bad_debt provision（ArapBadProvisionSelfTest）。
+            ArapBadProvisionSelfTest.Run();
+            // 坏账处理 arap/bad_debt 的请求、坏账发生 / 收回（ArapBadSelfTest）。
+            ArapBadSelfTest.Run();
+            // 凭证摘要 gl/vouchers/digest（GlDigestSelfTest）。
+            GlDigestSelfTest.Run();
+            // 应收 / 应付期初单据 openings/arap（OpeningsArapSelfTest）。
+            OpeningsArapSelfTest.Run();
+            // 应收 / 应付合并制单 arap/voucher ids（ArapVoucherSelfTest）。
+            ArapVoucherSelfTest.Run();
+            // 处理制单 arap/process/voucher（ArapProcVoucherSelfTest）。
+            ArapProcVoucherSelfTest.Run();
+            // 外币应收 / 应付单的行币种按科目定（ArapLineFxSelfTest）。
+            ArapLineFxSelfTest.Run();
+            // 库存期初结存 stock_opening（StockOpeningSelfTest：EAI storeqc 报文、返回解析、新单对应、闸门）。
+            StockOpeningSelfTest.Run();
+            // 月末结账 periods/close（PeriodCloseSelfTest）。
+            PeriodCloseSelfTest.Run();
+            // 存货核算记账、期末处理 ia/post、ia/period_end（IaSelfTest）。
+            IaSelfTest.Run();
+            // 账套体检 reports/account_readiness（ReportsReadinessSelfTest）。
+            ReportsReadinessSelfTest.Run();
+            // 登录复用与操作员固定写线程（RunLogins）。
+            RunLogins();
+            SqlScriptSelfTest.Run();
+            // 写预演（DryRunModes、DryRunReq、DryRunValue、meta）。
+            DryRunSelfTest.Run();
         }
 
         // 登录复用与操作员固定写线程的自检（从 Run 拆出，控制函数长度）。

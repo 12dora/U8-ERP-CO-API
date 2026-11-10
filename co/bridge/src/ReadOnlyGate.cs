@@ -8,10 +8,10 @@ namespace U8Co
     // 只读账套（config.json 的 readOnlyAccounts）：名单里的账套只开放读取。WriteGate 登记的每条写路由一律
     // 403 account_read_only，含预演与幂等重放；写入策略文件、测试账套名单都不能放行。
     // readOnlyExceptions 匹配的写入放行，审计 policy 记 read_only_exception；不匹配的仍拒绝。匹配 = 账套、操作员
-    // （不分大小写）、写入分类 (archives, op) 都对上，路径恰为 archives/<op>；op=create / delete 另要求请求体
-    // archive 在规则的 archives 里（create 可列 district_class、customer，delete 只有 district_class；ConfigRulesReadOnly.Eligible）。type=vouchers 的规则只放行 ConfigRulesReadOnly.VoucherOps：
-    // head_fix 要路径恰为 vouchers/head_fix 且请求体 type 为 dispatch，so_contract 要路径恰为 vouchers/so_contract 且 type 为 sale_order，
-    // vouchers/update 等其它单据路由仍拒绝。登录前在 WriteClassGate.Pre（账套名单之后、解密之前，先于写入策略）
+    // （只忽略 ASCII 大小写，AsciiIgnoreCase）、写入分类 (archives, op) 都对上，路径恰为 archives/<op>；op=create / delete 另要求请求体
+    // archive 在规则的 archives 里（create 可列 district_class、customer，delete 只有 district_class；ConfigRulesReadOnly.Eligible）。type=vouchers 的规则按登记表 ReadOnlyVoucherOps.Rows：
+    // 路径恰为 vouchers/<op>、请求体 type 等于规则的 voucher（head_fix、so_contract 省略时取固定类型）、按 action 映射的写入分类 op
+    // 在该行里（verify 含弃审，close 不含打开）、generate 的 source_type 须是 sale_order（可省）；其它单据类型和单据路由仍拒绝。登录前在 WriteClassGate.Pre（账套名单之后、解密之前，先于写入策略）
     // 查，入队后在 WriteClassGate.Post（登录 U8 之前）再查一次。
     internal static class ReadOnlyGate
     {
@@ -109,6 +109,7 @@ namespace U8Co
             ask.Op = info == null ? null : info.Op;
             ask.Path = info == null ? null : info.Path;
             ask.Archive = body == null ? null : Requests.Field(body, "archive") as string;
+            ask.Body = body;
             return ask;
         }
 
@@ -122,26 +123,23 @@ namespace U8Co
             {
                 return false;
             }
-            if (!Contains(rule.Operators, ask.User, StringComparison.OrdinalIgnoreCase))
+            if (!ContainsOperator(rule.Operators, ask.User))
             {
                 return false;
             }
             return RouteMatch(rule, ask);
         }
 
-        // 路由部分：type=vouchers 的规则只认该 op 自己的路径和单据类型（ConfigRulesReadOnly.VoucherPaths / VoucherKinds）；
+        // 路由部分：type=vouchers 的规则按登记表 ReadOnlyVoucherOps 看路径、单据类型、写入分类 op 和生单来源；
         // type=archives 的规则认路径 archives/<op>，op=create / delete 另看 archives。
         static bool RouteMatch(ReadOnlyExceptionRule rule, Ask ask)
         {
-            if (!string.Equals(rule.Op, ask.Op, StringComparison.Ordinal))
-            {
-                return false;
-            }
             if (string.Equals(rule.Type, ConfigRulesReadOnly.TypeVouchers, StringComparison.Ordinal))
             {
-                return rule.Archives == null && VoucherRouteMatch(rule.Op, ask);
+                return ReadOnlyVoucherOps.Covers(rule, ask.Path, ask.Type, ask.Op, ask.Body);
             }
-            if (!string.Equals(rule.Type, ask.Type, StringComparison.Ordinal)
+            if (!string.Equals(rule.Op, ask.Op, StringComparison.Ordinal)
+                || !string.Equals(rule.Type, ask.Type, StringComparison.Ordinal)
                 || !string.Equals(ask.Path, Requests.ArcRoot + rule.Op, StringComparison.Ordinal)
                 || !KnownArchiveOp(rule.Op))
             {
@@ -157,19 +155,28 @@ namespace U8Co
             return rule.Archives == null;
         }
 
-        // type=vouchers：op 在 VoucherOps 里，路径和请求体单据类型都是该 op 登记的那一个。
-        static bool VoucherRouteMatch(string op, Ask ask)
-        {
-            int at = Array.IndexOf(ConfigRulesReadOnly.VoucherOps, op);
-            return at >= 0 && string.Equals(ask.Path, ConfigRulesReadOnly.VoucherPaths[at], StringComparison.Ordinal)
-                && string.Equals(ask.Type, ConfigRulesReadOnly.VoucherKinds[at], StringComparison.Ordinal);
-        }
-
         // type=archives 可开放的 op：客户专用路由或 create / delete。配置加载已拒绝其它 op，
         // 这里再挡一次，直接构造的规则（如 op=update）也不放行。
         static bool KnownArchiveOp(string op)
         {
             return ArcCustomerOps.Is(op) || Array.IndexOf(ConfigRulesReadOnly.ArchiveOps, op) >= 0;
+        }
+
+        // 操作员只忽略 ASCII 大小写（AsciiIgnoreCase，与 API ascii_fold 一致），不去首尾空白。
+        static bool ContainsOperator(string[] list, string user)
+        {
+            if (list == null || user == null)
+            {
+                return false;
+            }
+            for (int i = 0; i < list.Length; i++)
+            {
+                if (AsciiIgnoreCase.Instance.Equals(list[i], user))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         static bool Contains(string[] list, string value, StringComparison cmp)
@@ -226,6 +233,10 @@ namespace U8Co
                 JsonStrings(sb, rule.Archives);
                 sb.Append(']');
             }
+            if (rule.Voucher != null)
+            {
+                sb.Append(",\"voucher\":").Append(Quote(rule.Voucher));
+            }
             sb.Append('}');
         }
 
@@ -261,6 +272,10 @@ namespace U8Co
             {
                 map["archives"] = rule.Archives;
             }
+            if (rule.Voucher != null)
+            {
+                map["voucher"] = rule.Voucher;
+            }
             return map;
         }
 
@@ -293,6 +308,7 @@ namespace U8Co
             public string Op;
             public string Path;
             public string Archive;
+            public Dictionary<string, object> Body;
         }
     }
 }

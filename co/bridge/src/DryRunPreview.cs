@@ -89,6 +89,8 @@ namespace U8Co
             {
                 Lines(conn, kind, id, doc);
             }
+            // 销售订单、发货单的扩展自定义项（<表>_extradefine）并进表头、表体（SaleExtraRead）。
+            SaleExtraRead.Merge(conn, kind, id, head, doc.ContainsKey("lines") ? (System.Collections.IList)doc["lines"] : null);
             return doc;
         }
 

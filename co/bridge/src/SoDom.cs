@@ -28,6 +28,13 @@ namespace U8Co
             Fill(doms[1], body);
         }
 
+        // 模板（行集 schema 与种子行）里有没有该字段，不分大小写（SalePins.MarkDom 用）。
+        internal static Func<string, bool> Has(object dom)
+        {
+            Dictionary<string, string> map = FieldMap(dom);
+            return delegate(string name) { return map.ContainsKey(name); };
+        }
+
         static Dictionary<string, string> FieldMap(object dom)
         {
             Dictionary<string, string> map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

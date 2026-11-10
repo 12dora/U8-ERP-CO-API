@@ -11,18 +11,16 @@ namespace U8Co
     // op=create / delete 必须另写 archives（非空列表，每项须在该 op 的可开放集合里：create 是 EligibleArchives
     // ＝ district_class、customer，delete 是 EligibleDelete ＝ district_class；delete 用于回滚刚新增的地区分类，
     // 客户不能删，新增错的客户用 customer_fields 写停用日期）；其余 op 不能写 archives。archives/update 不能开放
-    // （客户 EAI 修改会清银行账号等，见 ArcCusFields）。vouchers 只允许 op=head_fix（历史发货单表头修正，
-    // 路径恰为 vouchers/head_fix、单据类型 dispatch）和 op=so_contract（销售订单合同号回写，路径恰为 vouchers/so_contract、
-    // 单据类型 sale_order），vouchers/update 等其它单据路由不能开放。operators 比较不区分大小写，
-    // 且不能含双引号、反斜杠或控制字符（健康检查 JSON 仍会转义）。
+    // （客户 EAI 修改会清银行账号等，见 ArcCusFields）。vouchers 的 op 与单据类型 voucher 只能是登记表
+    // ReadOnlyVoucherOps.Rows 里的一对（一项一对；head_fix、so_contract 单据类型固定，voucher 可省，写了须一致；
+    // create、update、close、verify、generate 必须写 voucher），vouchers/delete、vouchers/lock 等其它单据路由不能开放；
+    // archives 不能写 voucher。operators 比较只忽略 ASCII 大小写（AsciiIgnoreCase，非 ASCII 逐字比较），且不能含双引号、反斜杠或控制字符（健康检查 JSON 仍会转义）。
     internal static class ConfigRulesReadOnly
     {
         internal const string TypeArchives = "archives";
         internal const string TypeVouchers = "vouchers";
-        // type=vouchers 允许的 op，与 VoucherPaths、VoucherKinds 按下标一一对应：每个 op 只放行它自己的路径和单据类型。
-        internal static readonly string[] VoucherOps = new string[] { VoucherHeadFix.Op, VoucherSoContract.Op };
-        internal static readonly string[] VoucherPaths = new string[] { VoucherHeadFix.Path, VoucherSoContract.Path };
-        internal static readonly string[] VoucherKinds = new string[] { VoucherHeadFix.Kind, VoucherSoContract.Kind };
+        // type=vouchers 允许的 op：登记表 ReadOnlyVoucherOps.Rows（每个 op 只放行它自己的路径和列出的单据类型）。
+        internal static readonly string[] VoucherOps = ReadOnlyVoucherOps.Ops();
         // 带 archives 的 op：请求体 archive 必须在规则的 archives 里。
         internal static readonly string[] ArchiveOps = new string[] { "create", "delete" };
         // 客户档案的类型名（ArcKind.Customer 的 Name）。
@@ -33,7 +31,7 @@ namespace U8Co
         internal static readonly string[] EligibleDelete = new string[] { ArcKindRwMore.District };
         static readonly string[] Keys = new string[]
         {
-            "accounts", "archives", "op", "operators", "type"
+            "accounts", "archives", "op", "operators", "type", "voucher"
         };
 
         public static ReadOnlyExceptionRule[] ReadOnlyExceptions(Dictionary<string, object> map, string[] readOnly)
@@ -80,7 +78,8 @@ namespace U8Co
             rule.Operators = ExceptionOperators(obj, at);
             rule.Type = TypeOf(obj, at);
             rule.Op = OpOf(obj, at, rule.Type);
-            rule.Archives = ArchivesOf(obj, at, rule.Op);
+            rule.Archives = rule.Type == TypeVouchers ? NoArchives(obj, at) : ArchivesOf(obj, at, rule.Op);
+            rule.Voucher = VoucherOf(obj, at, rule.Type, rule.Op);
             return rule;
         }
 
@@ -118,7 +117,7 @@ namespace U8Co
 
         static string[] ExceptionOperators(Dictionary<string, object> obj, string at)
         {
-            string[] list = NeedStrings(obj, "operators", at, StringComparer.OrdinalIgnoreCase);
+            string[] list = NeedStrings(obj, "operators", at, AsciiIgnoreCase.Instance);
             for (int i = 0; i < list.Length; i++)
             {
                 if (!ConfigRules.OperatorCode(list[i]))
@@ -141,7 +140,7 @@ namespace U8Co
             return text;
         }
 
-        // op：archives 是客户专用路由或 create / delete；vouchers 是 VoucherOps（head_fix、so_contract）。
+        // op：archives 是客户专用路由或 create / delete；vouchers 是 VoucherOps（登记表 ReadOnlyVoucherOps.Rows）。
         static string OpOf(Dictionary<string, object> obj, string at, string type)
         {
             string text = NeedText(obj, "op", at);
@@ -186,6 +185,45 @@ namespace U8Co
                 }
             }
             return list;
+        }
+
+        // type=vouchers 不能写 archives（op 名和 archives 的 create / delete 重名也不行）。
+        static string[] NoArchives(Dictionary<string, object> obj, string at)
+        {
+            if (obj.ContainsKey("archives"))
+            {
+                throw new InvalidOperationException(at + ".archives 只能用于 type=archives 的 op=" + string.Join(" / ", ArchiveOps));
+            }
+            return null;
+        }
+
+        // voucher：type=vouchers 时须在登记表该 op 的那一行里，单据类型固定的 op 可省；其它 type 不能写。
+        static string VoucherOf(Dictionary<string, object> obj, string at, string type, string op)
+        {
+            if (type != TypeVouchers)
+            {
+                if (obj.ContainsKey("voucher"))
+                {
+                    throw new InvalidOperationException(at + ".voucher 只能用于 type=" + TypeVouchers);
+                }
+                return null;
+            }
+            ReadOnlyVoucherOps.Row row = ReadOnlyVoucherOps.Find(op);
+            if (!obj.ContainsKey("voucher"))
+            {
+                if (row.Fixed)
+                {
+                    return null;
+                }
+                throw new InvalidOperationException(at + ".voucher 在 op=" + op + " 时必须给出");
+            }
+            string text = obj["voucher"] as string;
+            if (text == null || ReadOnlyVoucherOps.VoucherOf(op, text) == null)
+            {
+                throw new InvalidOperationException(at + ".voucher 在 op=" + op + " 下目前只允许 "
+                    + string.Join(", ", row.Kinds) + "：" + (text ?? ""));
+            }
+            return text;
         }
 
         // 某个 op 可开放的档案类型：create → EligibleArchives，delete → EligibleDelete，其它 op 没有。
@@ -304,7 +342,9 @@ namespace U8Co
         public string[] Operators;
         public string Type;
         public string Op;
-        // 仅 op=create / delete：放行的档案类型；其它 op 为 null。
+        // 仅 type=archives 的 op=create / delete：放行的档案类型；其它为 null。
         public string[] Archives;
+        // 仅 type=vouchers：配置的单据类型；head_fix、so_contract 省略时为 null（取固定的那一种）。
+        public string Voucher;
     }
 }

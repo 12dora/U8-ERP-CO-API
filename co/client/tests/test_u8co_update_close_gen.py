@@ -337,6 +337,33 @@ class WireTests(unittest.TestCase):
         self.assertEqual(sent["lines"][0]["quantity"], 1)
         self.assertEqual(sent["lines"][0]["source_line_id"], 15)
 
+    def test_r50_pin_fields_go_out_unchanged(self) -> None:
+        # 销售订单的落库核对字段（cgatheringplan、caddcode、cwhcode、cbdefine5 等）与发货单生单的
+        # caddcode、chdefine1–4 由桥校验和回读，客户端原样发送，不改键名、不丢值。
+        head = {"cCusCode": "C900001", "cgatheringplan": "A01", "caddcode": "D01", "cdefine1": "HT1", "cdefine2": "KH1"}
+        line = {"cInvCode": "A01", "iQuantity": 10, "inum": 2, "cunitid": "02", "cwhcode": "01", "cbdefine5": "型号X"}
+        sent, captured = self._send(
+            lambda client: client.create_voucher(make_call(), VoucherDraft("sale_order", head, [line])),
+        )
+        self.assertEqual(captured["path"], "/u8co/v1/vouchers/create")
+        self.assertEqual(sent["head"], head)
+        self.assertEqual(sent["lines"], [line])
+        exp = dict(line)
+        exp["inum"] = "1E+01"
+        sent, captured = self._send(
+            lambda client: client.create_voucher(make_call(), VoucherDraft("sale_order", head, [exp])),
+        )
+        self.assertEqual(sent["lines"], [exp])
+        gen_head = {"caddcode": "D01", "chdefine1": "粤A00001", "chdefine3": 120.5, "cdefine1": "HT1"}
+        draft = VoucherGen("dispatch", gen_head, [{"source_line_id": 15, "quantity": 1}])
+        sent, captured = self._send(lambda client: client.generate_voucher(make_call(100), draft))
+        self.assertEqual(captured["path"], "/u8co/v1/vouchers/generate")
+        self.assertEqual(sent["head"], gen_head)
+        edit = VoucherEdit("sale_order", {"caddcode": ""}, [{"op": "update", "line_id": 5, "cbdefine5": ""}])
+        sent, _captured = self._send(lambda client: client.update_voucher(make_call(9), edit))
+        self.assertEqual(sent["head"], {"caddcode": ""})
+        self.assertEqual(sent["lines"], [{"op": "update", "line_id": 5, "cbdefine5": ""}])
+
     def test_generate_sale_out_omits_lines(self) -> None:
         sent, _captured = self._send(
             lambda client: client.generate_voucher(make_call(100), VoucherGen("sale_out", None, None)),

@@ -6,11 +6,12 @@ namespace U8Co
 {
     internal static class SoFields
     {
+        // cgatheringplan、caddcode（表头）和 cwhcode、cbdefine5（表体）是 r50 约定字段，保存后回读（SalePins）。
         internal const string HeadExact = "ccuscode,cstcode,cdepcode,cpersoncode,cbustype,cexch_name,iexchrate,itaxrate,"
-            + "ddate,cmemo,ccusoaddress,cshipaddress,cscode,cpaycode,dpredatebt,dpremodatebt";
+            + "ddate,cmemo,ccusoaddress,cshipaddress,cscode,cpaycode,dpredatebt,dpremodatebt,cgatheringplan,caddcode";
         internal const string LineExact = "cinvcode,iquantity,inum,cunitid,cgroupcode,igrouptype,ccomunitcode,iinvexchrate,"
             + "iquotedprice,iunitprice,itaxunitprice,imoney,itax,isum,inatunitprice,inatmoney,inattax,inatsum,"
-            + "inatdiscount,idiscount,kl,kl2,itaxrate,dpredate,dpremodate,cmemo";
+            + "inatdiscount,idiscount,kl,kl2,itaxrate,dpredate,dpremodate,cmemo,cwhcode,cbdefine5";
 
         public static List<Dictionary<string, string>> Lines(object[] lines, Dictionary<string, string> fields)
         {
@@ -59,7 +60,13 @@ namespace U8Co
                 throw new BridgeException(400, "bad_request", "不能设置字段 " + key).WithHint(FieldPath.WritableHint);
             }
             string canon;
-            if (!fields.TryGetValue(key, out canon))
+            bool known = fields.TryGetValue(key, out canon);
+            // 扩展自定义项和模板里没有的约定字段不进 DOM，Save 之后由桥写（SalePins）。
+            if (SalePins.OffDom(SalePins.Order, lower, head, known))
+            {
+                return;
+            }
+            if (!known)
             {
                 throw new BridgeException(400, "bad_request", "未知字段 " + key).WithHint(FieldPath.WritableHint);
             }

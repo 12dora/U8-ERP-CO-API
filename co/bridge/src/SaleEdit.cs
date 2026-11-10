@@ -84,8 +84,11 @@ namespace U8Co
                     throw new BridgeException(409, "u8_rejected", err);
                 }
                 CoRows.RequireHead(doms[0], "ID", id);
+                // 约定字段（SalePins）：先于 Apply 判断模板（只走组件的字段模板里没有时 400），Save 之后在同一事务里补写、回读。
+                SalePins pins = SalePins.ForOrderEdit(ctx.Conn, LoginDate(ctx), id, head, lines);
+                pins.MarkDom(Has(doms[0]), Has(doms[1]));
                 Apply(ctx, co, doms, head, lines);
-                SoSave.SaveModify(ctx.Conn, co, doms, ctx.Item);
+                SoSave.SaveModify(ctx.Conn, co, doms, ctx.Item, pins);
                 return AfterUpdate(ctx, kind, id, CoRows.Col(snap, "code"));
             }
             finally
@@ -239,6 +242,12 @@ namespace U8Co
             {
                 SaSession.Release(sys, co, doms);
             }
+        }
+
+        static Func<string, bool> Has(object dom)
+        {
+            Dictionary<string, string> names = Names(dom);
+            return delegate(string name) { return names.ContainsKey(name); };
         }
 
         static int InvoiceVt(string text)

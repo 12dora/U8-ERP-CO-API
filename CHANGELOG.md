@@ -4,7 +4,15 @@
 
 ## [Unreleased]
 
+### 修复
+
+- 销售订单修改:数量重算会用无税单价把含税单价再算一遍,导致这次请求的改价被冲掉、只改数量时含税单价逐次漂移。现在先记下定价键与值(请求给的价格,否则行上原有价格),数量算完放回去再算金额;只改价、只改数量、两者都改、只改件数、增行均按请求值落库。
+
 ### 新增
+
+- 销售订单新增 / 修改与发货单参照订单生单的落库核对字段：`vouchers/create`、`vouchers/update` 的 `sale_order` 表头新增可写 `cgatheringplan`（收付款协议）、`caddcode`（收货地址编码），表体新增 `cwhcode`（预发货仓库）、`cbdefine5`（表体扩展自定义项，`SO_SODetails_extradefine`）；`vouchers/generate` 的 `dispatch`（参照销售订单）表头新增 `caddcode`（覆盖订单带来的编码）和 `chdefine1`…`4`（`DispatchList_extradefine`）。这些字段连同订单表头 `cdefine1`、`cdefine2`，表体 `cunitid`、`inum`，发货单表头 `cdefine1`、`cdefine2`：保存前按 `INFORMATION_SCHEMA` 列目录校验列存在、类型和长度，按档案校验编码（收付款协议存在且未停用、收货地址属于单据 / 订单客户、仓库存在、计量单位属于存货的计量单位组、单计量存货不收 `cunitid` / `inum`），不符 400；扩展自定义项和模板里没有的纯标注主表列（`caddcode`、`cdefine1/2`、`cwhcode`）不进 DOM（不再报「未知字段」），由桥在 `Save` 之后、提交之前在同一事务里写入（日期列按列类型显式转换：`date` `CONVERT(date, ?, 23)`，`datetime` 再包 `CONVERT(datetime, …)`，`datetime2` `CAST(CONVERT(date, ?, 23) AS datetime2)`，超出列类型范围 400）；参与计算的 `cunitid`、`inum`、`cgatheringplan` 只走 U8 组件，模板没有时 400，计量组可能变的行（新增的每一行；修改时带了数量、件数、换算率、单位、单位组或存货的行，只改换算率或单位也算）先走 U8 `BodyCheck` 重算（给了数量按数量，只给件数按件数），保存后核对请求给的数量、件数、换算率原样落库、有换算时单位属于单位组、固定换算率等于单位档案、固定和浮动换算都满足 数量 = 件数 × 换算率（请求给了两个或三个时容差只取数量小数位的半个单位且无额外 epsilon，不成一套保存前 400；只给一个时按组件对被算字段的 `AwayFromZero` 舍入后与落库值相等；请求件数等数值认指数写法如 `1E+01`），不符 409 回滚；随后逐项回读，与请求不同回滚 409 `u8_rejected`（`field` 为字段路径），组件已自行提交时 504 `outcome_unknown`。`vouchers/load` 和预演 `docs` 的销售订单、发货单另带扩展自定义项列（小写，并进表头和对应表体行）；`vouchers/load` 另补约定字段的主表列（组件 DOM 没带时）。API 对这些字段先做类型、长度上限检查（`co_sale_pins`）。`meta/fields` 的可写名单随之增加。**升级顺序：先桥，后 API**（只升 API：旧桥对新字段回 400「不能设置字段」）。
+
+- 只读例外开放单据操作，按单据类型逐项：`type=vouchers` 的项新增键 `voucher`（单据类型），可开放的 (`op`, `voucher`) 由 API `readonly_voucher_ops.VOUCHER_OPS` 与桥 `ReadOnlyVoucherOps.Rows` 同一张登记表决定：`create`、`update`、`close`（只放行 `action=close`，不含打开）配 `sale_order`，`verify`（审核与弃审）配 `sale_order` 或 `dispatch`，`generate` 配 `dispatch` 且 `source_type` 省略或为 `sale_order`（API 的 `vouchers/generate` 对显式 `"source_type": null` 改回 400 `bad_request`，与桥一致，不再当作省略）。一项只开一对；路径必须恰好是 `vouchers/<op>`，请求体 `type` 必须与 `voucher` 完全相同，`create` + `sale_order` 不放行其它单据的新增、预演，也不放行 `vouchers/delete`、`vouchers/lock`、专用审核路由等其它路径。这几个 `op` 缺 `voucher`、未登记的对、`type=archives` 带 `voucher` 时进程起不来。`head_fix`、`so_contract` 并入同一张登记表，配置形状不变（`voucher` 可省，写了须是 `dispatch` / `sale_order`）；**行为变化**：API 一侧 `head_fix` 现在与桥一样要求请求体 `type` 为 `dispatch`（请求模型本就只收 `dispatch`，正常调用不受影响）。健康检查摘要配了 `voucher` 的项另含 `voucher`。只读例外的操作员比较统一为只忽略 ASCII 字母大小写（API 原用 Unicode `casefold`、桥用 `OrdinalIgnoreCase`，非 ASCII 编码两侧可能不一致；现在 `opß` 与 `opss` 两侧都不相等，配置里的重复检查同一规则）。写入策略仍另外判定，需放行对应的 `(type, op)`（如 `(sale_order, create)`、`(dispatch, generate)`）。新条目只有新版桥和 API 认得：**先升级桥和 API，再写新条目；回滚到旧版前先删除新条目**。
 
 - 销售订单合同号改号：`vouchers/so_contract` 新增可选布尔 `replace`（缺省 `false`，行为不变）。`true` 时合同号 `cDefine1` 已有别的值也覆盖成 `contract_no`，`expect.contract_no` 仍须等于当前值（不符 409 `state_mismatch`）；`customer_contract_no` 的规则不变（给了则 `cDefine2` 必须为空）；行锁、行版本乐观锁、写后回读照旧。不带 `replace` 覆盖已有合同号的 409 消息提示可用 `replace=true`。API 只在为 `true` 时转给桥；客户端 `SoContract(..., replace=True)`，命令行 `voucher-so-contract --replace`；回归用例在测试账套上加了改号（含 `expect` 不符）一步。**升级顺序：先桥，后 API**（旧桥遇 `replace` 回 400）。
 

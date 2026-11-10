@@ -234,7 +234,8 @@ namespace U8Co
             return Dec(text, out rate) && rate > 0m;
         }
 
-        static bool Dec(string text, out decimal value)
+        // 计量组核对与补件数共用（不变文化、认指数，与 NumberStyles.Any 一致）。
+        internal static bool Dec(string text, out decimal value)
         {
             value = 0m;
             if (text == null || text.Length == 0)
