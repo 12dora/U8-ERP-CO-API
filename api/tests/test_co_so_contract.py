@@ -82,6 +82,25 @@ def test_customer_contract_no_is_forwarded_only_when_given() -> None:
     assert moved.json()["current"]["customer_contract_no"] == _CUSTOMER_NO
 
 
+def test_replace_is_forwarded_only_when_true() -> None:
+    fake = _SoBridge()
+    expect = {"contract_no": "HT2026-0001", "customer_contract_no": None}
+    ok = _client(fake).post(_PATH, json=_body(contract_no="HT2026-0002", expect=expect, replace=True))
+    assert ok.status_code == 200, ok.text
+    sent = fake.calls[-1][1]
+    assert sent["replace"] is True
+    assert sent["expect"] == {"contract_no": "HT2026-0001", "customer_contract_no": ""}
+    assert _client(fake).post(_PATH, json=_body(replace=False)).status_code == 200
+    assert "replace" not in fake.calls[-1][1]
+
+
+def test_replace_reaches_the_sealed_bridge_body() -> None:
+    with _Up() as server:
+        _wired(server.base_url).post(_PATH, json=_body(replace=True))
+        _method, _seen, raw = server.httpd.hits[-1]
+    assert set(json.loads(raw)) == _sealed("type", "id", "contract_no", "expect", "replace", "caller")
+
+
 def test_expect_null_reaches_the_bridge_as_empty_string() -> None:
     # API 转发时会去掉值为 null 的键；expect 的 null 转成空串，两个键始终都在（空与 null 等价）。
     fake = _SoBridge()
@@ -145,6 +164,8 @@ _REJECTS = (
     _body(head={"cdefine1": "x"}),
     _body(fields={"cDefine1": "x"}),
     _body(dry_run="true"),
+    _body(replace="true"),
+    _body(replace=1),
     _auth(id=1, contract_no=_NO, expect=dict(_BLANK)),
     _auth(type="sale_order", contract_no=_NO, expect=dict(_BLANK)),
     _auth(type="sale_order", id=1, expect=dict(_BLANK)),
@@ -299,5 +320,6 @@ def test_openapi_lists_the_write() -> None:
         "Idempotency-Key",
         "so_contract",
         "detail.current",
+        "replace",
     ):
         assert word in description

@@ -342,7 +342,7 @@ namespace U8Co
                 VoucherHeadFix.Parse(body);
                 return;
             }
-            // 销售订单合同号回写：contract_no / customer_contract_no / expect 在登录前校验（VoucherSoContract.Parse），登录子系统取销售订单的 SA。
+            // 销售订单合同号回写：contract_no / customer_contract_no / expect / replace 在登录前校验（VoucherSoContract.Parse），登录子系统取销售订单的 SA。
             if (path == VoucherSoContract.Path)
             {
                 VoucherSoContract.Parse(body);

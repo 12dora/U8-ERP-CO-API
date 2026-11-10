@@ -3,6 +3,7 @@
 
 contract_no 非空、不是「无」；customer_contract_no 可选，规则相同，给了则订单当前的客户合同号必须为空。
 expect 必须给出 contract_no、customer_contract_no 两个键的当前值（None、空串、空白、「无」都表示当前为空）。
+replace=True 时合同号已有别的值也覆盖（合同改号，expect 仍须相符）；只在为 True 时放进正文。
 长度的细校验（自定义项档案的 iMaxLen）、订单是否被别人锁定、expect 是否相符都在桥；这里只挡明显的错误。
 """
 
@@ -29,13 +30,14 @@ class SoContract:
     """回写一张销售订单（call.doc_id）的合同号：kind 目前只有 sale_order。
 
     expect 是调用方认为的当前值，必须有 contract_no、customer_contract_no 两个键；值为 None 或字符串。
-    customer_contract_no 为 None 表示不动客户合同号。
+    customer_contract_no 为 None 表示不动客户合同号。replace=True 时合同号已有别的值也覆盖为 contract_no。
     """
 
     kind: str
     contract_no: str
     expect: dict[str, str | None]
     customer_contract_no: str | None = None
+    replace: bool = False
 
 
 class U8CoSoContractMixin:
@@ -56,6 +58,10 @@ class U8CoSoContractMixin:
         if change.customer_contract_no is not None:
             body["customer_contract_no"] = _target(change.customer_contract_no, "customer_contract_no")
         body["expect"] = _expect(change.expect)
+        if type(change.replace) is not bool:
+            raise ValueError("replace 必须是 True 或 False")
+        if change.replace:
+            body["replace"] = True
         return self.call("/v1/vouchers/so_contract", with_key(body, idempotency_key))
 
 

@@ -19,6 +19,7 @@ namespace U8Co
             CheckSame();
             CheckDecide();
             CheckDecideRefuse();
+            CheckReplace();
             CheckLocker();
             CheckLength();
             CheckSetClause();
@@ -37,6 +38,9 @@ namespace U8Co
             Eq("parse customer", ask.CustomerNo, "KH-088");
             Eq("parse expect raw kept", ask.Expect1, " KH-088 ");
             Eq("parse expect placeholder", ask.Expect2, "无");
+            Expect("parse replace default", !ask.Replace);
+            Expect("parse replace", VoucherSoContract.Parse(WithReplace(Body("HT1", null, Exp("", "")), true)).Replace);
+            Expect("parse replace false", !VoucherSoContract.Parse(WithReplace(Body("HT1", null, Exp("", "")), false)).Replace);
             Eq("parse long ok", VoucherSoContract.Parse(Body(new string('A', 120), null, Exp("", ""))).ContractNo.Length, 120);
         }
 
@@ -52,6 +56,8 @@ namespace U8Co
             Bad("customer placeholder", Body("HT1", "无", Exp("", "")));
             Bad("customer blank", Body("HT1", "", Exp("", "")));
             Bad("customer not string", Body("HT1", 5, Exp("", "")));
+            Bad("replace not bool", WithReplace(Body("HT1", null, Exp("", "")), "true"));
+            Bad("replace null", WithReplace(Body("HT1", null, Exp("", "")), null));
             Bad("no expect", Body("HT1", null, null));
             Bad("expect not object", Body("HT1", null, "x"));
             Bad("expect missing key", Body("HT1", null, Map(K1, "")));
@@ -100,6 +106,30 @@ namespace U8Co
             Mismatch("move needs same value", Ask("HT1", "KH-2", "KH-1", ""), Snap("KH-1", null), "KH-1", null);
             Mismatch("customer not blank", Ask("HT1", "KH-1", "KH-1", "KH-0"), Snap("KH-1", "KH-0"), "KH-1", "KH-0");
             Mismatch("customer not blank target set", Ask("HT1", "KH-1", "HT1", "KH-0"), Snap("HT1", "KH-0"), "HT1", "KH-0");
+        }
+
+        // replace=true：合同号已有别的值也覆盖；expect 不符、客户合同号非空仍拒；replace=false 不变；当前为空同普通写。
+        static void CheckReplace()
+        {
+            Plan("replace over value", Replace(Ask("HT2", null, "HT1", "")), Snap("HT1", null), true, true, false);
+            Plan("replace blank", Replace(Ask("HT2", null, "", "")), Snap(null, null), true, true, false);
+            Plan("replace already target", Replace(Ask("HT2", null, "HT2", "")), Snap("HT2", null), false, false, false);
+            Plan("replace with customer", Replace(Ask("HT2", "KH-1", "HT1", "")), Snap("HT1", null), true, true, true);
+            Mismatch("replace expect differs", Replace(Ask("HT2", null, "HT0", "")), Snap("HT1", null), "HT1", null);
+            Mismatch("replace customer not blank", Replace(Ask("HT2", "KH-1", "HT1", "KH-0")), Snap("HT1", "KH-0"), "HT1", "KH-0");
+            Mismatch("no replace over value", Ask("HT2", null, "HT1", ""), Snap("HT1", null), "HT1", null);
+        }
+
+        static SoContractAsk Replace(SoContractAsk ask)
+        {
+            ask.Replace = true;
+            return ask;
+        }
+
+        static Dictionary<string, object> WithReplace(Dictionary<string, object> body, object flag)
+        {
+            body[VoucherSoContract.ReplaceKey] = flag;
+            return body;
         }
 
         static void CheckLocker()
@@ -209,7 +239,7 @@ namespace U8Co
             update.Id = 7;
             Expect("wiring same lock as update", Array.IndexOf(DocLocks.KeysOf(item), "sale_order:7") >= 0
                 && Array.IndexOf(DocLocks.KeysOf(update), "sale_order:7") >= 0);
-            Expect("wiring spec", VoucherSoContract.Spec[0] == VoucherSoContract.Path && VoucherSoContract.Spec.Length == 6);
+            Expect("wiring spec", VoucherSoContract.Spec[0] == VoucherSoContract.Path && VoucherSoContract.Spec.Length == 7);
             CheckReadOnlyTable();
         }
 

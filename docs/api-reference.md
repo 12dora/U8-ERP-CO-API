@@ -787,9 +787,10 @@ U8 不让改已审核、已有下游单据的销售订单（`vouchers/update` �
 | `contract_no` | 要写入 `cDefine1` 的合同号：非空、不是「无」，首尾不能有空白，不含控制字符。长度不能超过 U8 自定义项档案里该项的最大长度（`iMaxLen`），超过 400 `bad_request`（API 只收最长 120 个字符，细的长度由桥核对） |
 | `customer_contract_no` | 可选，要写入 `cDefine2`（客户合同号）的值，规则同 `contract_no`。省略或 `null` 表示不动 `cDefine2`；给了则订单当前的 `cDefine2` 必须为空，否则 409 `state_mismatch`（不覆盖已有的客户合同号）。用于把原先放在合同号里的客户自己的号挪到客户合同号 |
 | `expect` | 必填，`contract_no`、`cDefine2` 两项当前原值，两个键都要给：`{"contract_no": …, "customer_contract_no": …}`。`null`、空串、空白、「无」都表示当前为空，彼此等价（API 转发时把 `null` 换成空串）。与订单当前值不符 409 `state_mismatch` |
+| `replace` | 可选布尔，缺省 `false`。`true` 时合同号当前已有别的值也覆盖成 `contract_no`（合同改号）；`expect.contract_no` 仍须等于当前值，`customer_contract_no` 的规则不变；当前合同号为空时与普通写入相同。API 只在为 `true` 时转给桥 |
 | `dry_run` | `true` 时跑完全部检查（含锁定、`expect`、长度）后不写库（`validate`）；不能同时带 `Idempotency-Key` |
 
-同一事务内（行锁 `UPDLOCK, ROWLOCK`）按下面的顺序判定：订单不存在 404 `not_found`；订单被别的用户锁定（表头 `cLocker` 非空且不是本操作员）409 `state_mismatch`（`error.detail.reason` 为 `locked`，`detail.locker` 是锁定人）；`expect` 与当前值不符 409 `state_mismatch`（`error.detail.current` 是 `{"contract_no", "customer_contract_no"}` 的当前原值）；合同号当前已等于 `contract_no`（去首尾空白、不分大小写比较），并且 `customer_contract_no` 省略或 `cDefine2` 当前已等于它，成功返回 `changed:false`，不写库；给了 `customer_contract_no` 而 `cDefine2` 当前非空 409 `state_mismatch`；值超过自定义项档案的长度 400 `bad_request`。写入带行版本（`ufts`）乐观锁，写后在同一事务内回读，与请求不符回滚并 504 `outcome_unknown`（先 `vouchers/load` 核对再决定是否重试）；写入期间行被别人改了（行版本变了）409 `state_mismatch`，没有 `detail`。
+同一事务内（行锁 `UPDLOCK, ROWLOCK`）按下面的顺序判定：订单不存在 404 `not_found`；订单被别的用户锁定（表头 `cLocker` 非空且不是本操作员）409 `state_mismatch`（`error.detail.reason` 为 `locked`，`detail.locker` 是锁定人）；`expect` 与当前值不符 409 `state_mismatch`（`error.detail.current` 是 `{"contract_no", "customer_contract_no"}` 的当前原值）；合同号当前已等于 `contract_no`（去首尾空白、不分大小写比较），并且 `customer_contract_no` 省略或 `cDefine2` 当前已等于它，成功返回 `changed:false`，不写库；给了 `customer_contract_no` 而 `cDefine2` 当前非空 409 `state_mismatch`（`replace` 也不例外）；合同号当前已有别的值时，只有 `replace:true` 或 `customer_contract_no` 等于当前合同号（原样挪进客户合同号）才写，否则 409 `state_mismatch`（不覆盖）；值超过自定义项档案的长度 400 `bad_request`。写入带行版本（`ufts`）乐观锁，写后在同一事务内回读，与请求不符回滚并 504 `outcome_unknown`（先 `vouchers/load` 核对再决定是否重试）；写入期间行被别人改了（行版本变了）409 `state_mismatch`，没有 `detail`。
 
 响应：
 
@@ -809,7 +810,7 @@ U8 不让改已审核、已有下游单据的销售订单（`vouchers/update` �
  "expect":{"contract_no":"KH-2026-088","customer_contract_no":null}}
 ```
 
-写入分类 `(sale_order, so_contract)`，规则键 `write:voucher:sale_order:so_contract`，功能权限为销售订单卡片的修改 / 变更按钮（功能 id 以桥 `PermRegistry` 登记为准；数据权限按订单表头的客户、部门、业务员、销售类型 `cSTCode`）；写入策略放行 `vouchers/update` 不连带放行本路由，策略 `allow` 要单独加 `{"type":"sale_order","ops":["so_contract"]}`。只读账套上须配只读例外 `{"type":"vouchers","op":"so_contract"}`（路径必须恰好是 `vouchers/so_contract`，且请求体 `type` 为 `sale_order`），`vouchers/update` 等其它单据写入仍 403。写入建议带 `Idempotency-Key`：同一个键重试原样拿到第一次的结果；一次写入只对应一个键。客户端 `voucher_so_contract(call, SoContract(kind, contract_no, expect, customer_contract_no=None), idempotency_key=None)`（`call.doc_id` 是订单主键）；命令行 `voucher-so-contract --type sale_order --id N --contract-no X [--customer-contract-no Y] --expect-contract-no A --expect-customer-contract-no B`（两个 `--expect-…` 都要给，空串表示当前为空），可加 `--dry-run`、`--idempotency-key`。
+写入分类 `(sale_order, so_contract)`，规则键 `write:voucher:sale_order:so_contract`，功能权限为销售订单卡片的修改 / 变更按钮（功能 id 以桥 `PermRegistry` 登记为准；数据权限按订单表头的客户、部门、业务员、销售类型 `cSTCode`）；写入策略放行 `vouchers/update` 不连带放行本路由，策略 `allow` 要单独加 `{"type":"sale_order","ops":["so_contract"]}`。只读账套上须配只读例外 `{"type":"vouchers","op":"so_contract"}`（路径必须恰好是 `vouchers/so_contract`，且请求体 `type` 为 `sale_order`），`vouchers/update` 等其它单据写入仍 403。写入建议带 `Idempotency-Key`：同一个键重试原样拿到第一次的结果；一次写入只对应一个键。客户端 `voucher_so_contract(call, SoContract(kind, contract_no, expect, customer_contract_no=None, replace=False), idempotency_key=None)`（`call.doc_id` 是订单主键）；命令行 `voucher-so-contract --type sale_order --id N --contract-no X [--customer-contract-no Y] [--replace] --expect-contract-no A --expect-customer-contract-no B`（两个 `--expect-…` 都要给，空串表示当前为空），可加 `--dry-run`、`--idempotency-key`。
 
 ## 9. 删除 `vouchers/delete`
 

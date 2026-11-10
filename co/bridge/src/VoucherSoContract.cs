@@ -9,6 +9,7 @@ namespace U8Co
     // 不碰表体、金额、数量、日期、部门、业务员、审核 / 关闭状态，不碰发货单、销售发票、各 History 表（已开出的下游单据上的合同号不跟着改）。
     // 一个事务里 UPDLOCK, ROWLOCK 读表头，查功能 / 数据权限、锁定人、长度、expect，按 Decide（纯判断）决定写什么，
     // 预演到此回滚，否则按 ufts 乐观锁 UPDATE，写修改人 / 修改日期，回读核对（VoucherSoContractSql）。
+    // replace=true 时合同号已有别的值也直接覆盖（expect 照常核对当前值；客户合同号规则不变），用于合同改号。
     // 空值等价：NULL、空串、空白、「无」都是空。比较去两端空白、不分大小写。
     // 单据锁同修改销售订单（"sale_order:<id>"，DocLocks 按 type + id 派生）。
     internal static class VoucherSoContract
@@ -18,10 +19,11 @@ namespace U8Co
         public const string Kind = "sale_order";
         public const string ContractKey = "contract_no";
         public const string CustomerKey = "customer_contract_no";
+        public const string ReplaceKey = "replace";
         internal const string RuleKey = "write:voucher:sale_order:so_contract";
         internal const string Placeholder = "无";
         // 登录前字段表（RequestsP4.P4Specs）：路径加除公共字段外的顶层键。
-        internal static readonly string[] Spec = new string[] { Path, "type", "id", ContractKey, CustomerKey, "expect" };
+        internal static readonly string[] Spec = new string[] { Path, "type", "id", ContractKey, CustomerKey, "expect", ReplaceKey };
         // 请求值的上限（与 API 相同）；实际上限是 U8 自定义项设置与列宽，由 VoucherSoContractSql 在事务里核对。
         internal const int ValueMax = 120;
 
@@ -46,7 +48,7 @@ namespace U8Co
             return VoucherSoContractSql.Run(ctx, ask);
         }
 
-        // 校验 contract_no / customer_contract_no / expect（id、type 已由 Requests 校验）。expect 必须带两个键，值是字符串或 null。
+        // 校验 contract_no / customer_contract_no / expect / replace（id、type 已由 Requests 校验）。expect 必须带两个键，值是字符串或 null。
         public static SoContractAsk Parse(Dictionary<string, object> body)
         {
             SoContractAsk ask = new SoContractAsk();
@@ -58,6 +60,7 @@ namespace U8Co
             ask.ContractNo = Value(raw, ContractKey);
             object customer = Requests.Field(body, CustomerKey);
             ask.CustomerNo = customer == null ? null : Value(customer, CustomerKey);
+            ask.Replace = body.ContainsKey(ReplaceKey) && Flag(body[ReplaceKey]);
             Dictionary<string, object> expect = Requests.Field(body, "expect") as Dictionary<string, object>;
             if (expect == null)
             {
@@ -73,6 +76,16 @@ namespace U8Co
             ask.Expect1 = ExpectText(expect, ContractKey);
             ask.Expect2 = ExpectText(expect, CustomerKey);
             return ask;
+        }
+
+        // replace：可省（省略即 false）；给了就必须是布尔值，显式 null 同样 400（与 API、客户端一致）。
+        static bool Flag(object raw)
+        {
+            if (!(raw is bool))
+            {
+                throw ArcReq.Bad(ReplaceKey + " 必须是 true 或 false", ReplaceKey);
+            }
+            return (bool)raw;
         }
 
         // 要写入的值：字符串，非空，不是「无」，前后没有空白，不超过 ValueMax，不含控制字符。
@@ -154,7 +167,7 @@ namespace U8Co
         }
 
         // 纯判断（自检覆盖）：按 expect 与当前值决定写哪些列。顺序：expect → 已是目标（changed=false）→ 客户合同号非空
-        // → 合同号已有别的值时只允许原样挪进客户合同号（customer_contract_no 必须等于当前合同号），否则不覆盖。
+        // → 合同号已有别的值时只允许原样挪进客户合同号（customer_contract_no 必须等于当前合同号）或 replace=true，否则不覆盖。
         internal static SoContractPlan Decide(SoContractAsk ask, SoContractSnap snap)
         {
             CheckExpect(ask, snap);
@@ -195,17 +208,17 @@ namespace U8Co
             }
         }
 
-        // 合同号当前已有别的值：只有把它原样挪进客户合同号（customer_contract_no 等于当前合同号）时才写，否则不覆盖。
+        // 合同号当前已有别的值：replace=true（expect 已核对过当前值），或把它原样挪进客户合同号（customer_contract_no 等于当前合同号）时才写，否则不覆盖。
         static void RefuseOverwrite(SoContractAsk ask, SoContractSnap snap)
         {
-            if (Blank(snap.Contract))
+            if (ask.Replace || Blank(snap.Contract))
             {
                 return;
             }
             if (ask.CustomerNo == null || !Same(ask.CustomerNo, snap.Contract))
             {
                 throw Mismatch("合同号已有其他值 " + Show(snap.Contract)
-                    + "，不覆盖（要把它挪进客户合同号，customer_contract_no 须等于它）", snap);
+                    + "，不覆盖（改号用 replace=true；要把它挪进客户合同号，customer_contract_no 须等于它）", snap);
             }
         }
 
@@ -296,6 +309,8 @@ namespace U8Co
         // expect 的两个当前值（null 已转成空串）。
         public string Expect1;
         public string Expect2;
+        // replace=true：合同号已有别的值也覆盖。
+        public bool Replace;
     }
 
     // 表头快照：Contract / Customer 是 cDefine1 / cDefine2 的原值（NULL 为 null）。

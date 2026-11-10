@@ -55,6 +55,15 @@ class SoContractTests(unittest.TestCase):
         self.assertEqual(sent["customer_contract_no"], _CUSTOMER_NO)
         self.assertEqual(sent["expect"], {"contract_no": _CUSTOMER_NO, "customer_contract_no": ""})
 
+    def test_replace_is_sent_only_when_true(self) -> None:
+        expect = {"contract_no": "HT2026-0001", "customer_contract_no": None}
+        change = _change(contract_no="HT2026-0002", expect=expect, replace=True)
+        _path, sent = self._send(lambda client: client.voucher_so_contract(_call(), change))
+        self.assertEqual(list(sent), _AUTH + ["type", "id", "contract_no", "expect", "replace"])
+        self.assertIs(sent["replace"], True)
+        _path, sent = self._send(lambda client: client.voucher_so_contract(_call(), _change(replace=False)))
+        self.assertNotIn("replace", sent)
+
     def test_expect_keeps_raw_current_values(self) -> None:
         expect = {"contract_no": " 无 ", "customer_contract_no": "无"}
         _path, sent = self._send(lambda client: client.voucher_so_contract(_call(), _change(expect=expect)))
@@ -92,6 +101,7 @@ class SoContractTests(unittest.TestCase):
             (_call(), _change(customer_contract_no="无"), "customer_contract_no"),
             (_call(), _change(customer_contract_no="K\t1"), "customer_contract_no"),
             (_call(), _change(customer_contract_no=7), "customer_contract_no"),
+            (_call(), _change(replace="true"), "replace"),
             (_call(), _change(expect="x"), "expect"),
             (_call(), _change(expect={}), "expect"),
             (_call(), _change(expect={"contract_no": None}), "customer_contract_no"),
@@ -168,6 +178,15 @@ class CliTests(unittest.TestCase):
         self.assertEqual(seen["change"], _change(expect=expect))
         self.assertIsNone(seen["change"].customer_contract_no)
         self.assertFalse(seen["dry"])
+
+    def test_main_takes_replace(self) -> None:
+        code, seen = self._run(
+            "--contract-no", "HT2026-0002", "--expect-contract-no", "HT2026-0001",
+            "--expect-customer-contract-no", "", "--replace",
+        )
+        self.assertEqual(code, 0)
+        expect = {"contract_no": "HT2026-0001", "customer_contract_no": ""}
+        self.assertEqual(seen["change"], _change(contract_no="HT2026-0002", expect=expect, replace=True))
 
     def test_incomplete_flags_are_refused(self) -> None:
         for extra in (

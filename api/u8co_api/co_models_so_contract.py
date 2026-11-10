@@ -7,9 +7,18 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    StrictBool,
+    ValidationInfo,
+    field_validator,
+    model_serializer,
+)
 
 from u8co_api.co_doctext import op_doc
 from u8co_api.co_models import _ID_MAX, CoAuth
@@ -35,6 +44,8 @@ SO_CONTRACT_HELP = op_doc(
             "省略或 null 表示不动 cDefine2；给了则 cDefine2 当前必须为空",
             "expect 必填：cDefine1、cDefine2 的当前值（contract_no、customer_contract_no 两个键都要给）；"
             "null、空串、空白、「无」都表示当前为空，彼此等价；API 把 null 按空串转给桥",
+            "replace 可选，默认 false；为 true 时合同号当前已有别的值也覆盖为 contract_no（合同改号），"
+            "expect.contract_no 仍须等于当前值",
             "dry_run 为 true 时跑完全部检查（含锁定、expect、长度）后不写库（validate）",
         ),
     ),
@@ -47,7 +58,9 @@ SO_CONTRACT_HELP = op_doc(
             "请对方保存或解锁后重试",
             "合同号当前已等于 contract_no（去首尾空白、不分大小写比较），"
             "且 customer_contract_no 省略或 cDefine2 当前已等于它时成功返回 changed=false，不写库",
-            "给了 customer_contract_no 而 cDefine2 当前非空，409 state_mismatch（不覆盖已有的客户合同号）",
+            "合同号当前已有别的值：replace 为 true 时覆盖；否则只有 customer_contract_no 等于当前合同号"
+            "（把它原样挪进客户合同号）时才写，不然 409 state_mismatch",
+            "给了 customer_contract_no 而 cDefine2 当前非空，409 state_mismatch（不覆盖已有的客户合同号，replace 也不例外）",
             "不动：金额、数量、日期、部门、业务员、审核和关闭状态，发货单、销售发票、各 History 表；"
             "已经开出的发货单、发票上的合同号不随之改变",
             "写入分类 (销售订单 sale_order, so_contract)，规则键 write:voucher:sale_order:so_contract："
@@ -65,7 +78,7 @@ SO_CONTRACT_HELP = op_doc(
             "400 bad_request：合同号或客户合同号超过 U8 自定义项档案的长度",
             "404 not_found：销售订单不存在",
             "409 state_mismatch，error.detail.reason 为 locked（detail.locker 是锁定人）：订单被别的用户锁定",
-            "409 state_mismatch：expect 与当前值不符，或给了 customer_contract_no 而 cDefine2 非空；"
+            "409 state_mismatch：expect 与当前值不符，合同号已有别的值而没带 replace，或给了 customer_contract_no 而 cDefine2 非空；"
             "error.detail.current 是 {contract_no, customer_contract_no} 的当前原值（空为 null 或空串），"
             "并发修改（行版本变了）没有 detail",
             "504 outcome_unknown：写后回读不一致，先 vouchers/load 核对再决定是否重试",
@@ -126,10 +139,23 @@ class VoucherSoContractIn(CoAuth):
         examples=["KH-2026-088"],
     )
     expect: SoContractExpect = Field(description="cDefine1、cDefine2 的当前值，两个键都要给")
+    replace: StrictBool = Field(
+        False,
+        description="为 true 时 cDefine1 已有别的值也覆盖为 contract_no（合同改号）；expect.contract_no 仍须等于当前值，"
+        "客户合同号规则不变",
+    )
     dry_run: DryRunFlag = False
 
     def audit_ref(self) -> str:
         return f"sale_order:{self.id}"
+
+    @model_serializer(mode="wrap")
+    def _drop_default_replace(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # replace 只在为 true 时转给桥：不带它的请求体与以前完全相同（旧桥也认）。
+        data = handler(self)
+        if not data.get("replace"):
+            data.pop("replace", None)
+        return data
 
     @field_validator("contract_no")
     @classmethod
