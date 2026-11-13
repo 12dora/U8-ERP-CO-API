@@ -27,6 +27,9 @@ namespace U8Co
         public const string KeyField = "idempotency_key";
         public const string CallerField = "caller";
         public const string DirectCaller = "direct";
+        // 只读例外 callers 规则认的身份：API 已验签令牌的信任项 name，与 caller 分开发（caller 过长时 API 换成摘要，
+        // 这个字段不变）。同 caller 在写路由上取走、受同一个 HMAC 签名保护；不进幂等摘要和存储键（旧记录照样对得上）。
+        public const string TrustField = "caller_trust";
         const int KeyLimit = 128;
         const int CallerLimit = 200;
 
@@ -54,9 +57,16 @@ namespace U8Co
             }
             object key = hasKey ? body[KeyField] : null;
             object caller = hasCaller ? body[CallerField] : null;
+            bool hasTrust = body.ContainsKey(TrustField);
+            object trust = hasTrust ? body[TrustField] : null;
             body.Remove(KeyField);
             body.Remove(CallerField);
+            body.Remove(TrustField);
             string who = hasCaller ? CheckCaller(caller) : DirectCaller;
+            if (hasTrust)
+            {
+                CheckTrust(trust);
+            }
             if (!hasKey)
             {
                 return null;
@@ -102,6 +112,47 @@ namespace U8Co
             return text;
         }
 
+        // caller_trust：信任项 name 的写法（同 API trust._NAME）：字母开头，字母、数字、_、-，1 到 63 个字符。不合写法 400，
+        // 不会被当成「没有调用系统」悄悄放过。
+        public static string CheckTrust(object value)
+        {
+            string text = value as string;
+            if (!IsTrustName(text))
+            {
+                throw new BridgeException(400, "bad_request", "caller_trust 必须是信任项的 name（字母开头，字母、数字、_、-，1 到 63 个字符）");
+            }
+            return text;
+        }
+
+        // 信任项 name 的写法，桥上唯一的实现（ConfigRulesReadOnly.TrustName 另排除 sha256）。
+        internal static bool IsTrustName(string text)
+        {
+            return text != null && text.Length > 0 && text.Length <= 63 && AsciiLetter(text[0]) && NameTail(text);
+        }
+
+        // 首字符之后只有字母、数字、_、-。
+        static bool NameTail(string text)
+        {
+            for (int i = 1; i < text.Length; i++)
+            {
+                if (!NameChar(text[i]))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        static bool NameChar(char c)
+        {
+            return AsciiLetter(c) || (c >= '0' && c <= '9') || c == '_' || c == '-';
+        }
+
+        static bool AsciiLetter(char c)
+        {
+            return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+        }
+
         // 业务内容摘要：去掉口令密文（每次加密都不同）和登录日期 date（只决定登录上下文，
         // 过了零点重发不应算作不同请求）后的规范 JSON。键按序数排序，数字按不变区域格式。
         public static string BodySha(Dictionary<string, object> body)
@@ -111,7 +162,7 @@ namespace U8Co
             bool first = true;
             foreach (string key in SortedKeys(body))
             {
-                if (key == "password_enc" || key == "date" || key == KeyField || key == CallerField)
+                if (key == "password_enc" || key == "date" || key == KeyField || key == CallerField || key == TrustField)
                 {
                     continue;
                 }

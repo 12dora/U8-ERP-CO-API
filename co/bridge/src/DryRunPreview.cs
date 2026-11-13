@@ -42,6 +42,11 @@ namespace U8Co
             }
             bool generate = item.Path == "/u8co/v1/vouchers/generate";
             AddRef(kinds, ids, generate ? item.Source : item.Type, item.Id);
+            // 销售发票参照多张发货单：每张来源发货单都列进 docs。
+            for (int i = 0; generate && item.GenSources != null && i < item.GenSources.Length; i++)
+            {
+                AddRef(kinds, ids, item.Source, item.GenSources[i].Id);
+            }
         }
 
         static void AddRef(List<VoucherKind> kinds, List<int> ids, VoucherKind kind, int id)

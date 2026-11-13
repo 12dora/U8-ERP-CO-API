@@ -13,10 +13,18 @@ namespace U8Co
     // 路径恰为 vouchers/<op>、请求体 type 等于规则的 voucher（head_fix、so_contract 省略时取固定类型）、按 action 映射的写入分类 op
     // 在该行里（verify 含弃审，close 不含打开）、generate 的 source_type 须是 sale_order（可省）；其它单据类型和单据路由仍拒绝。登录前在 WriteClassGate.Pre（账套名单之后、解密之前，先于写入策略）
     // 查，入队后在 WriteClassGate.Post（登录 U8 之前）再查一次。
+    // callers 规则（按调用系统放行）：账套对上、请求体 caller_trust（API 发来的已验签信任项 name，IdemReq.TrustField，已在
+    // Requests 里取进 AuditDraft.Trust / WorkItem.Trust）逐字在 callers 里、路由部分同上，任何操作员都放行；不带 caller_trust
+    // （直连、旧版 API）一律不命中。不从 caller（幂等与审计用的完整标识，过长时 API 换成摘要）里拆信任项。caller_trust 在请求体里，
+    // 受 HMAC 签名（X-U8co-Sig 覆盖整个请求体的 SHA-256）保护，只有持共享密钥的一方能写；API 用验过签的令牌生成它，不收调用方
+    // 自报的值。命中种类记进审计 read_only_match（operator / caller）。
     internal static class ReadOnlyGate
     {
         public const string Code = "account_read_only";
         public const string ExceptionCode = "read_only_exception";
+        // 审计 read_only_match：命中的是按操作员的规则还是按调用系统的规则。
+        public const string MatchOperator = "operator";
+        public const string MatchCaller = "caller";
         public const string Text = "该账套只开放读取";
         public const string Hint = "这个账套在桥的 config.json 的 readOnlyAccounts 里，只能调用读取接口";
 
@@ -57,7 +65,9 @@ namespace U8Co
             {
                 return;
             }
-            if (Matches(cfg, AskOf(acc, user, info, body)))
+            string kind = Matches(cfg, AskOf(acc, user, info, body, draft.Trust));
+            draft.ReadOnlyMatch = kind ?? "";
+            if (kind != null)
             {
                 draft.Policy = ExceptionCode;
                 return;
@@ -74,7 +84,9 @@ namespace U8Co
                 return;
             }
             WriteRequestInfo info = item.WriteInfo ?? WriteClass.Of(item);
-            if (Matches(item.Config, AskOf(item.Acc, item.Operator, info, item.Body)))
+            string kind = Matches(item.Config, AskOf(item.Acc, item.Operator, info, item.Body, item.Trust));
+            item.ReadOnlyMatch = kind ?? "";
+            if (kind != null)
             {
                 item.Policy = ExceptionCode;
                 return;
@@ -83,28 +95,33 @@ namespace U8Co
             throw Refused();
         }
 
-        static bool Matches(BridgeConfig cfg, Ask ask)
+        // 命中种类：operator 优先于 caller（与 API match_of 一致）；都不命中为 null。
+        static string Matches(BridgeConfig cfg, Ask ask)
         {
             ReadOnlyExceptionRule[] rules = cfg == null ? null : cfg.ReadOnlyExceptions;
             if (rules == null || ask == null)
             {
-                return false;
+                return null;
             }
+            string found = null;
             for (int i = 0; i < rules.Length; i++)
             {
-                if (RuleMatch(rules[i], ask))
+                string kind = RuleMatch(rules[i], ask);
+                if (kind == MatchOperator)
                 {
-                    return true;
+                    return kind;
                 }
+                found = found ?? kind;
             }
-            return false;
+            return found;
         }
 
-        static Ask AskOf(string acc, string user, WriteRequestInfo info, Dictionary<string, object> body)
+        static Ask AskOf(string acc, string user, WriteRequestInfo info, Dictionary<string, object> body, string trust)
         {
             Ask ask = new Ask();
             ask.Acc = acc;
             ask.User = user;
+            ask.Trust = IdemReq.IsTrustName(trust) ? trust : null;
             ask.Type = info == null ? null : info.Type;
             ask.Op = info == null ? null : info.Op;
             ask.Path = info == null ? null : info.Path;
@@ -113,21 +130,38 @@ namespace U8Co
             return ask;
         }
 
-        static bool RuleMatch(ReadOnlyExceptionRule rule, Ask ask)
+        // 命中种类（operator / caller），不命中为 null。
+        static string RuleMatch(ReadOnlyExceptionRule rule, Ask ask)
         {
             if (rule == null || ask == null)
             {
-                return false;
+                return null;
             }
             if (!Contains(rule.Accounts, ask.Acc, StringComparison.Ordinal))
             {
-                return false;
+                return null;
             }
-            if (!ContainsOperator(rule.Operators, ask.User))
+            string kind = IdentityMatch(rule, ask);
+            return kind != null && RouteMatch(rule, ask) ? kind : null;
+        }
+
+        // 身份部分：callers 规则看 caller_trust，operators 规则看操作员；不命中为 null。
+        static string IdentityMatch(ReadOnlyExceptionRule rule, Ask ask)
+        {
+            if (rule.Callers != null)
             {
-                return false;
+                return CallerRuleMatches(rule, ask) ? MatchCaller : null;
             }
-            return RouteMatch(rule, ask);
+            return ContainsOperator(rule.Operators, ask.User) ? MatchOperator : null;
+        }
+
+        // 直接构造的规则同时带 operators、或用于 CallerOps 之外，一律不放行。
+        static bool CallerRuleMatches(ReadOnlyExceptionRule rule, Ask ask)
+        {
+            return rule.Operators == null
+                && string.Equals(rule.Type, ConfigRulesReadOnly.TypeVouchers, StringComparison.Ordinal)
+                && Array.IndexOf(ConfigRulesReadOnly.CallerOps, rule.Op) >= 0
+                && Contains(rule.Callers, ask.Trust, StringComparison.Ordinal);
         }
 
         // 路由部分：type=vouchers 的规则按登记表 ReadOnlyVoucherOps 看路径、单据类型、写入分类 op 和生单来源；
@@ -223,8 +257,8 @@ namespace U8Co
         {
             sb.Append("{\"accounts\":[");
             JsonStrings(sb, rule.Accounts);
-            sb.Append("],\"operators\":[");
-            JsonStrings(sb, rule.Operators);
+            sb.Append(rule.Callers != null ? "],\"callers\":[" : "],\"operators\":[");
+            JsonStrings(sb, rule.Callers ?? rule.Operators);
             sb.Append("],\"type\":").Append(Quote(rule.Type));
             sb.Append(",\"op\":").Append(Quote(rule.Op));
             if (rule.Archives != null)
@@ -265,7 +299,14 @@ namespace U8Co
         {
             Dictionary<string, object> map = new Dictionary<string, object>();
             map["accounts"] = rule.Accounts;
-            map["operators"] = rule.Operators;
+            if (rule.Callers != null)
+            {
+                map["callers"] = rule.Callers;
+            }
+            else
+            {
+                map["operators"] = rule.Operators;
+            }
             map["type"] = rule.Type;
             map["op"] = rule.Op;
             if (rule.Archives != null)
@@ -297,13 +338,29 @@ namespace U8Co
                 return "readOnlyExceptions（只读账套允许的写入）: 无";
             }
             return "readOnlyExceptions（只读账套允许的写入）: " + rules.Length.ToString()
-                + " 条（匹配的写入放行，审计 policy 记 read_only_exception，其余仍 403 account_read_only）";
+                + " 条，其中按调用系统（callers）" + CallerRules(rules).ToString()
+                + " 条（匹配的写入放行，审计 policy 记 read_only_exception、read_only_match 记 operator 或 caller，其余仍 403 account_read_only）";
+        }
+
+        static int CallerRules(ReadOnlyExceptionRule[] rules)
+        {
+            int n = 0;
+            for (int i = 0; i < rules.Length; i++)
+            {
+                if (rules[i] != null && rules[i].Callers != null)
+                {
+                    n++;
+                }
+            }
+            return n;
         }
 
         sealed class Ask
         {
             public string Acc;
             public string User;
+            // 请求体 caller_trust（IdemReq.TrustField）；没有或不合写法时为 null。
+            public string Trust;
             public string Type;
             public string Op;
             public string Path;

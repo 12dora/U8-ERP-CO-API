@@ -26,7 +26,7 @@ def test_lock_forwards_exact_sealed_keys(kind: str, action: str) -> None:
         sent = json.loads(raw)
     assert method == "POST"
     assert seen == "/u8co/v1/vouchers/lock"
-    assert set(sent) == _sealed("type", "id", "action", "caller")
+    assert set(sent) == _sealed("type", "id", "action", "caller", "caller_trust")
     assert sent["type"] == kind
     assert sent["action"] == action
     assert _SECRET.encode() not in raw

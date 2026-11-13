@@ -48,6 +48,8 @@ namespace U8Co
         // null 表示整单关闭或打开。生单成功前 Id 是来源单据，Source 是来源类型。
         public int[] LineIds;
         public VoucherKind Source;
+        // 销售发票参照多张发货单（SaleInvSources，请求体 sources）；单张的 id + lines 时为 null。
+        public InvSource[] GenSources;
         // 入队时算好的单据锁键。取到任务的线程持有它们，跑完在 finally 里放掉。
         public string[] LockKeys;
         public bool KeysHeld;
@@ -66,9 +68,13 @@ namespace U8Co
         public string DryRunMode;
         // 请求体的 caller（调用方，进审计；不带为空）。
         public string Caller;
+        // 请求体的 caller_trust（API 已验签的信任项 name）：入队后只读例外 callers 规则按它再判一次；不带为 null。
+        public string Trust;
         // 写入策略：登录前的分类结果（WriteClass；读路由为 null）和判定（allow 或拒绝的错误码；未配置策略为空）。
         public WriteRequestInfo WriteInfo;
         public string Policy;
+        // 只读例外命中的种类（operator / caller，ReadOnlyGate）；没命中为空。
+        public string ReadOnlyMatch;
         // 本任务的 HTTP 等待（毫秒），也是排队截止的起算长度。缺省 HttpWaitMs；存货核算的长任务（ia/post、ia/period_end、
         // 含存货核算的 periods/close）登录前改成 iaCommandSeconds + 60 秒（IaReq.LongWait）。看门狗只在脚本执行期间放宽（IaRun.RunScripts）。
         public int WaitMs = HttpWaitMs;

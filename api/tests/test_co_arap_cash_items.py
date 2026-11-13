@@ -28,13 +28,13 @@ def _send(path: str, body: dict) -> dict:
 
 def test_voucher_forwards_cash_items_trimmed() -> None:
     sent = _send(_VOUCHER, {"flag": "AR", "type": "ar_receipt", "id": 5, "cash_items": {" 660399 ": " 07 "}})
-    assert set(sent) == _sealed("flag", "type", "id", "cash_items", "caller")
+    assert set(sent) == _sealed("flag", "type", "id", "cash_items", "caller", "caller_trust")
     assert sent["cash_items"] == {"660399": "07"}
 
 
 def test_process_voucher_forwards_cash_items() -> None:
     sent = _send(_PROC, {"flag": "AR", "cancel_nos": [_PJT], "cash_items": {"660399": "07", "66029901": "08"}})
-    assert set(sent) == _sealed("flag", "cancel_nos", "cash_items", "caller")
+    assert set(sent) == _sealed("flag", "cancel_nos", "cash_items", "caller", "caller_trust")
     assert sent["cash_items"] == {"660399": "07", "66029901": "08"}
 
 

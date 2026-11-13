@@ -5,6 +5,9 @@ contract_no 非空、不是「无」；customer_contract_no 可选，规则相�
 expect 必须给出 contract_no、customer_contract_no 两个键的当前值（None、空串、空白、「无」都表示当前为空）。
 replace=True 时合同号已有别的值也覆盖（合同改号，expect 仍须相符）；只在为 True 时放进正文。
 长度的细校验（自定义项档案的 iMaxLen）、订单是否被别人锁定、expect 是否相符都在桥；这里只挡明显的错误。
+
+成对设置 voucher_so_contract_pair（mode=pair）：合同号 cDefine1、内部合同号 cDefine2 一起设成请求值（允许覆盖），
+expect 的键是 contract_no、internal_contract_no；cascade=True 时桥在同一事务里连带更新下游单据表头，响应带 cascade 列表。
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ if TYPE_CHECKING:
 
 SO_CONTRACT_KINDS = ("sale_order",)
 SO_CONTRACT_EXPECT_KEYS = ("contract_no", "customer_contract_no")
+SO_CONTRACT_PAIR_EXPECT_KEYS = ("contract_no", "internal_contract_no")
 # 请求值的上限，与 API 一致（实际长度是自定义项档案的 iMaxLen，由桥核对）。
 SO_CONTRACT_LIMIT = 120
 _PLACEHOLDER = "无"
@@ -40,6 +44,20 @@ class SoContract:
     replace: bool = False
 
 
+@dataclass(frozen=True)
+class SoContractPair:
+    """成对设置一张销售订单（call.doc_id）的合同号与内部合同号：两者必填，已有别的值也覆盖。
+
+    expect 必须有 contract_no、internal_contract_no 两个键；值为 None 或字符串。cascade=True 时连带更新下游单据表头。
+    """
+
+    kind: str
+    contract_no: str
+    internal_contract_no: str
+    expect: dict[str, str | None]
+    cascade: bool = False
+
+
 class U8CoSoContractMixin:
     def call(self, route: str, fields: dict[str, Any]) -> dict[str, Any]:
         raise NotImplementedError
@@ -47,22 +65,41 @@ class U8CoSoContractMixin:
     def voucher_so_contract(
         self, call: U8Call, change: SoContract, idempotency_key: str | None = None
     ) -> dict[str, Any]:
-        if type(call.doc_id) is not int or call.doc_id <= 0:
-            raise ValueError("单据 id 必须是正整数")
-        if change.kind not in SO_CONTRACT_KINDS:
-            raise ValueError(f"type 目前只能是 {'、'.join(SO_CONTRACT_KINDS)}")
-        body = _common(call)
-        body["type"] = change.kind
-        body["id"] = call.doc_id
+        body = _head(call, change.kind)
         body["contract_no"] = _target(change.contract_no, "contract_no")
         if change.customer_contract_no is not None:
             body["customer_contract_no"] = _target(change.customer_contract_no, "customer_contract_no")
-        body["expect"] = _expect(change.expect)
+        body["expect"] = _expect(change.expect, SO_CONTRACT_EXPECT_KEYS)
         if type(change.replace) is not bool:
             raise ValueError("replace 必须是 True 或 False")
         if change.replace:
             body["replace"] = True
         return self.call("/v1/vouchers/so_contract", with_key(body, idempotency_key))
+
+    def voucher_so_contract_pair(
+        self, call: U8Call, change: SoContractPair, idempotency_key: str | None = None
+    ) -> dict[str, Any]:
+        body = _head(call, change.kind)
+        body["mode"] = "pair"
+        body["contract_no"] = _target(change.contract_no, "contract_no")
+        body["internal_contract_no"] = _target(change.internal_contract_no, "internal_contract_no")
+        body["expect"] = _expect(change.expect, SO_CONTRACT_PAIR_EXPECT_KEYS)
+        if type(change.cascade) is not bool:
+            raise ValueError("cascade 必须是 True 或 False")
+        if change.cascade:
+            body["cascade"] = True
+        return self.call("/v1/vouchers/so_contract", with_key(body, idempotency_key))
+
+
+def _head(call: U8Call, kind: str) -> dict[str, Any]:
+    if type(call.doc_id) is not int or call.doc_id <= 0:
+        raise ValueError("单据 id 必须是正整数")
+    if kind not in SO_CONTRACT_KINDS:
+        raise ValueError(f"type 目前只能是 {'、'.join(SO_CONTRACT_KINDS)}")
+    body = _common(call)
+    body["type"] = kind
+    body["id"] = call.doc_id
+    return body
 
 
 def _target(value: object, label: str) -> str:
@@ -79,20 +116,20 @@ def _target(value: object, label: str) -> str:
     return value
 
 
-def _expect(values: object) -> dict[str, str | None]:
+def _expect(values: object, keys: tuple[str, ...]) -> dict[str, str | None]:
     if not isinstance(values, dict):
         raise ValueError("expect 必须是对象")
-    _expect_keys(values)
-    for key in SO_CONTRACT_EXPECT_KEYS:
+    _expect_keys(values, keys)
+    for key in keys:
         _expect_value(values[key], f"expect.{key}")
-    return {key: values[key] for key in SO_CONTRACT_EXPECT_KEYS}
+    return {key: values[key] for key in keys}
 
 
-def _expect_keys(values: dict) -> None:
-    unknown = sorted(str(key) for key in values if key not in SO_CONTRACT_EXPECT_KEYS)
+def _expect_keys(values: dict, keys: tuple[str, ...]) -> None:
+    unknown = sorted(str(key) for key in values if key not in keys)
     if unknown:
-        raise ValueError(f"expect 有不允许的键: {', '.join(unknown)}；可用 {'、'.join(SO_CONTRACT_EXPECT_KEYS)}")
-    missing = [key for key in SO_CONTRACT_EXPECT_KEYS if key not in values]
+        raise ValueError(f"expect 有不允许的键: {', '.join(unknown)}；可用 {'、'.join(keys)}")
+    missing = [key for key in keys if key not in values]
     if missing:
         raise ValueError(f"expect 必须给出 {'、'.join(missing)} 的当前值（None 或空串表示当前为空）")
 

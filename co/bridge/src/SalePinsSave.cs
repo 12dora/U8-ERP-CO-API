@@ -34,7 +34,7 @@ namespace U8Co
 
         static bool Needed(SalePins pins)
         {
-            return pins != null && (pins.Items.Count > 0 || pins.Groups.Count > 0);
+            return pins != null && (pins.Items.Count > 0 || pins.Groups.Count > 0 || pins.InvLines.Count > 0);
         }
 
         static int HeadOf(object conn, SalePins pins, int id, string code)
@@ -85,6 +85,10 @@ namespace U8Co
             {
                 return 0;
             }
+            if (kind == Invoice)
+            {
+                return InvoiceIdByCode(conn, no);
+            }
             string sql = kind == Dispatch ? DispatchIdSql : OrderIdSql;
             List<Dictionary<string, object>> rows = Rows.Query(conn, sql, new object[] { no }, 2);
             return rows.Count == 1 ? CoRows.AsId(CoRows.Col(rows[0], kind == Dispatch ? "DLID" : "ID")) : 0;
@@ -93,6 +97,12 @@ namespace U8Co
         // 表头主键 = 单据主键；本次新增的表体行 = 保存后不在 OldLines 里的行，按 iRowNo, iSOsID 与请求顺序对应。
         void AssignKeys(object conn, WorkItem item)
         {
+            // 销售发票：按来源发货行找本次保存的发票行，并核对行数、数量（SalePinsInv）。
+            if (Kind == Invoice)
+            {
+                AssignInvoice(conn, item);
+                return;
+            }
             bool adds = Items.Exists(delegate(SalePin p) { return p.Line >= 0; })
                 || Groups.Exists(delegate(SaleQtyLine g) { return g.Line >= 0; });
             List<int> fresh = Adds > 0 && adds ? FreshLines(conn, item) : new List<int>();
@@ -216,8 +226,10 @@ namespace U8Co
         static void Verify(object conn, WorkItem item, SalePin pin)
         {
             Dictionary<string, object> row = Rows.One(conn, ReadSql(pin), new object[] { pin.Key });
-            string stored = row == null ? "" : CoRows.Col(row, "v");
-            if (Same(pin.Col == null ? "text" : pin.Col.Kind, pin.Value, stored))
+            // 浮点列两侧都按数量同一规整（SaleExtraRead.Clean）后比较，不拿二进制浮点的原始文本比。
+            string type = pin.Col == null ? "" : pin.Col.Type;
+            string stored = SaleExtraRead.Clean(row == null ? "" : CoRows.Col(row, "v"), type);
+            if (Same(pin.Col == null ? "text" : pin.Col.Kind, SaleExtraRead.Clean(pin.Value, type), stored))
             {
                 return;
             }

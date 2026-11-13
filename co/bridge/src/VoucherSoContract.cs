@@ -12,6 +12,8 @@ namespace U8Co
     // replace=true 时合同号已有别的值也直接覆盖（expect 照常核对当前值；客户合同号规则不变），用于合同改号。
     // 空值等价：NULL、空串、空白、「无」都是空。比较去两端空白、不分大小写。
     // 单据锁同修改销售订单（"sale_order:<id>"，DocLocks 按 type + id 派生）。
+    // mode=pair（成对设置，VoucherSoContractPair）：cDefine1 合同号、cDefine2 内部合同号一起设成请求值（允许覆盖，expect 防并发），
+    // cascade=true 时同一事务里把这一对写到下游发货单 / 退货单、销售出库单、销售发票表头（VoucherSoContractDown）。
     internal static class VoucherSoContract
     {
         public const string Op = "so_contract";
@@ -20,10 +22,14 @@ namespace U8Co
         public const string ContractKey = "contract_no";
         public const string CustomerKey = "customer_contract_no";
         public const string ReplaceKey = "replace";
+        public const string ModeKey = "mode";
+        public const string InternalKey = "internal_contract_no";
+        public const string CascadeKey = "cascade";
         internal const string RuleKey = "write:voucher:sale_order:so_contract";
         internal const string Placeholder = "无";
         // 登录前字段表（RequestsP4.P4Specs）：路径加除公共字段外的顶层键。
-        internal static readonly string[] Spec = new string[] { Path, "type", "id", ContractKey, CustomerKey, "expect", ReplaceKey };
+        internal static readonly string[] Spec = new string[] { Path, "type", "id", ContractKey, CustomerKey, "expect", ReplaceKey,
+            ModeKey, InternalKey, CascadeKey };
         // 请求值的上限（与 API 相同）；实际上限是 U8 自定义项设置与列宽，由 VoucherSoContractSql 在事务里核对。
         internal const int ValueMax = 120;
 
@@ -49,47 +55,65 @@ namespace U8Co
         }
 
         // 校验 contract_no / customer_contract_no / expect / replace（id、type 已由 Requests 校验）。expect 必须带两个键，值是字符串或 null。
+        // 带 mode 的走成对设置（VoucherSoContractPair.Parse）；不带 mode 时 internal_contract_no、cascade 一律 400。
         public static SoContractAsk Parse(Dictionary<string, object> body)
         {
-            SoContractAsk ask = new SoContractAsk();
-            object raw = Requests.Field(body, ContractKey);
-            if (raw == null)
+            if (VoucherSoContractPair.Wanted(body))
             {
-                throw ArcReq.Bad("缺少 " + ContractKey, ContractKey);
+                return VoucherSoContractPair.Parse(body);
             }
-            ask.ContractNo = Value(raw, ContractKey);
+            VoucherSoContractPair.RefuseOutside(body);
+            SoContractAsk ask = new SoContractAsk();
+            ask.ContractNo = Value(Required(body, ContractKey), ContractKey);
             object customer = Requests.Field(body, CustomerKey);
             ask.CustomerNo = customer == null ? null : Value(customer, CustomerKey);
-            ask.Replace = body.ContainsKey(ReplaceKey) && Flag(body[ReplaceKey]);
-            Dictionary<string, object> expect = Requests.Field(body, "expect") as Dictionary<string, object>;
-            if (expect == null)
-            {
-                throw ArcReq.Bad("expect 必须是对象，带 " + ContractKey + "、" + CustomerKey + " 的当前值", "expect");
-            }
-            foreach (string key in expect.Keys)
-            {
-                if (key != ContractKey && key != CustomerKey)
-                {
-                    throw ArcReq.Bad("未知字段 " + key, FieldPath.Clean("expect." + key));
-                }
-            }
+            ask.Replace = body.ContainsKey(ReplaceKey) && Flag(body[ReplaceKey], ReplaceKey);
+            Dictionary<string, object> expect = ExpectMap(body, CustomerKey);
             ask.Expect1 = ExpectText(expect, ContractKey);
             ask.Expect2 = ExpectText(expect, CustomerKey);
             return ask;
         }
 
-        // replace：可省（省略即 false）；给了就必须是布尔值，显式 null 同样 400（与 API、客户端一致）。
-        static bool Flag(object raw)
+        internal static object Required(Dictionary<string, object> body, string key)
+        {
+            object raw = Requests.Field(body, key);
+            if (raw == null)
+            {
+                throw ArcReq.Bad("缺少 " + key, key);
+            }
+            return raw;
+        }
+
+        // expect：对象，只认 contract_no 和 key2 两个键（两个键是否都在由 ExpectText 查）。
+        internal static Dictionary<string, object> ExpectMap(Dictionary<string, object> body, string key2)
+        {
+            Dictionary<string, object> expect = Requests.Field(body, "expect") as Dictionary<string, object>;
+            if (expect == null)
+            {
+                throw ArcReq.Bad("expect 必须是对象，带 " + ContractKey + "、" + key2 + " 的当前值", "expect");
+            }
+            foreach (string key in expect.Keys)
+            {
+                if (key != ContractKey && key != key2)
+                {
+                    throw ArcReq.Bad("未知字段 " + key, FieldPath.Clean("expect." + key));
+                }
+            }
+            return expect;
+        }
+
+        // replace / cascade：可省（省略即 false）；给了就必须是布尔值，显式 null 同样 400（与 API、客户端一致）。
+        internal static bool Flag(object raw, string key)
         {
             if (!(raw is bool))
             {
-                throw ArcReq.Bad(ReplaceKey + " 必须是 true 或 false", ReplaceKey);
+                throw ArcReq.Bad(key + " 必须是 true 或 false", key);
             }
             return (bool)raw;
         }
 
         // 要写入的值：字符串，非空，不是「无」，前后没有空白，不超过 ValueMax，不含控制字符。
-        static string Value(object raw, string label)
+        internal static string Value(object raw, string label)
         {
             string text = raw as string;
             if (text == null)
@@ -113,7 +137,7 @@ namespace U8Co
         }
 
         // expect 的值：必须给键；null 与空串等价；不要求写法合规（旧数据可能带首尾空白），只挡超长和控制字符。
-        static string ExpectText(Dictionary<string, object> expect, string key)
+        internal static string ExpectText(Dictionary<string, object> expect, string key)
         {
             string label = "expect." + key;
             if (!expect.ContainsKey(key))
@@ -170,6 +194,10 @@ namespace U8Co
         // → 合同号已有别的值时只允许原样挪进客户合同号（customer_contract_no 必须等于当前合同号）或 replace=true，否则不覆盖。
         internal static SoContractPlan Decide(SoContractAsk ask, SoContractSnap snap)
         {
+            if (ask.Pair)
+            {
+                return VoucherSoContractPair.Decide(ask, snap);
+            }
             CheckExpect(ask, snap);
             SoContractPlan plan = new SoContractPlan();
             plan.SetContract = !Same(snap.Contract, ask.ContractNo);
@@ -259,7 +287,7 @@ namespace U8Co
             return current;
         }
 
-        static string Show(string value)
+        internal static string Show(string value)
         {
             return value == null || value.Trim().Length == 0 ? "空" : value.Trim();
         }
@@ -285,7 +313,8 @@ namespace U8Co
             body["id"] = ask.Id;
             body["code"] = snap.Code;
             body["changed"] = changed;
-            body["current"] = Current(snap.Contract, snap.Customer);
+            body["current"] = ask.Pair ? VoucherSoContractPair.Current(snap.Contract, snap.Customer)
+                : Current(snap.Contract, snap.Customer);
             body["ufts"] = snap.Ts;
             return body;
         }
@@ -304,13 +333,23 @@ namespace U8Co
     {
         public int Id;
         public string ContractNo;
-        // null 表示不动 cDefine2。
+        // cDefine2 的目标值；null 表示不动 cDefine2。
         public string CustomerNo;
         // expect 的两个当前值（null 已转成空串）。
         public string Expect1;
         public string Expect2;
         // replace=true：合同号已有别的值也覆盖。
         public bool Replace;
+        // mode=pair：CustomerNo 存内部合同号（cDefine2 的目标值，必填），两列都按请求值设。
+        public bool Pair;
+        // cascade=true（只在 pair 模式）：连带更新下游单据表头。
+        public bool Cascade;
+
+        // cDefine2 在请求里的字段名（错误里的 field 用）。
+        public string Key2
+        {
+            get { return Pair ? VoucherSoContract.InternalKey : VoucherSoContract.CustomerKey; }
+        }
     }
 
     // 表头快照：Contract / Customer 是 cDefine1 / cDefine2 的原值（NULL 为 null）。

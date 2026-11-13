@@ -25,7 +25,7 @@ def test_voucher_forwards_exact_sealed_keys() -> None:
         sent = json.loads(raw)
     assert method == "POST"
     assert seen == "/u8co/v1/arap/voucher"
-    assert set(sent) == _sealed("flag", "type", "id", "sign", "voucher_date", "digest", "caller")
+    assert set(sent) == _sealed("flag", "type", "id", "sign", "voucher_date", "digest", "caller", "caller_trust")
     assert (sent["flag"], sent["type"], sent["id"], sent["voucher_date"]) == ("AR", "sale_invoice", 9, "2026-09-24")
     assert _SECRET.encode() not in raw
 
@@ -91,7 +91,7 @@ def test_merge_forwards_ids_and_fills_the_type() -> None:
         response = client.post(_PATH, json=_auth(flag="AR", ids=_refs("ar_receipt", 7, 3)))
         assert response.status_code == 200, response.text
         sent = json.loads(server.httpd.hits[-1][2])
-    assert set(sent) == _sealed("flag", "type", "ids", "caller")
+    assert set(sent) == _sealed("flag", "type", "ids", "caller", "caller_trust")
     assert sent["type"] == "ar_receipt"
     assert sent["ids"] == _refs("ar_receipt", 7, 3)
 
@@ -141,7 +141,7 @@ def test_drop_forwards_exact_sealed_keys() -> None:
     with _Up() as server:
         _wired(server.base_url).post(_DROP, json=_auth(flag="AR", pz_id=_PZ))
         sent = json.loads(server.httpd.hits[-1][2])
-    assert set(sent) == _sealed("flag", "pz_id", "caller")
+    assert set(sent) == _sealed("flag", "pz_id", "caller", "caller_trust")
     body = ok.json()
     assert (body["pz_id"], body["deleted"], body["voucher"]["no"]) == (_PZ, True, 172)
 

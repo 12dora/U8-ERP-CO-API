@@ -70,7 +70,7 @@ def test_sends_exact_sealed_keys() -> None:
         method, seen, raw = server.httpd.hits[-1]
         sent = json.loads(raw)
     assert (method, seen) == ("POST", "/u8co/v1/gl/transfer/pnl")
-    assert set(sent) == _sealed("fiscal_year", "period", "caller")
+    assert set(sent) == _sealed("fiscal_year", "period", "caller", "caller_trust")
     assert _SECRET not in raw.decode("utf-8")
 
 

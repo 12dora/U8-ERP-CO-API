@@ -22,6 +22,8 @@ namespace U8Co
         const string LineKeys = "cwhcode,cbatch,cmemo";
         const string InvHeadKeys = "cvouchtype,ddate,cmemo";
         const string InvLineKeys = "cmemo";
+        // 蓝字发票参照发货单另收回签字段 cbdefine1–3（SaleBillVouchs_extradefine，SalePins 保存后补写并回读）；红字发票不收。
+        const string InvBlueLineKeys = "cmemo,cbdefine1,cbdefine2,cbdefine3";
         const string DispHeadSql = "select cDLCode, cSOCode, cVerifier, cVouchType, bReturnFlag, cCloser, bFirst "
             + "from DispatchList where DLID=?";
         // 可开票 = iQuantity - fretqtywkp（未开票退货）- iSettleQuantity，同 U8 视图 sale_DispToSaleVouchJS_B 的 iwkpquantity。
@@ -68,14 +70,17 @@ namespace U8Co
             {
                 head = new Dictionary<string, object>();
             }
-            if (lines == null || lines.Length < 1 || lines.Length > 200)
+            // 单张的 id + lines 是一个来源；sources 是多张（SaleInvSources），走同一条路径。
+            InvSource[] sources = SaleInvSources.Of(ctx.Item, sourceId, lines);
+            int total = SaleInvSources.LineCount(sources);
+            if (total < 1 || total > 200)
             {
                 throw BridgeException.BadField("lines", "表体行数必须在 1 到 200 之间");
             }
             CheckKeys(head, true, InvHeadKeys, false);
             InvHead want = Want(head);
-            ShipLine[] plan = PlanInvoice(ctx.Conn, sourceId, lines, want);
-            return BuildInvoice(ctx, kind, sourceId, head, want, plan);
+            ShipLine[] plan = PlanInvoices(ctx.Conn, sources, want);
+            return BuildInvoice(ctx, kind, sources, head, want, plan);
         }
 
         static ApiResult Build(WorkContext ctx, VoucherKind kind, int sourceId, Dictionary<string, object> head,

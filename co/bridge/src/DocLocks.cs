@@ -330,6 +330,11 @@ namespace U8Co
         // 退货单与发货单同表、共用 cDLCode 编号：生单时另锁 "new:dispatch"，与发货单生单串行。
         static string[] GenerateKeys(WorkItem item, string kind)
         {
+            // 销售发票参照多张发货单：每张来源都锁（SaleInvSources.LockKeys）。
+            if (item.GenSources != null)
+            {
+                return SaleInvSources.LockKeys(item, kind);
+            }
             if (kind == "sale_return")
             {
                 return new string[] { Key(SourceName(item), item.Id), "new:" + kind, "new:dispatch" };

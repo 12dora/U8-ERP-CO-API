@@ -124,7 +124,7 @@ def test_sealed_keys() -> None:
         _wired(server.base_url).post(_PATH, json=_body())
         method, seen, raw = server.httpd.hits[-1]
     assert (method, seen) == ("POST", "/u8co" + _BRIDGE)
-    assert set(json.loads(raw)) == _sealed("type", "id", "fields", "expect", "caller")
+    assert set(json.loads(raw)) == _sealed("type", "id", "fields", "expect", "caller", "caller_trust")
     assert _SECRET not in raw.decode("utf-8")
 
 

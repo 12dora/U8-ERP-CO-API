@@ -10,11 +10,11 @@ from u8co_api.co_access import WRITE, access_of, is_mgmt, is_perm_evaluate, is_r
 from u8co_api.co_client import DEFAULT_ROUTE, BridgeRoutes
 from u8co_api.co_clock import login_defaults
 from u8co_api.co_dryrun import take as take_dry_run
-from u8co_api.co_idem import caller_tag, idempotency_fields
+from u8co_api.co_idem import TRUST_FIELD, caller_tag, caller_trust, idempotency_fields
 from u8co_api.co_models import CoAuth
 from u8co_api.co_route_health import RouteProbes
 from u8co_api.errors import ApiError, forbidden, not_found, unavailable
-from u8co_api.readonly_exceptions import allows, health_of
+from u8co_api.readonly_exceptions import health_of, match_of
 from u8co_api.write_class import WriteInfo, classify
 
 __all__ = ["login_defaults"]
@@ -70,15 +70,21 @@ def refuse_read_only(request, action: str, payload: dict) -> None:
     """只读账套（U8CO_READONLY_ACCOUNTS）的写路由 403 account_read_only：在访问桥和写入策略之前判定。
     命中 U8CO_READONLY_EXCEPTIONS（路由 archives/<op> 或 vouchers/<op>、操作员、账套；archives 的 create、delete
     另看请求体 archive，vouchers 另看请求体 type、action、生单来源）时放行，
-    审计 read_only_exception 为 true，成功时 outcome 也记该值；预演也必须是同一形状。读路由、经营
-    管理路由不受影响。所有写入口都调这一处。"""
+    审计 read_only_exception 为 true，成功时 outcome 也记该值；预演也必须是同一形状。callers 行按已验签令牌的
+    信任项 name（request.state.trust_name，不取自请求体；co_idem.caller_trust，与转给桥的 caller_trust 同一个值）比较；
+    审计 read_only_match 记命中的是 operator 还是 caller。
+    读路由、经营管理路由不受影响。所有写入口都调这一处。"""
     if access_of(action) != WRITE:
         return
     settings = request.app.state.settings
     if _acc_of(payload) not in settings.read_only_accounts:
         return
-    if allows(settings.read_only_exceptions, action, payload):
+    kind = match_of(
+        settings.read_only_exceptions, action, payload, caller_trust(getattr(request.state, "trust_name", None))
+    )
+    if kind is not None:
         request.state.read_only_exception = True
+        request.state.read_only_match = kind
         request.state.outcome = "read_only_exception"
         return
     request.state.outcome = "account_read_only"
@@ -187,7 +193,15 @@ def run_call(request, caller: Caller, action: str, bridge_path: str, body: CoAut
     payload.update(idempotency_fields(request.headers, caller, bridge_path))
     if not is_read(action):
         # 写入一律带 caller（没带幂等键时桥只记进审计），桥的审计行据此记下调用方。
-        payload.setdefault("caller", caller_tag(caller))
+        # 只读例外的 callers 行另按 caller_trust（已验签的信任项 name，与本服务闸门同一个值）比较，
+        # caller 过长换成摘要时它不变。两个字段都用验过签的调用方覆盖，请求体里的同名字段
+        # （输入模型本就拒绝未知键）不能顶替；name 不合写法时不发 caller_trust（桥不命中 callers 行）。
+        payload["caller"] = caller_tag(caller)
+        trust = caller_trust(caller.name)
+        if trust is None:
+            payload.pop(TRUST_FIELD, None)
+        else:
+            payload[TRUST_FIELD] = trust
     return call_bridge(request, body.acc, bridge_path, payload)
 
 

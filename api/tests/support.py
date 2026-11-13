@@ -90,7 +90,7 @@ def audit_line(out: str, endpoint: str) -> dict:
 
 
 def write_keys(api_path: str, keys: set[str]) -> set[str]:
-    """转给桥的键集合：写路由一律带 caller（桥的审计行记调用方），读路由不带。"""
+    """转给桥的键集合：写路由一律带 caller（桥的审计行记调用方）和 caller_trust（只读例外用），读路由不带。"""
     if is_read("co:" + api_path.removeprefix("/v1/co/")):
         return set(keys)
-    return set(keys) | {"caller"}
+    return set(keys) | {"caller", "caller_trust"}

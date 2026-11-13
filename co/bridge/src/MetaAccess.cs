@@ -42,12 +42,12 @@ namespace U8Co
         // 销售发票参照发货单：表体不带自由项。
         internal static bool MetaInvoice(string key, bool head)
         {
-            return Allowed(key, head, head ? InvHeadKeys : InvLineKeys, false);
+            return Allowed(key, head, head ? InvHeadKeys : InvBlueLineKeys, false);
         }
 
         internal static string[] MetaNames()
         {
-            return (HeadKeys + "," + LineKeys + "," + InvHeadKeys + "," + InvLineKeys).Split(',');
+            return (HeadKeys + "," + LineKeys + "," + InvHeadKeys + "," + InvBlueLineKeys).Split(',');
         }
     }
 

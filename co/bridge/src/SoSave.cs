@@ -236,7 +236,15 @@ namespace U8Co
         // 销售发票同样 GetVoucherNO(head, no, err) → cSBVCode，Save 第三参 (short)0。表头必须带空的 sbvid。
         public static int SaveInvoice(object conn, object co, object[] doms, WorkItem item, out string savedCode)
         {
-            return SaveFresh(conn, co, doms, item, Fresh("cSBVCode", "", "没有生成发票号", true, "sale_invoice"), out savedCode);
+            return SaveInvoice(conn, co, doms, item, null, out savedCode);
+        }
+
+        // 参照发货单的蓝字发票：保存后同一事务核对发票行并补写回签字段（SalePins.ForInvoice）。
+        public static int SaveInvoice(object conn, object co, object[] doms, WorkItem item, SalePins pins, out string savedCode)
+        {
+            FreshSpec spec = Fresh("cSBVCode", "", "没有生成发票号", true, "sale_invoice");
+            spec.Pins = pins;
+            return SaveFresh(conn, co, doms, item, spec, out savedCode);
         }
 
         static FreshSpec Fresh(string codeAttr, string idAttr, string emptyMsg, bool pinSbvid, string kindName)

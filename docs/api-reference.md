@@ -65,7 +65,7 @@
 
 | 字段 | 说明 |
 | --- | --- |
-| `acc` | 三位账套号。必须在 API 的账套白名单（`U8CO_ACCOUNTS`）和桥的 `allowedAccounts` 里，否则 403 `account_not_allowed`，不登录 U8。只读账套（API `U8CO_READONLY_ACCOUNTS`、桥 `readOnlyAccounts`）的写路由 403 `account_read_only`；只读例外（`U8CO_READONLY_EXCEPTIONS` / `readOnlyExceptions`）按账套、操作员精确放行档案 `archives/<op>` 与单据 `vouchers/<op>`，单据项另须请求体 `type` 等于该项的 `voucher`（登记表：`head_fix` 发货单，`so_contract`、`create`、`update`、`close` 销售订单，`verify` 销售订单或发货单，`generate` 发货单参照销售订单），读路由不受限（[configuration.md](configuration.md) 第 3 节「只读例外」） |
+| `acc` | 三位账套号。必须在 API 的账套白名单（`U8CO_ACCOUNTS`）和桥的 `allowedAccounts` 里，否则 403 `account_not_allowed`，不登录 U8。只读账套（API `U8CO_READONLY_ACCOUNTS`、桥 `readOnlyAccounts`）的写路由 403 `account_read_only`；只读例外（`U8CO_READONLY_EXCEPTIONS` / `readOnlyExceptions`）按账套、操作员（单据 `create` / `update` / `close` / `verify` / `generate` 也可按调用系统：已验签令牌的信任项 `name` 在该项 `callers` 里，任何操作员）精确放行档案 `archives/<op>` 与单据 `vouchers/<op>`，单据项另须请求体 `type` 等于该项的 `voucher`（登记表：`head_fix` 发货单，`so_contract`、`create`、`update`、`close` 销售订单，`verify` 销售订单、发货单或销售发票（发票只是复核，不含应收审核），`generate` 发货单参照销售订单或销售发票参照发货单），读路由不受限（[configuration.md](configuration.md) 第 3 节「只读例外」） |
 | `year` | 四位年度，即账套库年度（数据库名 `UFDATA_<账套>_<年度>` 里的年度），不一定等于当前会计年度。API 缺省取 `date` 的年份；账套库年度不同时要显式传 |
 | `operator` | U8 操作员编码，1 到 20 个字符，不含空白、引号或分号 |
 | `password` | 仅 API。U8 操作员口令，1 到 128 个字符，只在本次请求里使用，不保存、不写审计 |
@@ -100,7 +100,7 @@
 | POST | `vouchers/close` | 写 | 关闭、打开 |
 | POST | `vouchers/lock` | 写 | 销售订单锁定、解锁（§10；采购订单不支持） |
 | POST | `vouchers/head_fix` | 写 | 历史发货单表头修正：只改已审核发货单的收货地址编码、业务员，按规则同步下游销售出库单、销售发票和应收明细的业务员（§8；只读账套上须有只读例外） |
-| POST | `vouchers/so_contract` | 写 | 销售订单合同号回写：只改销售订单表头的合同号（`cDefine1`），可选同时改客户合同号（`cDefine2`），已审核的订单也能写（§8；只读账套上须有只读例外） |
+| POST | `vouchers/so_contract` | 写 | 销售订单合同号回写：只改销售订单表头的合同号（`cDefine1`），可选同时改客户合同号（`cDefine2`）；`mode: "pair"` 成对设置合同号与内部合同号，可连带下游单据表头；已审核的订单也能写（§8；只读账套上须有只读例外） |
 | POST | `vouchers/generate` | 写 | 参照生单 |
 | POST | `notes/get` | 读 | 读一张应收 / 应付票据及其处理记录（§16） |
 | POST | `notes/create` | 写 | 票据登记，同时生成收款单；应付票据（生成付款单）是第二级（§16） |
@@ -823,6 +823,58 @@ U8 不让改已审核、已有下游单据的销售订单（`vouchers/update` �
 
 写入分类 `(sale_order, so_contract)`，规则键 `write:voucher:sale_order:so_contract`，功能权限为销售订单卡片的修改 / 变更按钮（功能 id 以桥 `PermRegistry` 登记为准；数据权限按订单表头的客户、部门、业务员、销售类型 `cSTCode`）；写入策略放行 `vouchers/update` 不连带放行本路由，策略 `allow` 要单独加 `{"type":"sale_order","ops":["so_contract"]}`。只读账套上须配只读例外 `{"type":"vouchers","op":"so_contract"}`（路径必须恰好是 `vouchers/so_contract`，且请求体 `type` 为 `sale_order`），`vouchers/update` 等其它单据写入仍 403。写入建议带 `Idempotency-Key`：同一个键重试原样拿到第一次的结果；一次写入只对应一个键。客户端 `voucher_so_contract(call, SoContract(kind, contract_no, expect, customer_contract_no=None, replace=False), idempotency_key=None)`（`call.doc_id` 是订单主键）；命令行 `voucher-so-contract --type sale_order --id N --contract-no X [--customer-contract-no Y] [--replace] --expect-contract-no A --expect-customer-contract-no B`（两个 `--expect-…` 都要给，空串表示当前为空），可加 `--dry-run`、`--idempotency-key`。
 
+#### 成对设置（`mode: "pair"`）
+
+把订单表头的合同号（`cDefine1`）和内部合同号（`cDefine2`）一起设成请求值，**允许覆盖已有的值**（合同号改为客户合同号、补内部合同号都走这里）；可选在同一事务里把这一对写到下游单据表头。不带 `mode` 时行为与上面完全相同。
+
+| 字段 | 说明 |
+| --- | --- |
+| `mode` | `"pair"`；其它值或显式 `null` 400 |
+| `contract_no` | 必填，要写入 `cDefine1`（合同号）的值，规则同上 |
+| `internal_contract_no` | 必填，要写入 `cDefine2`（内部合同号）的值，规则同 `contract_no`；不带 `mode` 时不收（400） |
+| `expect` | 必填，`{"contract_no": …, "internal_contract_no": …}`：两列当前原值，空值等价同上；带 `customer_contract_no` 键 400 |
+| `cascade` | 可选布尔，缺省 `false`；`true` 时连带更新下游单据（见下）。不带 `mode` 时不收（400）。API 只在为 `true` 时转给桥 |
+| `dry_run` | 同上；带 `cascade` 时另给出下游的判断结果，不写库 |
+
+`customer_contract_no`、`replace` 在成对设置里不收（400）。判定：订单不存在 404；被别的用户锁定 409（`detail.reason=locked`）；`expect` 不符 409 `state_mismatch`（`detail.current` 为 `{contract_no, internal_contract_no}` 当前原值）；两列都已是请求值（去首尾空白后逐字相等，区分大小写）时 `changed:false`、不写订单，`cascade` 照常执行；否则两列都设成请求值（只写有变化的列），并照常盖修改人、修改日期、修改时间，行版本乐观锁、写后回读同上。长度按 U8 自定义项档案核对，超出 400（`field` 为 `contract_no` 或 `internal_contract_no`）。
+
+`cascade: true`：订单写完后在同一事务里处理这张订单的下游单据——发货单与退货单（`dispatch`，`DispatchList`）、销售出库单（`sale_out`，`rdrecord32`）、销售发票（`sale_invoice`，`SaleBillVouch`）。逐张 `UPDLOCK, ROWLOCK` 读表头，收集它的**全部**来源订单（一张单据可以合并几张订单）：
+
+- 已是这一对 → `unchanged`，不写；
+- 任一来源订单（本单按写后值）的两列不是这一对，或有明细找不到来源订单 → `skipped`，`reason: "mixed_sources"`，不写；
+- 表头有锁定人列且被别的操作员锁定 → `skipped`，`reason: "locked"`（三张表在 U8 里一般没有该列，此时不适用）；
+- 否则 `updated`：按行版本 `UPDATE … SET cDefine1=?, cDefine2=?`，写后回读。
+
+要改的下游单据（`updated`）列宽放不下请求值时 400 `bad_request`（`field` 为 `contract_no` 或 `internal_contract_no`，消息带单号），在任何写入之前（预演同样）。
+
+来源解析（逐行）：链接值 0 当缺省。发货单 / 退货单行看 `iSOsID`；出库单行经 `iDLsID` 找发货单行再看它的 `iSOsID`；发票行的直接 `iSOsID` 与经 `iDLsID` 的发货单行**各自**解析，两条都有而指向不同订单算冲突；两条都没有时（红冲蓝字发票）经 `iSBVID` 走一跳到蓝字发票行（不能是本行），蓝字行再按直接 / 发货单两条解析，不再往下跳。链接给了却找不到行（悬空）、冲突、没有任何链接，这一行就没有来源，整张单据按 `mixed_sources` 跳过。只要有一行（经任一条链接）指向本订单，这张单据就会被找出来并列在 `cascade` 里。
+
+并发：表体关联行及其找到的订单行在发现和收来源时加 `UPDLOCK, HOLDLOCK`，其它来源订单表头按 ID 升序加 `UPDLOCK`，下游表头按类型、主键加 `UPDLOCK`，都持有到提交；锁表头后重读表体，已不指向本订单的单据剔除，来源集合变了 409 `state_mismatch`。
+
+下游**只改这两列**：不写修改人、审核人等任何其它列，不碰表体、金额、数量、日期、状态、各 `…History` 表和总账；修改人类列只盖在订单上。下游单据合计超过 200 张、一张单据超过 5000 行表体或 200 张不同来源订单时 409 `too_many_downstream`，什么都不写（预演同样）。
+
+响应在原有字段之外另有 `cascade`（只在 `cascade: true` 时出现），`current` 的键为 `contract_no`、`internal_contract_no`：
+
+```json
+{"ok":true,"type":"sale_order","id":1000000001,"code":"SO…","changed":true,
+ "current":{"contract_no":"KH-2026-0001","internal_contract_no":"HT202601001"},"ufts":"0x00000000000A1B2C",
+ "cascade":[
+  {"type":"dispatch","id":1000000011,"code":"FH…","result":"updated",
+   "before":{"contract_no":"HT202601001","internal_contract_no":null}},
+  {"type":"sale_invoice","id":1000000021,"code":"FP…","result":"skipped","reason":"mixed_sources",
+   "before":{"contract_no":"HT202601009","internal_contract_no":null}}]}
+```
+
+请求：
+
+```json
+{"acc":"801","operator":"op001","type":"sale_order","id":1000000001,"mode":"pair",
+ "contract_no":"KH-2026-0001","internal_contract_no":"HT202601001","cascade":true,
+ "expect":{"contract_no":"HT202601001","internal_contract_no":null}}
+```
+
+写入分类、规则键、功能权限、只读例外与普通写入相同（同一路由、同一 `op`）。客户端 `voucher_so_contract_pair(call, SoContractPair(kind, contract_no, internal_contract_no, expect, cascade=False), idempotency_key=None)`；命令行 `voucher-so-contract --type sale_order --id N --mode pair --contract-no X --internal-contract-no Y [--cascade] --expect-contract-no A --expect-internal-contract-no B`。**升级顺序：先桥，后 API**（旧桥遇 `mode` 回 400）。
+
 ## 9. 删除 `vouchers/delete`
 
 请求：`type`、`id`。成功 `{"ok":true,"type","id","deleted"}`，`deleted` 为 true 表示表头已不存在。报检单、检验单、物料清单另带 `code`（见下）。
@@ -925,14 +977,14 @@ U8 不让改已审核、已有下游单据的销售订单（`vouchers/update` �
 
 ## 11. 参照生单 `vouchers/generate`
 
-请求：`type` 是要生成的单据，`id` 是来源单据主键，可选 `source_type`、`head`、`lines`。来源须已审核、未关闭。新单据为未审核（销售发票为未复核）。
+请求：`type` 是要生成的单据，`id` 是来源单据主键，可选 `source_type`、`head`、`lines`。来源须已审核、未关闭。新单据为未审核（销售发票为未复核）。销售发票参照发货单另可用 `sources` 代替 `id` + `lines`，一张发票参照多张发货单（见下文「销售」）。
 
 `source_type` 省略取该目标的缺省来源；不在名单里的来源 400「该单据类型不能参照此来源类型生单」；类型不能生单 400「该单据类型不支持生单」。
 
 | 目标 | 来源 | `lines` | 剩余数量 | 表头可写 | 行可写 |
 | --- | --- | --- | --- | --- | --- |
 | `dispatch` | 销售订单 | 1 到 200 行，必填 | `iQuantity - isnull(iFHQuantity,0)` | `ddate`、`cmemo`、`cwhcode`、`cdepcode`、`cpersoncode`、`cshipaddress`、`caddcode`（覆盖订单的收货地址编码）、`cdefine1`…`16`、`chdefine1`…`4`（表头扩展自定义项，在 `DispatchList_extradefine`） | `cwhcode`、`cbatch`、`cmemo`、`cdefine22`…`37`、`cfree1`…`10` |
-| `sale_invoice` | 发货单 | 同上，`source_line_id` 是 `iDLsID` | `iQuantity - isnull(iSettleQuantity,0) - isnull(fretqtywkp,0)`（扣除未开票退货，同 U8 视图 `sale_DispToSaleVouchJS_B`） | `cvouchtype`（`26` 专用或 `27` 普通，缺省 26，其他值 400「该发票类型不支持」）、`ddate`、`cmemo`、`cdefine1`…`16` | `cmemo`、`cdefine22`…`37` |
+| `sale_invoice` | 发货单（一张用 `id` + `lines`，多张用 `sources`） | 同上，`source_line_id` 是 `iDLsID`；`sources` 时各张合计 1 到 200 行 | `iQuantity - isnull(iSettleQuantity,0) - isnull(fretqtywkp,0)`（扣除未开票退货，同 U8 视图 `sale_DispToSaleVouchJS_B`） | `cvouchtype`（`26` 专用或 `27` 普通，缺省 26，其他值 400「该发票类型不支持」）、`ddate`、`cmemo`、`cdefine1`…`16` | `cmemo`、`cdefine22`…`37`，回签字段 `cbdefine1`（回签数量）、`cbdefine2`（回签含税价）、`cbdefine3`（回签价税合计） |
 | `sale_invoice`（`source_type: "sale_return"`） | 退货单（红字发货单，`id` 是 `DLID`），生成红字发票 | 可省略（全部有剩余的退货行按剩余数量）；带了是 1 到 200 行，`source_line_id` 是退货行 `iDLsID`，`quantity` 填正数 | `abs(iQuantity) - abs(isnull(iSettleQuantity,0))` | 同蓝字发票；`cvouchtype` 省略时取原蓝字发票（退货行 `iCorID` 上的发票）的类型，没有则 26 | `cmemo`、`cdefine22`…`37` |
 | `sale_invoice`（`source_type: "sale_invoice"`） | 已复核的蓝字销售发票（`id` 是 `SBVID`），红冲 | 可省略（全部有剩余的蓝字行按剩余数量）；带了是 1 到 200 行，`source_line_id` 是蓝字发票行 `AutoID`，`quantity` 填正数 | 蓝字行数量 − 已红冲数量（指向该行的红字行合计） | `cvouchtype`（只能同蓝字）、`ddate`（不早于蓝字发票）、`cmemo`、`cdefine1`…`16` | `cmemo`、`cdefine22`…`37`。见 §35「红冲蓝字销售发票」 |
 | `sale_out` | 发货单 | 可省略（整张剩余）；带了是 1 到 200 行，`source_line_id` 是 `iDLsID`，只收 `source_line_id`、`quantity`、`cbatch`、`cposition`（同一发货行可按批号 / 货位拆行） | 整张：`sum(iQuantity - isnull(fOutQuantity,0)) > 0`；按行：`iQuantity - isnull(fOutQuantity,0)` | 不能带表头字段 | 两步、非原子，见下文 |
@@ -962,7 +1014,7 @@ U8 不让改已审核、已有下游单据的销售订单（`vouchers/update` �
 
 每行必填 `source_line_id`（正整数）和 `quantity`（大于 0，不超过 1000000000000）。来源行重复 400「来源明细重复」，例外：销售出库同一发货行可按批号 / 货位列多次，（行、批号、货位）都相同才算重复，400「明细行重复」，且在桥读取发货单之后才判（发货单不存在、未审核先回 404 / 409）；不良品处理单的来源行就是检验单本身，每种处置一行，`source_line_id` 都等于检验单 ID。数量超过剩余 409「超过可生单数量」。
 
-成功：`{"ok":true,"type","id","code","source_type","source_id","state","lines"}`，`source_type` 是实际来源，`lines` 是新单据的表体行数。检验单、不良品处理单另有 `wf`（其他检验单没有审批流，不带）。
+成功：`{"ok":true,"type","id","code","source_type","source_id","state","lines"}`，`source_type` 是实际来源，`lines` 是新单据的表体行数。请求用 `sources` 时 `source_id` 是第一张来源，另有 `source_ids`（全部来源发货单 `DLID`，按请求顺序）。检验单、不良品处理单另有 `wf`（其他检验单没有审批流，不带）。
 
 采购发票和到货单保存后，桥在同一事务里核对 U8 已把本次数量加到来源累计数上，否则回滚并 409 `u8_rejected`。若 U8 在保存中已自行提交（本连接 `@@TRANCOUNT` 为 0），核对不过时无法回滚，返回 500 `internal`「U8 已自行提交，无法核对回写」，单据已落库，需人工核对。
 
@@ -977,6 +1029,9 @@ U8 不让改已审核、已有下游单据的销售订单（`vouchers/update` �
 - 发货单：仓库必填（行上的 `cwhcode`，否则表头，否则来源行），都没有 400「必须指定仓库」。
 - 发货单（参照销售订单）的落库核对字段：表头 `caddcode`、`cdefine1`、`cdefine2`、`chdefine1`…`4`。`caddcode` 缺省照抄订单；给了就覆盖，须是订单客户在 `CusDeliverAdd` 里的编码，否则 400「收货地址编码 X 不是客户 C 的收货地址」（`field` 为 `head.caddcode`；地址文本 `cshipaddress` 不随之改变，需要时一并送）。类型、长度、存在性校验，扩展自定义项由桥在保存后写入 `DispatchList_extradefine`，以及保存后的回读核对，规则同 §7「销售订单的落库核对字段」。
 - 销售发票：同一张发票的行须来自同一客户；来源发货单已关闭或是期初时拒绝。
+- 销售发票参照多张发货单（`sources`）：`sources` 是 `[{"id": 发货单 DLID, "lines": [...]}, ...]`，行形状同 `lines`；1 到 200 张、`id` 不重复（400「来源发货单重复」），各张 `lines` 合计 1 到 200 行；不能与 `id`、`lines` 同时给（400），只用于 `type: sale_invoice` 且 `source_type` 省略或为 `dispatch`（参照退货单、红冲 400）。只有一项的 `sources` 与 `id` + `lines` 走同一条路径。每张都须是蓝字（400「仅支持蓝字发货单」）、非期初、已审核、未关闭；第 2 张起须与第 1 张同客户 `cCusCode`、同业务类型 `cBusType`、同币种 `cexch_name`、同汇率 `iExchRate`、同表头税率 `iTaxRate`，否则 400「参照的发货单必须是同一…」（`field` 为 `sources.<i>.id`）。行须属于所在的那张发货单（列在别的发货单下 400「明细行不存在」）、未关闭，数量不超过该行剩余可开票数量（409「超过可生单数量」，可以只开一部分）。表头照第 1 张发货单的参照视图抄（`cdlcode`、`csocode` 取第 1 张），表体每行照自己的发货行抄，`cdlcode` / `cbdlcode` 写该行所属发货单的单号。每张来源都加单据锁。多张发货单拼一张发票时 U8 界面另有哪些分组条件未在测试账套上实测，见 [limitations.md](limitations.md)。
+- 销售发票（参照发货单，蓝字）保存后在同一事务里核对：发票行数等于请求行数，每个请求行恰有一条发票行（按 `iDLsID`）且数量相同，否则回滚并 409 `u8_rejected`「U8 保存的明细与请求不一致」。
+- 回签字段 `cbdefine1`、`cbdefine2`、`cbdefine3`（只给参照发货单的蓝字发票）：字符串或数字，空值等于没给；按 `INFORMATION_SCHEMA` 核对 `SaleBillVouchs_extradefine` 有该列、类型和长度，没有该列 400「账套没有扩展自定义项 …」。它们不进 U8 组件的 DOM：Save 之后、提交之前由桥写进 `SaleBillVouchs_extradefine`（按发票行 `AutoID`，有行改、没有行插入）并回读，不符回滚并 409 `u8_rejected`。发票数量仍是 `quantity`，回签数量可以大于或小于它。`vouchers/load` 的销售发票表体并入 `SaleBillVouchs_extradefine` 的列（表头并入 `SaleBillVouch_extradefine`）。
 - 红字销售发票（`source_type: "sale_return"`）：退货单须是红字发货单（否则 400「该单据不是退货单（红字发货单）」）、非期初（400「不支持期初退货单」）、已审核、未关闭，且是已开票退货（`bneedbill=1`，否则 409「退货单是未开票退货（bneedbill=0），不开红字发票」：未开票退货冲减的是原发货行的未开票数量，不需要红票）；行未关闭，没有可开票数量 409「退货单没有可开票数量」。销售组件用红字 VT 1（26）/ 3（27），卡片同蓝字（07 / 13）。桥先试 `GetNegaVouchData`，U8 生成的表体不含全部请求行时改按参照视图（`Sales_FHD_T` / `Sales_FHD_W`）组装；表头 `bReturnFlag=1`、`iDisp=1`、`sbvid=""`，行 `iDLsID` 是退货行、`cbdlcode` 是退货单号，数量写负的本次数量，金额按比例后由 U8 按数量重算。可开票数量在事务里加 `UPDLOCK`、`HOLDLOCK` 重读；保存后在同一事务里核对：新发票行数、全为负数量且合计等于请求，退货行 `iSettleQuantity` 减了本次数量（更负），挂订单的订单行 `iKPQuantity` 净减本次数量；不符回滚并 409 `u8_rejected`。红字发票不能修改，可复核、弃复、删除（§6、§9）。
 - 退货单（红字发货单）：来源须是蓝字发货单（`bReturnFlag=0`、`cVouchType=05`，否则 400「仅支持参照蓝字发货单」）、非期初（400「不支持期初发货单」）、已审核、未关闭，行未关闭。`quantity` 填正数。一张退货单要么是未开票退货（表头 `bneedbill=0`），要么是已开票退货（`bneedbill=1`）：`head.invoiced` 为 false 时每行不超过未开票可退、为 true 时不超过已开票可退（否则 409「超过未开票可退数量」/「超过已开票可退数量」）；省略时全部行都在未开票可退内则按未开票，否则全部在已开票可退内则按已开票，都不行 409 `state_mismatch`，请按 `invoiced` 拆成两张。桥让 U8 按原发货单生成整张红字单（`GetNegaVouchData`），只留请求的行，改为新增，数量改为负的本次退货数，金额按比例缩放后由 U8 按数量和单价重算；`iCorID` / `cCorCode` 指回原发货行和原单号，原行有订单关联时挂上 `iSOsID`、`csocode`、`cordercode`、`iorderrowno`。保存后在同一事务里核对：新单行数、每行负数量与合计；原发货行 `iRetQuantity` 与 `fretqtywkp`（未开票）或 `fretqtyykp`（已开票）加了本次数量；挂订单的销售订单行 `fretquantity` 加、`iFHQuantity` 减了本次数量（同一订单行按合计）。不符回滚并 409 `u8_rejected`，审计 `detail` 记基准值和实际值。
 
@@ -3290,7 +3345,7 @@ API 把桥的错误码原样带上，HTTP 状态按下表：
 | 层 | 写法 |
 | --- | --- |
 | API | 请求头 `Idempotency-Key`，只能出现一次。API 把它转成桥请求体的 `idempotency_key`，并加上 `caller` = `<信任项名>:<客户端>`（超过 200 字符时换成 `sha256:<摘要>`） |
-| 桥 | 请求体字段 `idempotency_key`，可选 `caller`（1 到 200 个字符，不含控制字符），都在签名的请求体里 |
+| 桥 | 请求体字段 `idempotency_key`，可选 `caller`（1 到 200 个字符，不含控制字符），都在签名的请求体里。API 在写路由上另带 `caller_trust`（信任项 `name`，只给只读例外的 `callers` 项用），它不参与幂等的摘要和存储键 |
 | 客户端 | `client.keyed(键)` 返回带键的副本；`create_voucher`、`generate_voucher`、`gl_create`、`arc_create` 另有 `idempotency_key` 参数；命令行全部写命令都有 `--idempotency-key`（见 `docs/getting-started.md`） |
 
 键是 1 到 128 个可见 ASCII 字符（`!` 到 `~`，不含空格）。不带键时没有幂等记录。

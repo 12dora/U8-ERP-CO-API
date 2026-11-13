@@ -156,7 +156,7 @@ def test_sealed_body_carries_the_key_and_no_password() -> None:
         _method, seen, raw = server.httpd.hits[-1]
     sent = json.loads(raw)
     assert seen == "/u8co" + bridge
-    assert set(sent) == _sealed("type", "head", "lines", "idempotency_key", "caller")
+    assert set(sent) == _sealed("type", "head", "lines", "idempotency_key", "caller", "caller_trust")
     assert sent["idempotency_key"] == _KEY
     assert b'"password"' not in raw
 

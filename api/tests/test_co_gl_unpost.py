@@ -40,7 +40,7 @@ def test_unpost_without_fields_forwards_only_auth() -> None:
         method, seen, raw = server.httpd.hits[-1]
         sent = json.loads(raw)
     assert (method, seen) == ("POST", "/u8co" + _BRIDGE)
-    assert set(sent) == _sealed("caller")
+    assert set(sent) == _sealed("caller", "caller_trust")
     assert _SECRET not in raw.decode("utf-8")
 
 

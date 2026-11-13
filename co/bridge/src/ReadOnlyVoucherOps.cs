@@ -7,14 +7,18 @@ namespace U8Co
     // 一行一个 op：路径恰为 /u8co/v1/vouchers/<op>；Kinds 是配置项 voucher 可列的单据类型（请求体 type 须等于规则的
     // voucher，区分大小写）；ClassOps 是该路径按 action 映射后的写入分类 op（WriteClass），不在里面的 action 不放行
     // （verify 覆盖审核与弃审，close 只覆盖关闭、不连带放行打开）；Fixed 为 true 时只有一种单据类型，配置可省 voucher；
-    // Source 不为 null 时生单来源 source_type 须是它（省略 source_type 即缺省来源，见 Kinds.GenerateFrom）。
+    // Sources 与 Kinds 一一对应：不为 null 时该单据类型的生单来源 source_type 须是它（省略 source_type 即缺省来源，
+    // 见 Kinds.GenerateFrom）；Actions 不为 null 时请求体 action 须在里面（verify 只认 verify / unverify，
+    // 销售发票的应收审核 arap_verify / arap_unverify 虽同记 verify 也不放行）。
     // 新增一行就是开放一种 (op, 单据类型)；登记表之外的 op 配置加载即报错。
     internal static class ReadOnlyVoucherOps
     {
         internal const string Root = "/u8co/v1/vouchers/";
         const string SaleOrder = "sale_order";
         const string Dispatch = "dispatch";
+        const string SaleInvoice = "sale_invoice";
         const string SourceField = "source_type";
+        const string ActionField = "action";
 
         internal sealed class Row
         {
@@ -22,7 +26,8 @@ namespace U8Co
             public string[] Kinds;
             public string[] ClassOps;
             public bool Fixed;
-            public string Source;
+            public string[] Sources;
+            public string[] Actions;
         }
 
         internal static readonly Row[] Rows = new Row[]
@@ -33,20 +38,36 @@ namespace U8Co
             Make("create", new string[] { SaleOrder }, new string[] { "create" }, false, null),
             Make("update", new string[] { SaleOrder }, new string[] { "update" }, false, null),
             Make("close", new string[] { SaleOrder }, new string[] { "close" }, false, null),
-            Make("verify", new string[] { SaleOrder, Dispatch }, new string[] { "verify", "unverify" }, false, null),
-            // 发货单参照销售订单生单。
-            Make("generate", new string[] { Dispatch }, new string[] { "generate" }, false, SaleOrder),
+            // 销售发票的 verify 是复核（cChecker），不含应收审核。
+            Actions(Make("verify", new string[] { SaleOrder, Dispatch, SaleInvoice }, new string[] { "verify", "unverify" }, false, null),
+                new string[] { "verify", "unverify" }),
+            // 发货单参照销售订单生单；销售发票参照发货单生单（单张或多张 sources），不含参照退货单、红冲蓝字发票。
+            Make("generate", new string[] { Dispatch, SaleInvoice }, new string[] { "generate" }, false,
+                new string[] { SaleOrder, Dispatch }),
         };
 
-        static Row Make(string op, string[] kinds, string[] classOps, bool fixedKind, string source)
+        static Row Make(string op, string[] kinds, string[] classOps, bool fixedKind, string[] sources)
         {
             Row row = new Row();
             row.Op = op;
             row.Kinds = kinds;
             row.ClassOps = classOps;
             row.Fixed = fixedKind;
-            row.Source = source;
+            row.Sources = sources;
             return row;
+        }
+
+        static Row Actions(Row row, string[] actions)
+        {
+            row.Actions = actions;
+            return row;
+        }
+
+        // 该行里某单据类型规定的生单来源；没有规定时 null。
+        internal static string SourceOf(Row row, string kind)
+        {
+            int at = row == null || row.Sources == null ? -1 : Array.IndexOf(row.Kinds, kind);
+            return at < 0 ? null : row.Sources[at];
         }
 
         // 登记表里的 op（配置校验和报错用，顺序同登记表）。
@@ -98,17 +119,31 @@ namespace U8Co
                 return false;
             }
             return string.Equals(type, kind, StringComparison.Ordinal) && Array.IndexOf(row.ClassOps, classOp) >= 0
-                && SourceOk(row, body);
+                && SourceOk(SourceOf(row, kind), body) && ActionOk(row, body);
         }
 
-        static bool SourceOk(Row row, Dictionary<string, object> body)
+        static bool SourceOk(string source, Dictionary<string, object> body)
         {
             object raw;
-            if (row.Source == null || body == null || !body.TryGetValue(SourceField, out raw))
+            if (source == null || body == null || !body.TryGetValue(SourceField, out raw))
             {
                 return true;
             }
-            return string.Equals(raw as string, row.Source, StringComparison.Ordinal);
+            return string.Equals(raw as string, source, StringComparison.Ordinal);
+        }
+
+        static bool ActionOk(Row row, Dictionary<string, object> body)
+        {
+            object raw;
+            if (row.Actions == null)
+            {
+                return true;
+            }
+            if (body == null || !body.TryGetValue(ActionField, out raw))
+            {
+                return false;
+            }
+            return Array.IndexOf(row.Actions, raw as string) >= 0;
         }
     }
 }

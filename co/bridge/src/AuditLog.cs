@@ -30,8 +30,12 @@ namespace U8Co
         public string DryRun;
         // 请求体的 caller（调用方）、写入分类的 op（WriteClass）、写入策略的判定（allow 或拒绝的错误码；未配置策略为空）。
         public string Caller;
+        // 请求体的 caller_trust（API 已验签的信任项 name，IdemReq.TrustField）：只读例外 callers 规则按它比较；不进审计行。
+        public string Trust;
         public string Op;
         public string Policy;
+        // 只读例外命中的种类：operator / caller（ReadOnlyGate）；没命中为空，审计行不写 read_only_match。
+        public string ReadOnlyMatch;
     }
 
     internal static class AuditLog
@@ -87,6 +91,10 @@ namespace U8Co
             row["caller"] = Scrub(draft.Caller, secret, cfg.SqlPassword);
             row["op"] = Text(draft.Op);
             row["policy"] = Text(draft.Policy);
+            if (!string.IsNullOrEmpty(draft.ReadOnlyMatch))
+            {
+                row["read_only_match"] = draft.ReadOnlyMatch;
+            }
             if (!string.IsNullOrEmpty(draft.DryRun))
             {
                 row["dry_run"] = draft.DryRun;

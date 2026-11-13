@@ -1,4 +1,5 @@
 """只读例外 type=vouchers 的登记表（readonly_voucher_ops）：create / update / close / verify / generate 按 (op, voucher) 一对一放行。
+销售发票：verify 只是复核（不含应收审核 arap_*），generate 只认参照发货单（含多来源 sources），不连带放行发货单那一对。
 解析（缺 voucher、未知的对、键用错都让进程起不来）、allows 的判定（路径、请求体 type、action、生单来源、操作员、账套）、
 走真实路由的闸门与预演。假桥，不访问网络。
 """
@@ -27,6 +28,11 @@ _PAIRS = (
     ("verify", "dispatch", {"action": "unverify"}),
     ("generate", "dispatch", {}),
     ("generate", "dispatch", {"source_type": "sale_order"}),
+    ("verify", "sale_invoice", {"action": "verify"}),
+    ("verify", "sale_invoice", {"action": "unverify"}),
+    ("generate", "sale_invoice", {}),
+    ("generate", "sale_invoice", {"source_type": "dispatch"}),
+    ("generate", "sale_invoice", {"sources": [{"id": 7, "lines": [{"source_line_id": 1, "quantity": 1}]}]}),
 )
 
 
@@ -52,11 +58,16 @@ def test_registry_holds_the_round_pairs_and_the_two_fixed_ops() -> None:
         "create": (("sale_order",), False),
         "update": (("sale_order",), False),
         "close": (("sale_order",), False),
-        "verify": (("sale_order", "dispatch"), False),
-        "generate": (("dispatch",), False),
+        "verify": (("sale_order", "dispatch", "sale_invoice"), False),
+        "generate": (("dispatch", "sale_invoice"), False),
     }
-    assert VOUCHER_OPS["generate"].source == "sale_order"
+    assert VOUCHER_OPS["generate"].source_of("dispatch") == "sale_order"
+    assert VOUCHER_OPS["generate"].source_of("sale_invoice") == "dispatch"
+    assert VOUCHER_OPS["generate"].source_of("sale_order") is None
+    assert VOUCHER_OPS["verify"].source_of("sale_order") is None
     assert VOUCHER_OPS["verify"].ops == ("verify", "unverify")
+    assert VOUCHER_OPS["verify"].actions == ("verify", "unverify")
+    assert VOUCHER_OPS["create"].actions is None
     assert VOUCHER_OPS["close"].ops == ("close",)
 
 
@@ -79,8 +90,10 @@ def test_missing_voucher_stops_the_process(op: str) -> None:
         ("create", "Sale_Order"),
         ("update", "dispatch"),
         ("close", "purchase_order"),
-        ("verify", "sale_invoice"),
+        ("verify", "purchase_invoice"),
         ("generate", "sale_out"),
+        ("create", "sale_invoice"),
+        ("close", "sale_invoice"),
         ("generate", "sale_order"),
         ("create", ""),
         ("create", None),
@@ -191,6 +204,29 @@ def test_generate_needs_the_sale_order_source() -> None:
     assert allows(rules, "co:vouchers/generate", _ask("sale_out", source_type="dispatch")) is False
 
 
+def test_sale_invoice_verify_is_review_only() -> None:
+    # 销售发票的 arap_verify / arap_unverify（应收审核）写入分类同记 verify，登记表按 action 另外拒绝。
+    rules = _rule("verify", "sale_invoice")
+    for action in ("arap_verify", "arap_unverify", "close", None):
+        payload = _ask("sale_invoice") if action is None else _ask("sale_invoice", action=action)
+        assert allows(rules, "co:vouchers/verify", payload) is False, action
+    assert allows(rules, "co:vouchers/verify", _ask("dispatch", action="verify")) is False
+    assert allows(_rule("verify", "dispatch"), "co:vouchers/verify", _ask("sale_invoice", action="verify")) is False
+
+
+def test_sale_invoice_generate_needs_the_dispatch_source() -> None:
+    rules = _rule("generate", "sale_invoice")
+    for source in ("sale_return", "sale_invoice", "sale_order", "Dispatch", "", None):
+        payload = _ask("sale_invoice", source_type=source)
+        assert allows(rules, "co:vouchers/generate", payload) is False, source
+    assert allows(rules, "co:vouchers/generate", _ask("dispatch")) is False
+    # 发货单参照订单的那一对不放行销售发票（单张、多来源都不行）。
+    dispatch = _rule("generate", "dispatch")
+    assert allows(dispatch, "co:vouchers/generate", _ask("sale_invoice")) is False
+    many = {"sources": [{"id": 7, "lines": [{"source_line_id": 1, "quantity": 1}]}]}
+    assert allows(dispatch, "co:vouchers/generate", _ask("sale_invoice", **many)) is False
+
+
 def test_forged_op_does_not_widen_a_rule() -> None:
     # 直接构造的规则：未登记的 op、缺 voucher、voucher 不在该行里一律不放行。
     for op, voucher in (("delete", "sale_order"), ("create", None), ("create", "dispatch"), ("lock", "sale_order")):
@@ -285,6 +321,37 @@ def test_generate_rule_over_http_tells_omitted_from_null_source() -> None:
     assert dry.status_code == 400, dry.text
     assert len(fake.calls) == 2
     assert "source_type" not in fake.calls[0][1]
+
+
+_INV = _login(operator="svc01", type="sale_invoice", id=1, lines=[{"source_line_id": 1, "quantity": 1, "cbdefine1": "1.2"}])
+_INV_MANY = _login(
+    operator="svc01",
+    type="sale_invoice",
+    sources=[
+        {"id": 1, "lines": [{"source_line_id": 11, "quantity": 2}]},
+        {"id": 2, "lines": [{"source_line_id": 21, "quantity": 1, "cbdefine1": "1.05"}]},
+    ],
+)
+
+
+def test_sale_invoice_rules_over_http() -> None:
+    fake = DryBridge()
+    rules = _rule("generate", "sale_invoice") + _rule("verify", "sale_invoice")
+    client = _gated(fake, read_only_exceptions=rules)
+    for body in (_INV, {**_INV, "source_type": "dispatch"}, _INV_MANY, {**_INV_MANY, "dry_run": True}):
+        ok = client.post("/v1/co/vouchers/generate", json=body)
+        assert ok.status_code == 200, ok.text
+    for action in ("verify", "unverify"):
+        body = _login(operator="svc01", type="sale_invoice", id=1, action=action)
+        assert client.post("/v1/co/vouchers/verify", json=body).status_code == 200
+    _refused(client.post("/v1/co/vouchers/verify", json=_login(operator="svc01", type="sale_invoice", id=1, action="arap_verify")))
+    red = {**_INV, "source_type": "sale_return", "lines": [{"source_line_id": 1, "quantity": 1}]}
+    _refused(client.post("/v1/co/vouchers/generate", json=red))
+    _refused(client.post("/v1/co/vouchers/generate", json=_GEN))
+    _refused(client.post("/v1/co/vouchers/delete", json=_login(operator="svc01", type="sale_invoice", id=1)))
+    assert len(fake.calls) == 6
+    assert fake.calls[2][1]["sources"][1]["lines"][0]["cbdefine1"] == "1.05"
+    assert "id" not in fake.calls[2][1] and "lines" not in fake.calls[2][1]
 
 
 def test_null_source_is_refused_on_writable_accounts_too() -> None:

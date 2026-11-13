@@ -252,4 +252,4 @@ def test_workflow_accepts_only_qm_kinds(kind: str) -> None:
     ok = client.post("/v1/co/workflow/submit", json=_auth(type=kind, id=1))
     assert ok.status_code == 200, ok.text
     assert fake.calls[0][0] == "/v1/workflow/submit"
-    assert set(fake.calls[0][1]) == _PLAIN | {"type", "id", "caller"}
+    assert set(fake.calls[0][1]) == _PLAIN | {"type", "id", "caller", "caller_trust"}

@@ -131,11 +131,16 @@ class TrustEntry:
 def load_trust(env: Mapping[str, str]) -> tuple[TrustEntry, ...]:
     found = list(_from_file(env)) + list(_from_env(env))
     seen: set[tuple[str, str]] = set()
+    names: set[str] = set()
     for entry in found:
         pair = (entry.issuer, entry.audience)
         if pair in seen:
             raise SystemExit(f"信任配置的发行者与受众重复: {entry.name}")
         seen.add(pair)
+        # name 是只读例外 callers 认的身份，文件与环境变量合起来必须唯一；区分大小写。
+        if entry.name in names:
+            raise SystemExit(f"信任配置的 name 重复: {entry.name}")
+        names.add(entry.name)
     return tuple(found)
 
 

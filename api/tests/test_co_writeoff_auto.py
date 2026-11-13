@@ -37,7 +37,7 @@ def test_auto_forwards_exact_sealed_keys() -> None:
         sent = json.loads(raw)
     assert method == "POST"
     assert seen == "/u8co/v1/arap/writeoff/auto"
-    assert set(sent) == _sealed(*_FULL, "caller")
+    assert set(sent) == _sealed(*_FULL, "caller", "caller_trust")
     for key, value in _FULL.items():
         assert sent[key] == value, key
     assert _SECRET.encode() not in raw

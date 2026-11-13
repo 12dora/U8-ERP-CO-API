@@ -246,7 +246,7 @@ namespace U8Co
             return "other";
         }
 
-        // 新增、修改、生单的表体行数（请求体 lines 数组）；其余为 0。
+        // 新增、修改、生单的表体行数（请求体 lines 数组；销售发票参照多张发货单是 sources 各张 lines 的合计）；其余为 0。
         static int LinesOf(string op, Dictionary<string, object> body)
         {
             if (op != "create" && op != "update" && op != "generate")
@@ -254,7 +254,26 @@ namespace U8Co
                 return 0;
             }
             ICollection lines = Requests.Field(body, "lines") as ICollection;
-            return lines == null ? 0 : lines.Count;
+            return (lines == null ? 0 : lines.Count) + SourceLines(Requests.Field(body, SaleInvSources.Field) as ICollection);
+        }
+
+        static int SourceLines(ICollection sources)
+        {
+            int n = 0;
+            if (sources == null)
+            {
+                return 0;
+            }
+            foreach (object raw in sources)
+            {
+                Dictionary<string, object> one = raw as Dictionary<string, object>;
+                object lines;
+                if (one != null && one.TryGetValue("lines", out lines) && lines is ICollection)
+                {
+                    n += ((ICollection)lines).Count;
+                }
+            }
+            return n;
         }
 
         // 按金额设上限的单据（WritePolicyEval.AmountTypes：收款单、付款单、客户退款、供应商退款）新增 / 修改的金额：
@@ -415,6 +434,17 @@ namespace U8Co
             return Requests.Field(body, IdemReq.CallerField) as string ?? "";
         }
 
+        // 写路由请求体的 caller_trust（只读例外 callers 规则用）：同 CallerOf，在 IdemReq.Take 取走并校验之前读出。没带、
+        // 不是字符串或不是写路由为 null（不命中 callers 规则）。
+        public static string TrustOf(Dictionary<string, object> body, string path)
+        {
+            if (!IdemReq.Supports(path))
+            {
+                return null;
+            }
+            return Requests.Field(body, IdemReq.TrustField) as string;
+        }
+
         // 登录前：分类结果和判定记进审计草稿；拒绝时抛出（不解密、不入队）。返回分类结果（读路由为 null）。
         public static WriteRequestInfo Pre(
             BridgeConfig cfg, Dictionary<string, object> body, AuditDraft draft, string acc, string user)
@@ -451,8 +481,10 @@ namespace U8Co
         public static void Stamp(WorkItem item, AuditDraft draft, WriteRequestInfo info)
         {
             item.Caller = draft.Caller;
+            item.Trust = draft.Trust;
             item.WriteInfo = info;
             item.Policy = draft.Policy;
+            item.ReadOnlyMatch = draft.ReadOnlyMatch;
         }
 
         // 入队后：冻结、时段等可能在排队期间生效，按当时的策略快照再判一次。

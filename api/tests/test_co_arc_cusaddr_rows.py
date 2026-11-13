@@ -107,8 +107,8 @@ def test_sealed_keys_of_both_ops() -> None:
         (m1, p1, raw1), (m2, p2, raw2) = server.httpd.hits[-2:]
     assert (m1, p1) == ("POST", "/u8co/v1/archives/customer_address_add")
     assert (m2, p2) == ("POST", "/u8co/v1/archives/customer_address_delete")
-    assert set(json.loads(raw1)) == _sealed("code", "address", "fields", "caller")
-    assert set(json.loads(raw2)) == _sealed("code", "address", "expect", "caller")
+    assert set(json.loads(raw1)) == _sealed("code", "address", "fields", "caller", "caller_trust")
+    assert set(json.loads(raw2)) == _sealed("code", "address", "expect", "caller", "caller_trust")
     assert _SECRET not in raw1.decode("utf-8") + raw2.decode("utf-8")
 
 

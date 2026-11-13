@@ -68,6 +68,7 @@
 
 ## 校验与闸门
 
+- 只读例外的 `callers` 项（按调用系统放行）只用于 `type=vouchers` 的 `ConfigRulesReadOnly.CallerOps`（登记表里 `Fixed` 为 false 的行），与 `operators` 恰好一个；匹配只认 `AuditDraft.Trust` / `WorkItem.Trust`（API 经签名请求体单独发来的 `caller_trust`，`IdemReq.TrustField`，与 `IdemReq.Take` 里的 `caller` 一起取走、按信任项 name 写法校验），不从 `caller` 里拆（它过长时是摘要），不带 `caller_trust` 一律不命中；`caller_trust` 不进 `BodySha` / `StoreId`；命中种类写进审计 `read_only_match`。新增可开放的单据 op 时同时确认它该不该允许 `callers`，并与 API `readonly_exceptions.CALLER_OPS` 一致。（`docs/configuration.md` §3「只读例外」；`ReadOnlyGate.cs`）
 - 修改和删除只接受未审核、未关闭、没有下游的单据。关闭要求已审核：U8 的 `OrderClose` 会关掉未审核的销售订单，调用前拒绝，409 `state_mismatch`「单据未审核」。（`docs/api-reference.md` §8、§9、§10）
 - 已关闭不能再关，未关闭不能打开；按行同样。生单的来源必须已审核且未关闭。销售发票还要拒绝已关闭的发货单和期初（`bFirst`）。（`docs/api-reference.md` §10、§11）
 - 审批流已启用或单据在途：409 `workflow_enabled`。到货单的审核和删除都要查。销售发票的复核、弃复、删除拒绝 `iswfcontrolled=1`。生产订单审核拒绝 `IsWFControlled=1` 的行。采购发票的审核是采购复核（`ConfirmBill` / `CancelconfirmBill`），拒绝 `IsWfControlled=1`；取消复核先查应付审核、结算、现付、应付明细。（`docs/api-reference.md` §6）

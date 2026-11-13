@@ -22,6 +22,7 @@ from u8co_api.co_gen_pu_settle import SETTLE_KIND, check_settle_gen
 from u8co_api.co_models_gen_row import check_gen_row
 from u8co_api.co_gen_qm import QM_GEN_KINDS, check_qm_gen, nested_head
 from u8co_api.co_gen_red_sale import check_red_sale_invoice
+from u8co_api.co_gen_sale_invoice import SOURCES_HELP, CoInvSource, check_invoice_lines, check_invoice_sources
 from u8co_api.co_gen_sale_out import check_sale_out
 from u8co_api.co_gen_sale_return import check_apply_update, check_sale_return
 from u8co_api.co_gen_transfer import check_transfer_gen
@@ -318,8 +319,9 @@ class CoCloseIn(CoAuth):
 
 class CoGenerateIn(CoAuth):
     type: GenerateType = Field(..., description=GENERATE_TYPE_HELP)
-    id: int = Field(
-        ...,
+    # 销售发票参照多张发货单时用 sources 代替 id + lines（co_gen_sale_invoice）；其余一律必填。
+    id: int | None = Field(
+        None,
         gt=0,
         le=_ID_MAX,
         description=GENERATE_ID_HELP,
@@ -337,7 +339,15 @@ class CoGenerateIn(CoAuth):
         max_length=200,
         description=GENERATE_LINES_HELP,
     )
+    sources: list[CoInvSource] | None = Field(None, min_length=1, max_length=200, description=SOURCES_HELP)
     dry_run: DryRunFlag = False
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _no_null_sources(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("sources 不能是 null")
+        return value
 
     @field_validator("source_type", mode="before")
     @classmethod
@@ -352,6 +362,9 @@ class CoGenerateIn(CoAuth):
     def _checked(self) -> CoGenerateIn:
         source = source_of(self.type, self.source_type)
         nested_head(self.type, self.head)
+        # 多来源 sources、缺 id、红字销售发票（参照退货单 / 红冲）先判（_shape_done）。
+        if self._shape_done(source):
+            return self
         if self.type in QM_GEN_KINDS:
             check_qm_gen(self.type, self.head, self.lines, self.id)
             return self
@@ -366,18 +379,33 @@ class CoGenerateIn(CoAuth):
             if self.lines is not None:
                 check_sale_out(self.lines)  # 另收 cbatch、cposition，可按批号 / 货位拆行（co_gen_sale_out）
             return self
-        # 红字销售发票参照退货单，lines 可省略（co_gen_red_sale）；红冲蓝字发票同一校验。
-        if self.type == "sale_invoice" and source in ("sale_return", "sale_invoice"):
-            check_red_sale_invoice(self.head, self.lines)
-            return self
         if self.head and self.type not in ("purchase_invoice", "arrival"):
             _blocked(list(self.head), self.type)
         if self.type == "dispatch":
             check_dispatch_gen_pins(self.head)  # 落库核对字段的形状（co_sale_pins）
         if self.lines is not None or not lines_optional(self.type, source):  # 参照到货单的采购入库 lines 可省
             _need_lines(self.lines, self.type)
+        check_invoice_lines(self.type, source, self.lines)  # 回签字段 cbdefine1–3 的值（co_gen_sale_invoice）
         _check_special(self.type, source, self.head, self.lines or [])
         return self
+
+    def _source_row(self, row: dict[str, Cell], seen: set[int]) -> None:
+        _gen_row(row, self.type, seen)
+
+    def _shape_done(self, source: str) -> bool:
+        """销售发票参照多张发货单（sources，co_gen_sale_invoice）或红字销售发票时校验完返回 True；其余要有 id。"""
+        if self.sources is not None:
+            check_invoice_sources(self.type, source, (self.id, self.lines), self.sources, self._source_row)
+            if self.head:
+                _blocked(list(self.head), self.type)
+            return True
+        if self.id is None:
+            raise ValueError("缺少 id")
+        # 红字销售发票参照退货单，lines 可省略（co_gen_red_sale）；红冲蓝字发票同一校验。
+        if self.type == "sale_invoice" and source in ("sale_return", "sale_invoice"):
+            check_red_sale_invoice(self.head, self.lines)
+            return True
+        return False
 
 
 def _check_special(kind: str, source: str, head: dict[str, Cell] | None, lines: list[dict[str, Cell]]) -> None:
@@ -419,6 +447,9 @@ class CoGenerateOut(CoEditOut):
     source_type: str = Field(description="来源单据类型")
     source_id: int = Field(description="来源单据主键")
     ids: list[int] | None = Field(None, description="销售出库按仓库拆成多张时，全部新单据主键")
+    source_ids: list[int] | None = Field(
+        None, description="销售发票参照多张发货单（请求用 sources）时，全部来源发货单 DLID（按请求顺序）；source_id 是第一张"
+    )
     wf: CoGenWf | None = Field(None, description="检验单、不良品处理单：新单据的审批流状态（未提交）。其它类型省略")
     items: int | None = Field(None, description="检验单：保存后的检验项目行数。其它类型省略")
     settle_date: str | None = Field(None, description="采购结算单：结算日期（即本次的 U8 登录日期）。其它类型省略")

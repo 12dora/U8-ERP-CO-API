@@ -30,6 +30,7 @@ from co.client.u8co_client import (
 )
 from co.client.u8co_idem import add_key_arg, key_kwargs  # 幂等键
 from co.client.u8co_kinds import SOURCE_TYPES, whole_generate
+from co.client.u8co_invoice import InvoiceSources
 from co.client.u8co_settings import load_config, resolve_base_url, resolve_secret
 
 _ACC = re.compile(r"^\d{3}\Z")
@@ -132,7 +133,8 @@ def _edit_commands(sub: Any) -> None:
     generate = sub.add_parser("generate")
     _add_auth(generate)
     generate.add_argument("--type", required=True, choices=GENERATABLE_KINDS)
-    generate.add_argument("--id", required=True, type=int)
+    # 销售发票参照多张发货单：不带 --id，文件里写 sources（u8co_invoice）。
+    generate.add_argument("--id", type=int, default=None)
     generate.add_argument("--file", required=True)
     generate.add_argument("--source-type", choices=SOURCE_TYPES, default="")
     add_key_arg(generate)
@@ -346,6 +348,14 @@ def _cmd_close(client: U8CoClient, call: U8Call, parsed: argparse.Namespace) -> 
 
 
 def _cmd_generate(client: U8CoClient, call: U8Call, parsed: argparse.Namespace) -> dict[str, Any]:
+    data = _json_object(parsed.file)
+    if "sources" in data:
+        if parsed.id is not None or parsed.type != "sale_invoice" or not set(data) <= {"head", "sources"}:
+            raise SystemExit("sources 只用于 --type sale_invoice、不带 --id，文件只能包含 head 和 sources")
+        draft = InvoiceSources(data["sources"], data.get("head"), getattr(parsed, "source_type", "") or "")
+        return client.generate_invoice_from_dispatches(call, draft, **key_kwargs(parsed))
+    if parsed.id is None:
+        raise SystemExit("generate 需要 --id（销售发票参照多张发货单时不带 --id，在文件里写 sources）")
     return client.generate_voucher(call, _gen_draft(parsed), **key_kwargs(parsed))
 
 

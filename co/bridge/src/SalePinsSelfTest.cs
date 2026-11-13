@@ -197,7 +197,8 @@ namespace U8Co
             Eq("merge keeps value", target["cmemo"], "m");
             Expect("merge skips key", !target.ContainsKey("isosid") && !target.ContainsKey("iSOsID"));
             Expect("merge kinds", SaleExtraRead.Find(Kinds.Find("sale_order")) != null
-                && SaleExtraRead.Find(Kinds.Find("dispatch")) != null && SaleExtraRead.Find(Kinds.Find("sale_invoice")) == null);
+                && SaleExtraRead.Find(Kinds.Find("dispatch")) != null && SaleExtraRead.Find(Kinds.Find("sale_invoice")) != null
+                && SaleExtraRead.Find(Kinds.Find("purchase_order")) == null);
         }
 
         // 只走组件的字段（cunitid、inum、cgatheringplan）：模板没有时不进「桥补写」，MarkDom 400；从不 Explicit。

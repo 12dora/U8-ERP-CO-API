@@ -147,8 +147,10 @@ namespace U8Co
             draft.Detail = Text(item.Detail);
             draft.DryRun = item.DryRun ? Text(item.DryRunMode) : "";
             draft.Caller = Text(item.Caller);
+            draft.Trust = item.Trust;
             draft.Op = item.WriteInfo == null ? "" : Text(item.WriteInfo.Op);
             draft.Policy = Text(item.Policy);
+            draft.ReadOnlyMatch = Text(item.ReadOnlyMatch);
             return draft;
         }
 

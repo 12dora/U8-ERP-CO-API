@@ -28,7 +28,8 @@ namespace U8Co
                 {
                     throw new BridgeException(409, "u8_rejected", err);
                 }
-                return CoRows.Pack(kind, id, snap, doms);
+                // 发票模板带出的表体扩展自定义项（cbdefine*）在 DOM 里是浮点原始文本；按扩展表规整后覆盖（SaleExtraRead）。
+                return SaleExtraRead.MergeLoad(ctx.Conn, kind, id, CoRows.Pack(kind, id, snap, doms));
             }
             finally
             {

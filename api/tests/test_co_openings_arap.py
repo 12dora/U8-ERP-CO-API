@@ -76,7 +76,7 @@ def test_each_action_sends_exact_sealed_keys(body: dict, keys: set[str]) -> None
         method, seen, raw = server.httpd.hits[-1]
         sent = json.loads(raw)
     assert (method, seen) == ("POST", "/u8co" + _BRIDGE)
-    assert set(sent) == keys | {"caller"}
+    assert set(sent) == keys | {"caller", "caller_trust"}
     for name, value in body.items():
         assert sent[name] == value
     assert _SECRET not in raw.decode("utf-8")

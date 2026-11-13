@@ -89,7 +89,7 @@ def test_customer_address_sends_exact_sealed_keys() -> None:
         method, seen, raw = server.httpd.hits[-1]
         sent = json.loads(raw)
     assert (method, seen) == ("POST", "/u8co" + _BRIDGE)
-    assert set(sent) == _sealed("code", "address", "fields", "expect", "caller")
+    assert set(sent) == _sealed("code", "address", "fields", "expect", "caller", "caller_trust")
     assert _SECRET not in raw.decode("utf-8")
 
 

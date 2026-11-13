@@ -95,6 +95,8 @@ namespace U8Co
             SrcLessSelfTest.Run();
             // 销售订单、发货单生单的约定字段与扩展自定义项（SalePinsSelfTest）。
             SalePinsSelfTest.Run();
+            // 销售发票参照多张发货单（sources）与表体回签字段 cbdefine1–3（SaleInvSourcesSelfTest）。
+            SaleInvSourcesSelfTest.Run();
             // 写闸门与写入策略（RunWritePolicy）。
             RunWritePolicy();
         }

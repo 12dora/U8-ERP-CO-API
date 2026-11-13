@@ -53,6 +53,18 @@ def caller_tag(caller: Caller) -> str:
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+# 只读例外 callers 行认的身份：已验签令牌的信任项 name，作为独立的请求体字段转给桥（整个请求体在 HMAC 签名里），
+# 与 caller（幂等与审计用的完整标识，过长时换成摘要）互不影响；桥不再从 caller 里拆信任项。
+TRUST_FIELD = "caller_trust"
+# 同 trust._NAME、桥 IdemReq.CheckTrust：字母开头，字母、数字、_、-，1 到 63 个字符。
+_TRUST = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,62}\Z")
+
+
+def caller_trust(name: object) -> str | None:
+    """只读闸门和转给桥的 caller_trust 用的同一个值：信任项 name 合乎写法时原样返回，否则 None（不命中 callers 行）。"""
+    return name if isinstance(name, str) and _TRUST.fullmatch(name) is not None else None
+
+
 def lookup_fields(caller: Caller, api_path: str, key: str) -> dict[str, str]:
     """idempotency/get 转给桥的字段：原请求的桥路由、键和与原请求相同算法的 caller（桥据此算出同一个记录）。
 

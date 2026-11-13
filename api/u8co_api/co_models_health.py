@@ -63,7 +63,8 @@ API_POLICY_HELP = "本服务自己的写入策略（U8CO_WRITE_POLICY_FILE），
 
 READ_ONLY_HELP = "缺省桥的只读账套（桥 config.json 的 readOnlyAccounts），这些账套的写路由一律 403。没配或旧版桥不报则省略"
 READ_ONLY_EXC_HELP = (
-    "缺省桥的只读例外（桥 config.json 的 readOnlyExceptions）非机密摘要：账套、操作员、type（archives、vouchers）、op，"
+    "缺省桥的只读例外（桥 config.json 的 readOnlyExceptions）非机密摘要：账套、操作员（operators）或调用系统（callers）、"
+    "type（archives、vouchers）、op，"
     "archives 的 create、delete 另有 archives，vouchers 配了单据类型时另有 voucher。没配或旧版桥不报则省略"
 )
 REPLICATED_HELP = (
@@ -77,9 +78,10 @@ WEDGED_HELP = (
 )
 API_READ_ONLY_HELP = "本服务的只读账套（U8CO_READONLY_ACCOUNTS），这些账套的写路由在访问桥之前 403 account_read_only。没配时省略"
 API_READ_ONLY_EXC_HELP = (
-    "本服务的只读例外（U8CO_READONLY_EXCEPTIONS）非机密摘要：账套、操作员、type（archives、vouchers）、op，"
+    "本服务的只读例外（U8CO_READONLY_EXCEPTIONS）非机密摘要：账套、操作员（operators）或调用系统（callers，信任项 name）、"
+    "type（archives、vouchers）、op，"
     "archives 的 create、delete 另有 archives，vouchers 配了单据类型时另有 voucher。"
-    "命中的写入穿过只读闸门，审计字段 read_only_exception 为 true。没配时省略"
+    "命中的写入穿过只读闸门，审计字段 read_only_exception 为 true，read_only_match 记 operator 或 caller。没配时省略"
 )
 _ACC = re.compile(r"^[0-9]{3}\Z")
 

@@ -151,10 +151,17 @@ def _str(value: object) -> str:
 
 
 def _lines(op: str, payload: dict) -> int:
-    lines = payload.get("lines")
-    if op not in LINE_OPS or not isinstance(lines, list):
+    """明细行数；销售发票参照多张发货单（sources）是各张来源 lines 的合计，与桥 WriteClass.LinesOf 一致。"""
+    if op not in LINE_OPS:
         return 0
-    return len(lines)
+    lines = payload.get("lines")
+    count = len(lines) if isinstance(lines, list) else 0
+    sources = payload.get("sources")
+    if isinstance(sources, list):
+        for one in sources:
+            got = one.get("lines") if isinstance(one, dict) else None
+            count += len(got) if isinstance(got, list) else 0
+    return count
 
 
 def _amount(type_: str, op: str, payload: dict) -> tuple[Decimal | None, bool]:

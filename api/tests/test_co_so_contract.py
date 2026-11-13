@@ -98,7 +98,7 @@ def test_replace_reaches_the_sealed_bridge_body() -> None:
     with _Up() as server:
         _wired(server.base_url).post(_PATH, json=_body(replace=True))
         _method, _seen, raw = server.httpd.hits[-1]
-    assert set(json.loads(raw)) == _sealed("type", "id", "contract_no", "expect", "replace", "caller")
+    assert set(json.loads(raw)) == _sealed("type", "id", "contract_no", "expect", "replace", "caller", "caller_trust")
 
 
 def test_expect_null_reaches_the_bridge_as_empty_string() -> None:
@@ -126,7 +126,7 @@ def test_sealed_keys() -> None:
         _wired(server.base_url).post(_PATH, json=_body())
         method, seen, raw = server.httpd.hits[-1]
     assert (method, seen) == ("POST", "/u8co" + _BRIDGE)
-    assert set(json.loads(raw)) == _sealed("type", "id", "contract_no", "expect", "caller")
+    assert set(json.loads(raw)) == _sealed("type", "id", "contract_no", "expect", "caller", "caller_trust")
     assert _SECRET not in raw.decode("utf-8")
 
 

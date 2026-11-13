@@ -8,8 +8,9 @@ namespace U8Co
     // --selftest 的只读例外单据登记表部分（ReadOnlyVoucherOps，由 ReadOnlyGateSelfTest 调用）：
     // type=vouchers 的 create / update / close / verify / generate 一项一对 (op, voucher)。配置：缺 voucher、未登记的对、
     // 未登记的 op、archives 用在单据规则上、voucher 用在 archives 规则上都在加载时报错；head_fix、so_contract 可省 voucher。
-    // 闸门：每一对只放行列出的操作员、账套、单据类型和自己的路径（含预演），verify 含弃审、close 不含打开，
-    // generate 只认参照销售订单；其它单据类型、vouchers/delete、vouchers/lock、旧版审核路由仍 403。入队后同样判断。
+    // 闸门：每一对只放行列出的操作员、账套、单据类型和自己的路径（含预演），verify 含弃审、不含应收审核，close 不含打开，
+    // generate 发货单只认参照销售订单、销售发票只认参照发货单（含多来源 sources）；其它单据类型、vouchers/delete、
+    // vouchers/lock、旧版审核路由仍 403。入队后同样判断。
     // 与 API tests/test_readonly_exceptions_voucher_ops.py 同一组用例。不连库、不建 COM、不登录。
     internal static class ReadOnlyVoucherOpsSelfTest
     {
@@ -17,6 +18,7 @@ namespace U8Co
         const string Root = ReadOnlyVoucherOps.Root;
         const string So = "sale_order";
         const string Dl = "dispatch";
+        const string Inv = "sale_invoice";
 
         public static void Run()
         {
@@ -64,7 +66,17 @@ namespace U8Co
                 && ReadOnlyVoucherOps.VoucherOf("verify", Dl) == Dl && ReadOnlyVoucherOps.VoucherOf("create", Dl) == null
                 && ReadOnlyVoucherOps.VoucherOf(VoucherHeadFix.Op, null) == VoucherHeadFix.Kind
                 && ReadOnlyVoucherOps.VoucherOf("create", null) == null && ReadOnlyVoucherOps.Find("delete") == null);
-            Expect("rov generate source", ReadOnlyVoucherOps.Find("generate").Source == So);
+            CheckRegistrySources();
+        }
+
+        // 生单来源按单据类型（发货单 ← 销售订单、销售发票 ← 发货单），verify 只认 verify / unverify。
+        static void CheckRegistrySources()
+        {
+            ReadOnlyVoucherOps.Row gen = ReadOnlyVoucherOps.Find("generate");
+            Expect("rov generate source", ReadOnlyVoucherOps.SourceOf(gen, Dl) == So && ReadOnlyVoucherOps.SourceOf(gen, Inv) == Dl
+                && ReadOnlyVoucherOps.SourceOf(gen, So) == null && ReadOnlyVoucherOps.SourceOf(ReadOnlyVoucherOps.Find("verify"), So) == null);
+            Expect("rov verify actions", ReadOnlyVoucherOps.Find("verify").Actions.Length == 2
+                && ReadOnlyVoucherOps.VoucherOf("verify", Inv) == Inv && ReadOnlyVoucherOps.Find("create").Actions == null);
         }
 
         static void CheckConfig()
@@ -73,7 +85,8 @@ namespace U8Co
             string[][] pairs = new string[][]
             {
                 new string[] { "create", So }, new string[] { "update", So }, new string[] { "close", So },
-                new string[] { "verify", So }, new string[] { "verify", Dl }, new string[] { "generate", Dl }
+                new string[] { "verify", So }, new string[] { "verify", Dl }, new string[] { "generate", Dl },
+                new string[] { "verify", Inv }, new string[] { "generate", Inv }
             };
             for (int i = 0; i < pairs.Length; i++)
             {
@@ -84,6 +97,8 @@ namespace U8Co
             }
             ExpectError("rov create dispatch", Rule("create", Dl), "目前只允许");
             ExpectError("rov generate sale_order", Rule("generate", So), "目前只允许");
+            ExpectError("rov create sale_invoice", Rule("create", Inv), "目前只允许");
+            ExpectError("rov close sale_invoice", Rule("close", Inv), "目前只允许");
             ExpectError("rov case", Rule("create", "Sale_Order"), "目前只允许");
             ExpectError("rov empty", Rule("create", ""), "目前只允许");
             Dictionary<string, object> number = Rule("create", null);
@@ -113,6 +128,9 @@ namespace U8Co
             CheckPair("verify", Dl, "verify");
             CheckPair("verify", Dl, "unverify");
             CheckPair("generate", Dl, null);
+            CheckPair("verify", Inv, "verify");
+            CheckPair("verify", Inv, "unverify");
+            CheckPair("generate", Inv, null);
         }
 
         static void CheckPair(string op, string kind, string action)
@@ -155,6 +173,12 @@ namespace U8Co
             BridgeConfig all = Cfg("verify", So);
             ExpectRefused("rov legacy so", all, "/u8co/v1/sale-orders/verify", Legacy("verify"));
             ExpectRefused("rov legacy dl", Cfg("verify", Dl), "/u8co/v1/dispatches/verify", Legacy("verify"));
+            // 销售发票：verify 只是复核，应收审核 / 弃审不放行；只开放发票时不连带放行发货单。
+            BridgeConfig inv = Cfg("verify", Inv);
+            ExpectRefused("rov verify inv arap", inv, verify, Body(verify, Listed, "svc01", Inv, "arap_verify", false));
+            ExpectRefused("rov verify inv arap undo", inv, verify, Body(verify, Listed, "svc01", Inv, "arap_unverify", false));
+            ExpectRefused("rov verify inv no dl", inv, verify, Body(verify, Listed, "svc01", Dl, "verify", false));
+            ExpectRefused("rov verify dl no inv", Cfg("verify", Dl), verify, Body(verify, Listed, "svc01", Inv, "verify", false));
         }
 
         // generate：source_type 省略或为 sale_order 放行，其它来源（含大小写不同、null）拒绝。
@@ -169,6 +193,21 @@ namespace U8Co
                 ExpectRefused("rov gen source " + bad[i], cfg, path, GenBody(bad[i]));
             }
             ExpectRefused("rov gen source null", cfg, path, GenBody(null));
+            // 销售发票参照发货单：source_type 省略或 dispatch、单张或 sources 放行；参照退货单、红冲蓝字、别的来源拒绝；
+            // 开放发货单生单不连带放行发票，反之亦然。
+            BridgeConfig inv = Cfg("generate", Inv);
+            ExpectAdmit("rov gen inv omit", inv, path, GenBody(Inv, null, false));
+            ExpectAdmit("rov gen inv dispatch", inv, path, GenBody(Inv, Dl, false));
+            ExpectAdmit("rov gen inv sources", inv, path, GenBody(Inv, Dl, true));
+            ExpectAdmit("rov gen inv sources omit", inv, path, GenBody(Inv, null, true));
+            string[] invBad = new string[] { "sale_return", "sale_invoice", "sale_order", "Dispatch", "" };
+            for (int i = 0; i < invBad.Length; i++)
+            {
+                ExpectRefused("rov gen inv source " + invBad[i], inv, path, GenBody(Inv, invBad[i], false));
+            }
+            ExpectRefused("rov gen inv not dl", inv, path, GenBody(Dl, null, false));
+            ExpectRefused("rov gen dl not inv", cfg, path, GenBody(Inv, null, false));
+            ExpectRefused("rov gen dl not inv sources", cfg, path, GenBody(Inv, Dl, true));
         }
 
         // 直接构造的规则：未登记的 op、缺 voucher、voucher 不在该行里、带 archives 一律不放行。
@@ -193,6 +232,10 @@ namespace U8Co
             ExpectPost("rov post close open", Cfg("close", So), Ask("close", So, "open", null), false);
             ExpectPost("rov post gen", Cfg("generate", Dl), Ask("generate", Dl, null, So), true);
             ExpectPost("rov post gen other", Cfg("generate", Dl), Ask("generate", Dl, null, "sale_return"), false);
+            ExpectPost("rov post gen inv", Cfg("generate", Inv), Ask("generate", Inv, null, Dl), true);
+            ExpectPost("rov post gen inv red", Cfg("generate", Inv), Ask("generate", Inv, null, "sale_return"), false);
+            ExpectPost("rov post verify inv", Cfg("verify", Inv), Ask("verify", Inv, "verify", null), true);
+            ExpectPost("rov post verify inv arap", Cfg("verify", Inv), Ask("verify", Inv, "arap_verify", null), false);
         }
 
         // 入队后自检的一次请求：路由的 op、请求体 type、action、source_type（后两者 null 表示不带）。
@@ -339,6 +382,32 @@ namespace U8Co
             body["type"] = Dl;
             body["id"] = 7;
             body["source_type"] = source;
+            return Encode(body);
+        }
+
+        // source 为 null 时不带 source_type；sources 为 true 时用多来源形状（不带 id）。
+        static byte[] GenBody(string kind, string source, bool sources)
+        {
+            Dictionary<string, object> body = Login(Listed, "svc01");
+            body["type"] = kind;
+            if (sources)
+            {
+                Dictionary<string, object> line = new Dictionary<string, object>();
+                line["source_line_id"] = 11;
+                line["quantity"] = 1;
+                Dictionary<string, object> one = new Dictionary<string, object>();
+                one["id"] = 7;
+                one["lines"] = new object[] { line };
+                body[SaleInvSources.Field] = new object[] { one };
+            }
+            else
+            {
+                body["id"] = 7;
+            }
+            if (source != null)
+            {
+                body["source_type"] = source;
+            }
             return Encode(body);
         }
 

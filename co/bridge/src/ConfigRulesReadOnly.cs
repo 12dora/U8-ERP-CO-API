@@ -15,6 +15,9 @@ namespace U8Co
     // ReadOnlyVoucherOps.Rows 里的一对（一项一对；head_fix、so_contract 单据类型固定，voucher 可省，写了须一致；
     // create、update、close、verify、generate 必须写 voucher），vouchers/delete、vouchers/lock 等其它单据路由不能开放；
     // archives 不能写 voucher。operators 比较只忽略 ASCII 大小写（AsciiIgnoreCase，非 ASCII 逐字比较），且不能含双引号、反斜杠或控制字符（健康检查 JSON 仍会转义）。
+    // operators 与 callers 恰好写一个且非空（两个都写或都不写启动失败）。callers 是 API 信任项的 name（调用系统）：只能用于
+    // type=vouchers 且 op 在 CallerOps（登记表里单据类型不固定的行：create、update、close、verify、generate）；archives、head_fix、
+    // so_contract 只能写 operators。命中时任何操作员都放行，按请求体 caller（API 经 HMAC 签名通道发来的「信任项:客户端」）第一个冒号前的部分逐字比较。
     internal static class ConfigRulesReadOnly
     {
         internal const string TypeArchives = "archives";
@@ -31,8 +34,12 @@ namespace U8Co
         internal static readonly string[] EligibleDelete = new string[] { ArcKindRwMore.District };
         static readonly string[] Keys = new string[]
         {
-            "accounts", "archives", "op", "operators", "type", "voucher"
+            "accounts", "archives", "callers", "op", "operators", "type", "voucher"
         };
+        // callers 可用的 op：登记表里 Fixed 为 false 的行（与 API readonly_exceptions.CALLER_OPS 一致）。
+        internal static readonly string[] CallerOps = NonFixedOps();
+        // API 调用方标识过长时 caller 换成 sha256:<摘要>（co_idem.caller_tag），信任项不能叫这个名字。
+        internal const string DigestTag = "sha256";
 
         public static ReadOnlyExceptionRule[] ReadOnlyExceptions(Dictionary<string, object> map, string[] readOnly)
         {
@@ -73,14 +80,61 @@ namespace U8Co
                 throw new InvalidOperationException(at + " 必须是对象");
             }
             CheckKeys(obj, at);
+            bool hasOperators = obj.ContainsKey("operators");
+            bool byCaller = obj.ContainsKey("callers");
+            if (hasOperators == byCaller)
+            {
+                throw new InvalidOperationException(at + " 必须恰好写 operators 或 callers 之一（两个都写或都不写都不行）");
+            }
             ReadOnlyExceptionRule rule = new ReadOnlyExceptionRule();
             rule.Accounts = ExceptionCodes(obj, at, readOnly);
-            rule.Operators = ExceptionOperators(obj, at);
+            rule.Operators = byCaller ? null : ExceptionOperators(obj, at);
             rule.Type = TypeOf(obj, at);
             rule.Op = OpOf(obj, at, rule.Type);
             rule.Archives = rule.Type == TypeVouchers ? NoArchives(obj, at) : ArchivesOf(obj, at, rule.Op);
             rule.Voucher = VoucherOf(obj, at, rule.Type, rule.Op);
+            rule.Callers = byCaller ? CallersOf(obj, at, rule.Type, rule.Op) : null;
             return rule;
+        }
+
+        // callers：只用于 type=vouchers 的 CallerOps；每项是信任项 name（字母开头，字母、数字、_、-，1 到 63 个字符，
+        // 同 API trust._NAME），逐字比较、不能重复、不能是 sha256。
+        static string[] CallersOf(Dictionary<string, object> obj, string at, string type, string op)
+        {
+            if (type != TypeVouchers || Array.IndexOf(CallerOps, op) < 0)
+            {
+                throw new InvalidOperationException(at + ".callers 只能用于 type=vouchers 的 op="
+                    + string.Join(" / ", CallerOps) + "；其它项写 operators");
+            }
+            string[] list = NeedStrings(obj, "callers", at, StringComparer.Ordinal);
+            for (int i = 0; i < list.Length; i++)
+            {
+                if (!TrustName(list[i]))
+                {
+                    throw new InvalidOperationException(at + ".callers 的每一项必须是信任项的 name（字母开头，字母、数字、_、-，不能是 "
+                        + DigestTag + "）：" + list[i]);
+                }
+            }
+            return list;
+        }
+
+        // 写法同 IdemReq.IsTrustName（同 API trust._NAME），另外不能是 sha256。
+        internal static bool TrustName(string text)
+        {
+            return text != DigestTag && IdemReq.IsTrustName(text);
+        }
+
+        static string[] NonFixedOps()
+        {
+            List<string> ops = new List<string>();
+            for (int i = 0; i < ReadOnlyVoucherOps.Rows.Length; i++)
+            {
+                if (!ReadOnlyVoucherOps.Rows[i].Fixed)
+                {
+                    ops.Add(ReadOnlyVoucherOps.Rows[i].Op);
+                }
+            }
+            return ops.ToArray();
         }
 
         static void CheckKeys(Dictionary<string, object> obj, string at)
@@ -346,5 +400,7 @@ namespace U8Co
         public string[] Archives;
         // 仅 type=vouchers：配置的单据类型；head_fix、so_contract 省略时为 null（取固定的那一种）。
         public string Voucher;
+        // 按调用系统放行（API 信任项 name）；按操作员放行的行为 null。与 Operators 恰好一个非 null。
+        public string[] Callers;
     }
 }

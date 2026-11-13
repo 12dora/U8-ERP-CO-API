@@ -53,6 +53,46 @@ def test_duplicate_issuer_and_audience_is_rejected(tmp_path) -> None:
     assert len(load_trust({"U8CO_TRUST_FILE": other})) == 2
 
 
+def test_duplicate_name_is_rejected_even_with_other_issuer_and_audience(tmp_path) -> None:
+    # name 是只读例外 callers 认的身份：发行者、受众都不同也不能重名（复审 P1）。
+    twin = dict(
+        _ROW, issuer="https://other-id.example.com", audience="other-co", jwks_url="https://other-id.example.com/jwks"
+    )
+    path = _write(tmp_path, [_ROW, twin])
+    with pytest.raises(SystemExit, match="name 重复: app-a"):
+        load_trust({"U8CO_TRUST_FILE": path})
+
+
+def test_duplicate_name_across_file_and_env_is_rejected(tmp_path) -> None:
+    env = {"U8CO_OIDC_ISSUER": "https://other-id.example.com", "U8CO_OIDC_AUDIENCE": "other-co"}
+    named = _write(tmp_path, [dict(_ROW, name="crm")])
+    with pytest.raises(SystemExit, match="name 重复: crm"):
+        load_trust(dict(env, U8CO_TRUST_FILE=named, U8CO_OIDC_NAME="crm"))
+    # 环境变量项缺省叫 default，同样参与比较。
+    other = tmp_path / "other"
+    other.mkdir()
+    default = _write(other, [dict(_ROW, name="default")])
+    with pytest.raises(SystemExit, match="name 重复: default"):
+        load_trust(dict(env, U8CO_TRUST_FILE=default))
+    assert [item.name for item in load_trust(dict(env, U8CO_TRUST_FILE=named))] == ["crm", "default"]
+
+
+def test_legacy_caller_key_counts_as_the_name(tmp_path) -> None:
+    legacy = {key: value for key, value in _ROW.items() if key != "name"}
+    legacy.update({"caller": "app-a", "audience": "u8co-api-2"})
+    with pytest.raises(SystemExit, match="name 重复"):
+        load_trust({"U8CO_TRUST_FILE": _write(tmp_path, [_ROW, legacy])})
+
+
+def test_names_differing_only_in_case_are_distinct(tmp_path) -> None:
+    # 区分大小写，与 callers 的逐字比较一致：crm 与 CRM 是两个信任项。
+    upper = dict(_ROW, name="APP-A", audience="u8co-api-2")
+    assert [item.name for item in load_trust({"U8CO_TRUST_FILE": _write(tmp_path, [_ROW, upper])})] == [
+        "app-a",
+        "APP-A",
+    ]
+
+
 @pytest.mark.parametrize(
     "change",
     (

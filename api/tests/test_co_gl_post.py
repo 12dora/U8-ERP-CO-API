@@ -57,7 +57,7 @@ def test_post_sends_exact_sealed_keys() -> None:
         method, seen, raw = server.httpd.hits[-1]
         sent = json.loads(raw)
     assert (method, seen) == ("POST", "/u8co" + _BRIDGE)
-    assert set(sent) == _sealed("period", "vouchers", "caller")
+    assert set(sent) == _sealed("period", "vouchers", "caller", "caller_trust")
     assert sent["vouchers"] == _TWO
     assert _SECRET not in raw.decode("utf-8")
 

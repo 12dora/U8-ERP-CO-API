@@ -260,23 +260,29 @@ namespace U8Co
             }
         }
 
-        static ApiResult BuildInvoice(WorkContext ctx, VoucherKind kind, int sourceId, Dictionary<string, object> head,
+        // 表头照第一张来源发货单的参照视图抄（多张来源已核过同一客户、币种、汇率、税率、业务类型，SaleGenInvPlan）；
+        // 表体每行照它自己的发货行参照视图抄，cdlcode / cbdlcode 写该行所属发货单的单号。
+        static ApiResult BuildInvoice(WorkContext ctx, VoucherKind kind, InvSource[] sources, Dictionary<string, object> head,
             InvHead want, ShipLine[] plan)
         {
             object srcHead = null;
             object sys = null;
             object co = null;
             object[] doms = new object[2];
+            int sourceId = sources[0].Id;
             try
             {
+                // 表体约定字段 cbdefine1–3（SaleBillVouchs_extradefine）：保存前按列目录校验，保存后同一事务补写并回读（SalePins）。
+                SalePins pins = SalePins.ForInvoice(ctx.Conn, LoginDate(ctx), PinLines(plan));
                 srcHead = LoadRef(ctx.Conn, InvRefHead, sourceId, "参照视图没有该发货单");
                 SaSession.OpenSa(ctx.Conn, ctx.Session.Login, want.Vt, out sys, out co);
                 SoDom.Templates(co, ctx.Conn, want.Card, ctx.Item, doms);
                 FillInvHead(ctx, sys, doms, srcHead, head, want);
                 FillInvLines(ctx, co, doms, want, plan);
                 string code;
-                int id = SoSave.SaveInvoice(ctx.Conn, co, doms, ctx.Item, out code);
-                return AfterSave(ctx, kind, id, code, Echo(InvIdSql, "SBVID", "dispatch", sourceId));
+                int id = SoSave.SaveInvoice(ctx.Conn, co, doms, ctx.Item, pins, out code);
+                ApiResult result = AfterSave(ctx, kind, id, code, Echo(InvIdSql, "SBVID", "dispatch", sourceId));
+                return WithSources(ctx.Item, result, sources);
             }
             finally
             {
@@ -368,12 +374,14 @@ namespace U8Co
                     CoRows.Note(ctx.Item, "BodyCheck " + msg);
                 }
                 object row = At(doms[1], at);
-                ApplyFields(doms[1], row, line.Fields, false);
+                // cbdefine1–3 在扩展表里，不进 DOM，保存后由桥写（SalePins）。
+                ApplyFields(doms[1], row, SalePins.DomOnly(SalePins.Invoice, line.Fields), false);
                 DomRows.Set(doms[1], row, "idlsid", line.LineId.ToString(CultureInfo.InvariantCulture));
-                if (want.DlCode.Length > 0)
+                string dlCode = line.DlCode != null && line.DlCode.Length > 0 ? line.DlCode : want.DlCode;
+                if (dlCode.Length > 0)
                 {
-                    DomRows.Set(doms[1], row, "cdlcode", want.DlCode);
-                    DomRows.Set(doms[1], row, "cbdlcode", want.DlCode);
+                    DomRows.Set(doms[1], row, "cdlcode", dlCode);
+                    DomRows.Set(doms[1], row, "cbdlcode", dlCode);
                 }
                 DomRows.Set(doms[1], row, "irowno", (index + 1).ToString(CultureInfo.InvariantCulture));
                 DomRows.Set(doms[1], row, "editprop", "A");
@@ -382,78 +390,6 @@ namespace U8Co
             {
                 ComUtil.Final(src);
             }
-        }
-
-        // 这个入口只有一张来源发货单，客户和 cDLCode 都取它。多张发货单拼进一张发票不在这里。
-        static ShipLine[] PlanInvoice(object conn, int sourceId, object[] lines, InvHead want)
-        {
-            Dictionary<string, object> disp = Rows.One(conn, DispHeadSql, new object[] { sourceId });
-            if (disp == null)
-            {
-                throw new BridgeException(404, "not_found", "单据不存在");
-            }
-            if (CoRows.Col(disp, "cVouchType") != "05" || CoRows.FlagOf(disp, "bReturnFlag"))
-            {
-                throw new BridgeException(400, "bad_request", "仅支持蓝字发货单");
-            }
-            if (CoRows.FlagOf(disp, "bFirst"))
-            {
-                throw new BridgeException(400, "bad_request", "不支持期初发货单");
-            }
-            if (CoRows.Col(disp, "cVerifier").Length == 0)
-            {
-                throw new BridgeException(409, "state_mismatch", "单据未审核");
-            }
-            if (CoRows.Col(disp, "cCloser").Length > 0)
-            {
-                throw new BridgeException(409, "state_mismatch", "单据已关闭");
-            }
-            want.DlCode = CoRows.Col(disp, "cDLCode");
-            want.SoCode = CoRows.Col(disp, "cSOCode");
-            Dictionary<int, Dictionary<string, object>> body = IndexBy(conn, DispLineSql, sourceId, "iDLsID");
-            ShipLine[] plan = new ShipLine[lines.Length];
-            Dictionary<int, bool> seen = new Dictionary<int, bool>();
-            for (int i = 0; i < lines.Length; i++)
-            {
-                plan[i] = ReadInvLine(lines[i], body, seen);
-            }
-            return plan;
-        }
-
-        static ShipLine ReadInvLine(object raw, Dictionary<int, Dictionary<string, object>> body, Dictionary<int, bool> seen)
-        {
-            Dictionary<string, object> map = raw as Dictionary<string, object>;
-            if (map == null)
-            {
-                throw new BridgeException(400, "bad_request", "表体行必须是对象");
-            }
-            CheckKeys(map, false, InvLineKeys, false);
-            int lineId = CoRows.AsId(RawKey(map, "source_line_id"));
-            Dictionary<string, object> src;
-            if (lineId <= 0 || !body.TryGetValue(lineId, out src))
-            {
-                throw new BridgeException(400, "bad_request", "明细行不存在");
-            }
-            if (seen.ContainsKey(lineId))
-            {
-                throw new BridgeException(400, "bad_request", "明细行重复");
-            }
-            seen[lineId] = true;
-            if (CoRows.Col(src, "cSCloser").Length > 0)
-            {
-                throw new BridgeException(409, "state_mismatch", "单据已关闭");
-            }
-            decimal qty = QtyOf(RawKey(map, "quantity"));
-            // 已开票加未开票退货（生成的 bneedbill=0 退货单回写 fretqtywkp）。
-            if (qty > Remain(src, "Billed"))
-            {
-                throw new BridgeException(409, "state_mismatch", "超过可生单数量");
-            }
-            ShipLine line = new ShipLine();
-            line.LineId = lineId;
-            line.Qty = qty;
-            line.Fields = map;
-            return line;
         }
 
         static InvHead Want(Dictionary<string, object> head)
@@ -500,6 +436,9 @@ namespace U8Co
             public decimal Qty;
             public string OrderRow;
             public Dictionary<string, object> Fields;
+            // 销售发票：该行所属的来源发货单（SaleGenInvPlan）。
+            public int DlId;
+            public string DlCode;
         }
 
     }

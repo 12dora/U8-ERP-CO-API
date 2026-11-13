@@ -26,13 +26,8 @@ namespace U8Co
                 {
                     throw new BridgeException(409, "u8_rejected", err);
                 }
-                ApiResult result = CoRows.Pack(kind, id, snap, doms);
                 // 扩展自定义项（销售订单、发货单的 <表>_extradefine）和约定字段的主表列另查后并进表头、表体。
-                Dictionary<string, object> head = result.Body["head"] as Dictionary<string, object>;
-                System.Collections.IList lines = result.Body["lines"] as System.Collections.IList;
-                SaleExtraRead.Merge(ctx.Conn, kind, id, head, lines);
-                SaleExtraRead.MergeBase(ctx.Conn, kind, id, head, lines);
-                return result;
+                return SaleExtraRead.MergeLoad(ctx.Conn, kind, id, CoRows.Pack(kind, id, snap, doms));
             }
             finally
             {

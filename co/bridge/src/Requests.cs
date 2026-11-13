@@ -24,7 +24,7 @@ namespace U8Co
             new string[] { "/u8co/v1/vouchers/update", "type", "id", "head", "lines" },
             new string[] { "/u8co/v1/vouchers/delete", "type", "id" },
             new string[] { "/u8co/v1/vouchers/close", "type", "id", "action", "line_ids" },
-            new string[] { "/u8co/v1/vouchers/generate", "type", "id", "source_type", "head", "lines" },
+            new string[] { "/u8co/v1/vouchers/generate", "type", "id", "source_type", "head", "lines", SaleInvSources.Field },
             // 历史发货单表头修正（VoucherHeadFix）。
             VoucherHeadFix.Spec,
             new string[] { "/u8co/v1/workflow/state", "type", "id" },
@@ -76,8 +76,10 @@ namespace U8Co
         {
             DryRunReq.RefuseLegacy(body, draft);
             string caller = WriteClassGate.CallerOf(body, path);
+            string trust = WriteClassGate.TrustOf(body, path);
             IdemAsk idem = IdemReq.Take(body, path);
             draft.Caller = caller;
+            draft.Trust = trust;
             RejectUnknown(body, VoucherKeys);
             WorkItem item = Build(cfg, body, draft, kind, true);
             item.Idem = idem;
@@ -211,99 +213,6 @@ namespace U8Co
             return (string)body[key];
         }
 
-        static int NeedId(Dictionary<string, object> body)
-        {
-            if (!body.ContainsKey("id"))
-            {
-                throw BridgeException.BadField("id", "缺少单据 id");
-            }
-            object value = body["id"];
-            if (value is int)
-            {
-                return Positive((int)value);
-            }
-            if (value is long)
-            {
-                long number = (long)value;
-                if (number < 1 || number > int.MaxValue)
-                {
-                    throw BridgeException.BadField("id", "单据 id 无效");
-                }
-                return (int)number;
-            }
-            throw BridgeException.BadField("id", "单据 id 必须是整数");
-        }
-
-        static int Positive(int id)
-        {
-            if (id < 1)
-            {
-                throw BridgeException.BadField("id", "单据 id 无效");
-            }
-            return id;
-        }
-
-        static string NeedAction(Dictionary<string, object> body)
-        {
-            string action = Need(body, "action");
-            if (action != "verify" && action != "unverify")
-            {
-                throw BridgeException.BadField("action", "action 只能是 verify 或 unverify");
-            }
-            return action;
-        }
-
-        static string NeedClose(Dictionary<string, object> body)
-        {
-            string action = Need(body, "action");
-            if (action != "close" && action != "open")
-            {
-                throw BridgeException.BadField("action", "action 只能是 close 或 open");
-            }
-            return action;
-        }
-
-        static string CheckOperator(string user)
-        {
-            if (user.Length == 0 || user.Length > 20)
-            {
-                throw BridgeException.BadField("operator", "操作员编码无效");
-            }
-            for (int i = 0; i < user.Length; i++)
-            {
-                if (user[i] <= ' ' || user[i] == '\'' || user[i] == ';')
-                {
-                    throw BridgeException.BadField("operator", "操作员编码无效");
-                }
-            }
-            return user;
-        }
-
-        static void CheckDate(string date)
-        {
-            DateTime parsed;
-            if (!DateTime.TryParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out parsed))
-            {
-                throw BridgeException.BadField("date", "日期必须是 yyyy-MM-dd");
-            }
-        }
-
-        static bool Digits(string text, int size)
-        {
-            if (text == null || text.Length != size)
-            {
-                return false;
-            }
-            for (int i = 0; i < text.Length; i++)
-            {
-                if (text[i] < '0' || text[i] > '9')
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-
         static string[] ExtraKeys(string path)
         {
             string[] extra = SpecKeys(RouteSpecs, path);
@@ -344,10 +253,12 @@ namespace U8Co
             // 写预演：先取走写路由上的 dry_run（DryRunReq），预演不能带幂等键。
             bool dry = DryRunReq.Take(body, path);
             DryRunReq.Mark(draft, dry ? DryRunReq.Requested : null);
-            // 幂等：先取走 idempotency_key、caller 并算业务内容摘要（IdemReq），再按原来的字段表校验。
+            // 幂等：先取走 idempotency_key、caller、caller_trust 并算业务内容摘要（IdemReq），再按原来的字段表校验。
             string caller = WriteClassGate.CallerOf(body, path);
+            string trust = WriteClassGate.TrustOf(body, path);
             IdemAsk idem = IdemReq.Take(body, path);
             draft.Caller = caller;
+            draft.Trust = trust;
             DryRunReq.RefuseIdem(dry, idem);
             RejectUnknown(body, JoinKeys(extra));
             WorkItem item = Build(cfg, body, draft, "", false);
@@ -373,6 +284,12 @@ namespace U8Co
             bool noId = path == "/u8co/v1/vouchers/create" || path == "/u8co/v1/workflow/tasks" || NoIdP4(path) || ArapVoucherMerge(body, path);
             if (noId)
             {
+                return;
+            }
+            // 销售发票参照多张发货单：sources 代替 id + lines（SaleInvSources），id 取第一张来源。
+            if (SaleInvSources.Asked(body, path))
+            {
+                SaleInvSources.Apply(body, item, draft);
                 return;
             }
             item.HasId = true;
@@ -443,7 +360,8 @@ namespace U8Co
             bool invoice = item.Type != null && item.Type.Name == "purchase_invoice";
             item.Head = Json.OptionalHead(body, invoice ? null : item.Type);
             item.Source = SourceFor(item.Type, body);
-            item.Lines = Json.GenerateLines(body, item.Type, WholeGenerate(body, item));
+            SaleInvSources.CheckSource(item);
+            item.Lines = item.GenSources != null ? new object[0] : Json.GenerateLines(body, item.Type, WholeGenerate(body, item));
             PuSettleReq.Apply(item); // 采购结算：不收 lines，表头只收 settle_date（替换本次的 U8 登录日期）
         }
 

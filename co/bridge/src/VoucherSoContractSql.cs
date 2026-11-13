@@ -7,6 +7,7 @@ namespace U8Co
     // 销售订单合同号回写的受控 SQL：一个事务里 UPDLOCK, ROWLOCK 读 SO_SOMain 表头，查权限、锁定人、长度、expect，
     // 预演到此回滚，否则 UPDATE cDefine1（及 cDefine2）和修改人 / 修改日期（列存在才写），条件 ufts 仍是读到的值，回读核对。
     // 只动 SO_SOMain 这一行：不碰 SO_SODetails、DispatchList、SaleBillVouch、各 History 表、金额、审核、关闭。
+    // 例外是 mode=pair 且 cascade=true：订单写完后在同一事务里由 VoucherSoContractDown 改下游单据表头的这两列（预演只判断不写）。
     internal static class VoucherSoContractSql
     {
         const string HeadSql = "SELECT LTRIM(RTRIM(ISNULL(cSOCode,''))) AS code, cDefine1 AS c1, cDefine2 AS c2,"
@@ -43,17 +44,22 @@ namespace U8Co
             Dictionary<string, SoColumn> cols = Columns(conn);
             CheckLengths(ask, cols);
             SoContractPlan plan = VoucherSoContract.Decide(ask, snap);
+            List<SoDownDoc> down = ask.Cascade ? VoucherSoContractDown.Plan(conn, ask, User(ctx)) : null;
             if (DryRun.Active)
             {
-                DryRun.StopWith(ctx, VoucherSoContract.DryBody(ask, snap, plan.Changed));
+                DryRun.StopWith(ctx, VoucherSoContractPair.WithCascade(VoucherSoContract.DryBody(ask, snap, plan.Changed), down));
             }
-            if (!plan.Changed)
+            SoContractSnap after = snap;
+            if (plan.Changed)
             {
-                return ApiResult.Ok(VoucherSoContract.Body(ask, snap, false));
+                Write(conn, ctx, ask, plan, cols, snap.Ts);
+                after = Confirm(conn, ask, plan, snap);
             }
-            Write(conn, ctx, ask, plan, cols, snap.Ts);
-            SoContractSnap after = Confirm(conn, ask, plan, snap);
-            return ApiResult.Ok(VoucherSoContract.Body(ask, after, true));
+            if (down != null)
+            {
+                VoucherSoContractDown.Write(conn, ask, down);
+            }
+            return ApiResult.Ok(VoucherSoContractPair.WithCascade(VoucherSoContract.Body(ask, after, plan.Changed), down));
         }
 
         internal static SoContractSnap Snap(Dictionary<string, object> head)
@@ -68,7 +74,7 @@ namespace U8Co
         }
 
         // 原值：NULL（行里缺席）为 null，其余原样（含空串、首尾空白）。
-        static string Raw(Dictionary<string, object> row, string name)
+        internal static string Raw(Dictionary<string, object> row, string name)
         {
             object value;
             if (row == null || !row.TryGetValue(name, out value) || value == null)
@@ -116,7 +122,7 @@ namespace U8Co
         static void CheckLengths(SoContractAsk ask, Dictionary<string, SoColumn> cols)
         {
             VoucherSoContract.CheckLength(ask.ContractNo, cols["cDefine1"].Limit, VoucherSoContract.ContractKey);
-            VoucherSoContract.CheckLength(ask.CustomerNo, cols["cDefine2"].Limit, VoucherSoContract.CustomerKey);
+            VoucherSoContract.CheckLength(ask.CustomerNo, cols["cDefine2"].Limit, ask.Key2);
         }
 
         // UPDATE 片段：要写的自定义项，再加存在的修改人（操作员姓名）、修改日期（登录日期）、修改时间。

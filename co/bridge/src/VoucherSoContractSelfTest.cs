@@ -5,7 +5,7 @@ namespace U8Co
 {
     // --selftest 的销售订单合同号回写部分：请求解析与拒绝、类型闸门、空值等价、写什么的纯判断（空 / 「无」/ 已是目标 /
     // 挪进客户合同号 / 不覆盖）、expect 不符的 detail.current、锁定人、长度、UPDATE 片段、回读核对、响应形状，
-    // 以及写分类 / 写闸门 / 预演模式 / 权限规则 / 单据锁 / 只读例外表 / 策略词表的登记。不连库。
+    // 以及写分类 / 写闸门 / 预演模式 / 权限规则 / 单据锁 / 只读例外表 / 策略词表的登记。不连库。成对设置见 VoucherSoContractPairSelfTest。
     internal static class VoucherSoContractSelfTest
     {
         const string K1 = VoucherSoContract.ContractKey;
@@ -25,6 +25,7 @@ namespace U8Co
             CheckSetClause();
             CheckReadBack();
             CheckWiring();
+            VoucherSoContractPairSelfTest.Run();
         }
 
         static void CheckParse()
@@ -239,7 +240,7 @@ namespace U8Co
             update.Id = 7;
             Expect("wiring same lock as update", Array.IndexOf(DocLocks.KeysOf(item), "sale_order:7") >= 0
                 && Array.IndexOf(DocLocks.KeysOf(update), "sale_order:7") >= 0);
-            Expect("wiring spec", VoucherSoContract.Spec[0] == VoucherSoContract.Path && VoucherSoContract.Spec.Length == 7);
+            Expect("wiring spec", VoucherSoContract.Spec[0] == VoucherSoContract.Path && VoucherSoContract.Spec.Length == 10);
             CheckReadOnlyTable();
         }
 

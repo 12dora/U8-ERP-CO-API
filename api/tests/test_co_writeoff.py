@@ -29,7 +29,7 @@ def test_writeoff_forwards_exact_sealed_keys() -> None:
         sent = json.loads(raw)
     assert method == "POST"
     assert seen == "/u8co/v1/arap/writeoff"
-    assert set(sent) == _sealed("receipt", "items", "caller")
+    assert set(sent) == _sealed("receipt", "items", "caller", "caller_trust")
     assert sent["receipt"] == _AR
     assert sent["items"][0] == _INV
     # 省略的 line_id 不送（exclude_none）。
@@ -149,7 +149,7 @@ def test_cancel_forwards_exact_sealed_keys() -> None:
         sent = json.loads(raw)
     assert method == "POST"
     assert seen == "/u8co/v1/arap/writeoff/cancel"
-    assert set(sent) == _sealed("flag", "cancel_no", "caller")
+    assert set(sent) == _sealed("flag", "cancel_no", "caller", "caller_trust")
     assert (sent["flag"], sent["cancel_no"]) == ("AR", _NO)
     assert _SECRET.encode() not in raw
     body = response.json()

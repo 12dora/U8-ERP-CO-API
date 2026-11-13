@@ -60,7 +60,7 @@ def test_bad_debt_sends_exact_sealed_keys(body: dict, keys: tuple[str, ...]) -> 
         method, seen, raw = server.httpd.hits[-1]
         sent = json.loads(raw)
     assert (method, seen) == ("POST", "/u8co/v1/arap/bad_debt")
-    assert set(sent) == _sealed(*keys, "caller")
+    assert set(sent) == _sealed(*keys, "caller", "caller_trust")
     for name in keys:
         assert sent[name] == body[name], name
     assert _SECRET not in raw.decode("utf-8")

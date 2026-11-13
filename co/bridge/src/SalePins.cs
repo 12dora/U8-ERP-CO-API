@@ -24,6 +24,8 @@ namespace U8Co
         // 参与 U8 数量、单位、金额或收付款计划计算的字段（Spec 第 6 列 C）：只走组件，桥不补写。
         internal bool Calc;
         internal SaleCol Col;
+        // 销售发票：该行的来源发货行 iDLsID（保存后按它找发票行 AutoID，SalePinsInv）。
+        internal int SrcLine;
 
         internal bool Extra
         {
@@ -49,6 +51,7 @@ namespace U8Co
     {
         internal const string Order = "sale_order";
         internal const string Dispatch = "dispatch";
+        internal const string Invoice = "sale_invoice";
         // {类型, H 表头 / B 表体, 请求字段（小写）, 表, 列, A 纯标注（模板没有时桥可补写）/ C 只走组件计算}
         // C：cunitid、inum 参与数量 / 换算率 / 金额计算；cgatheringplan 决定 U8 保存时生成的收付款计划和到期日。
         // 模板没有 C 字段时保存前 400，从不在 Save 之后用 SQL 补写。
@@ -67,7 +70,11 @@ namespace U8Co
             new string[] { Dispatch, "H", "chdefine1", "DispatchList_extradefine", "chdefine1", "A" },
             new string[] { Dispatch, "H", "chdefine2", "DispatchList_extradefine", "chdefine2", "A" },
             new string[] { Dispatch, "H", "chdefine3", "DispatchList_extradefine", "chdefine3", "A" },
-            new string[] { Dispatch, "H", "chdefine4", "DispatchList_extradefine", "chdefine4", "A" }
+            new string[] { Dispatch, "H", "chdefine4", "DispatchList_extradefine", "chdefine4", "A" },
+            // 销售发票参照发货单（蓝字）的表体回签字段：回签数量、回签含税价、回签价税合计（SalePinsInv）。
+            new string[] { Invoice, "B", "cbdefine1", "SaleBillVouchs_extradefine", "cbdefine1", "A" },
+            new string[] { Invoice, "B", "cbdefine2", "SaleBillVouchs_extradefine", "cbdefine2", "A" },
+            new string[] { Invoice, "B", "cbdefine3", "SaleBillVouchs_extradefine", "cbdefine3", "A" }
         };
 
         internal string Kind;
@@ -134,6 +141,10 @@ namespace U8Co
             if (table.StartsWith("SO_SODetails", StringComparison.OrdinalIgnoreCase))
             {
                 return "iSOsID";
+            }
+            if (table.StartsWith("SaleBillVouchs", StringComparison.OrdinalIgnoreCase))
+            {
+                return "AutoID";
             }
             return "DLID";
         }
