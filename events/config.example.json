@@ -1,0 +1,34 @@
+{
+  "state_path": "/var/lib/u8co-events/state.sqlite3",
+  "bridge": {
+    "base_url": "http://192.0.2.10:18089/u8co",
+    "secret_file": "/run/secrets/u8co_bridge_secret",
+    "timeout_seconds": 60
+  },
+  "accounts": [
+    {
+      "acc": "999",
+      "operator_file": "/run/secrets/u8co_operator_999",
+      "types": ["sale_order", "dispatch", "purchase_order", "purchase_in", "sale_out"],
+      "sources": ["vouchers", "notes", "arap_process", "gl", "archives"],
+      "archives": ["customer", "vendor", "inventory", "department", "person", "warehouse"]
+    }
+  ],
+  "poll_interval_seconds": 30,
+  "page_limit": 500,
+  "delete_scan_minutes": 30,
+  "empty_scan_confirm_max": 50,
+  "auto_id_lag": 500,
+  "gl_closed_periods": 1,
+  "backfill_events": false,
+  "outbox_high_water": 100000,
+  "redis": {
+    "url": "redis://redis:6379/0",
+    "password_file": "",
+    "stream_prefix": "u8co:events:",
+    "maxlen": 1000000,
+    "allow_nondurable_redis": false
+  },
+  "publisher": {"kind": "redis", "batch": 100, "idle_seconds": 1.0},
+  "health": {"listen": "127.0.0.1:8090"}
+}

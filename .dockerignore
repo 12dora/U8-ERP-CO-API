@@ -1,0 +1,23 @@
+# 以仓库根目录为构建上下文时生效。只排除与 API 镜像无关的内容和本地产物。
+.git/
+.github/
+.githooks/
+**/__pycache__/
+**/*.py[cod]
+**/.venv/
+**/venv/
+**/.pytest_cache/
+**/.ruff_cache/
+**/out/
+**/bin/
+**/obj/
+**/*.exe
+**/*.dll
+**/*.pdb
+.env
+.env.*
+# co/ 下只有 Python 客户端进镜像（events 用到）。
+co/*
+!co/__init__.py
+!co/client/
+docs/

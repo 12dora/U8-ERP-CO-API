@@ -1,0 +1,30 @@
+# u8co-mcp（HTTP 方式）的 Docker Compose 示例。复制为 compose.yml，按实际环境修改。
+# 需要的本地文件：
+#   ./config/mcp.json               从 mcp.http.example.json 复制；token.type 必须是 incoming，read_only 必须是 true
+#   ./secrets/person-proxy-token    调身份绑定服务（mgmt.person_proxy）的服务令牌。本服务不保存任何 U8 口令：
+#                                   经营管理查询由身份绑定服务以调用者本人绑定的 U8 操作员执行。
+#                                   容器以 uid 10001 运行：chown 10001 这个文件并 chmod 0400（或 0600）。
+# 对外请放在反向代理（TLS）后面；AI 平台按用户把各自的 OAuth 令牌放在 Authorization: Bearer 里调 /mcp。
+services:
+  u8co-mcp:
+    build: .
+    image: u8co-mcp:local
+    restart: unless-stopped
+    # 由 init 进程转发 SIGTERM 并回收子进程；服务收到 SIGTERM 后停止接受新连接，等在途请求（最多 25 秒）再退出。
+    init: true
+    volumes:
+      - ./config/mcp.json:/config/mcp.json:ro
+      - ./secrets/person-proxy-token:/run/secrets/person-proxy-token:ro
+    ports:
+      # 只绑本机，由反向代理转发。
+      - "127.0.0.1:8095:8095"
+    # 与 API 同在一个 Compose 项目时，可以把 base_url 写成 http://u8co-api:8080 并在配置里设 allow_insecure_http: true。
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # 停机时给在途请求留时间（服务自己最多等 25 秒）。
+    stop_grace_period: 30s

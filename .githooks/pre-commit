@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# 提交前跑代码异味门禁（scripts/check-quality.sh），不通过就拒绝提交。
+# 启用：在仓库根目录执行一次 `git config core.hooksPath .githooks`。
+# 停用：`git config --unset core.hooksPath`。
+set -euo pipefail
+root=$(git rev-parse --show-toplevel)
+exec bash "$root/scripts/check-quality.sh"

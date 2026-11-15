@@ -1,0 +1,5 @@
+# 根目录的 .gitignore 忽略 .env.*，示例文件要提交。
+!.env.example
+secrets/
+config/
+compose.yml
