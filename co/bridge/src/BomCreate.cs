@@ -6,8 +6,8 @@ namespace U8Co
     // 物料清单新增（vouchers/create，type=bom）：U8API BomAdd，登录子系统 BO，只建标准 BOM（BomType=1），新版本状态按
     // mom_parameter.BomDefaultStatus（如 1 未审核）。调用前查完母件、子件、仓库、版本号和生效日期。
     // 新 BomId 不写回表头（实测 B2），调用后在新连接上按（母件 PartId、版本、BomType=1）找：
-    // U8 返回成功时认创建时间不早于调用前数据库时间的那一行；调用异常或 IPC 错误时还要制单人是本操作员、
-    // 行号和子件与请求逐行相同，否则不认。找到算成功；有同版本的行却认不了 504，一行都没有时 IPC 错误 503、其他 504。
+    // U8 返回成功时认创建时间不早于调用前数据库时间的那一行，并核对行号、子件、用量分子、选配、互斥；
+    // 调用异常或 IPC 错误时还要制单人是本操作员。找到算成功；有同版本的行却认不了 504，一行都没有时 IPC 错误 503、其他 504。
     internal static class BomCreate
     {
         public static ApiResult Run(WorkContext ctx, VoucherKind kind, Dictionary<string, object> head, object[] lines)
@@ -40,7 +40,7 @@ namespace U8Co
         // 版本生效日期缺省为登录日期，版本说明缺省空串，母件损耗率缺省 0。
         static void Prepare(object conn, BomAsk ask, string today)
         {
-            ask.PartId = BomSql.PartOf(conn, ask.InvCode, true, today);
+            ask.PartId = BomSql.ParentOf(conn, ask, today);
             ask.VersionDesc = ask.HeadText("version_desc") ?? "";
             ask.EffDate = ask.HeadText("eff_date") ?? today;
             object scrap;
@@ -89,15 +89,20 @@ namespace U8Co
             {
                 return 0;
             }
+            if (!SameRows(BomRead.Lines(conn, id), ask.Rows))
+            {
+                return 0;
+            }
             if (ok)
             {
                 return id;
             }
             bool mine = string.Equals(CoRows.Col(row, "maker"), user, StringComparison.OrdinalIgnoreCase);
-            return mine && SameRows(BomRead.Lines(conn, id), ask.Rows) ? id : 0;
+            return mine ? id : 0;
         }
 
-        static bool SameRows(List<Dictionary<string, object>> lines, List<BomRow> rows)
+        // 行号、存货、用量分子，以及选配 / 互斥（BomRow.SameFlags 里这两项）。对不上与其他认不了的回读一样不认。
+        internal static bool SameRows(List<Dictionary<string, object>> lines, List<BomRow> rows)
         {
             if (lines.Count != rows.Count)
             {
@@ -105,14 +110,21 @@ namespace U8Co
             }
             for (int i = 0; i < rows.Count; i++)
             {
-                if (BomSql.Int(CoRows.Col(lines[i], "sort_seq")) != rows[i].Seq
-                    || !string.Equals(CoRows.Col(lines[i], "inv_code"), rows[i].InvCode, StringComparison.OrdinalIgnoreCase)
-                    || BomSql.Dec(CoRows.Col(lines[i], "base_qty_n")) != rows[i].QtyN)
+                if (!SameLine(lines[i], rows[i]))
                 {
                     return false;
                 }
             }
             return true;
+        }
+
+        static bool SameLine(Dictionary<string, object> line, BomRow want)
+        {
+            BomRow got = BomRead.RowOf(line);
+            return got.Seq == want.Seq
+                && string.Equals(got.InvCode, want.InvCode, StringComparison.OrdinalIgnoreCase)
+                && got.QtyN == want.QtyN
+                && got.Optional == want.Optional && got.Mutex == want.Mutex;
         }
 
         // lost 为空说明 InvokeApi 返回了成功（只是回读不到或认不了新版本）。

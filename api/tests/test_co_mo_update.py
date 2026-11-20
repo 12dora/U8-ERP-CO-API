@@ -131,4 +131,5 @@ def test_openapi_lists_production_order_update() -> None:
     schemas = make_client().get("/v1/openapi.json").json()["components"]["schemas"]
     assert _KIND in schemas["CoUpdateIn"]["properties"]["type"]["enum"]
     assert {"allocates", "details", "changed"} <= set(schemas["CoUpdateOut"]["properties"])
-    assert not {"allocates", "details", "changed"} & set(schemas["CoGenerateOut"]["properties"])
+    assert "changed" not in schemas["CoGenerateOut"]["properties"]
+    assert {"allocates", "details", "warnings"} <= set(schemas["CoGenerateOut"]["properties"])

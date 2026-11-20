@@ -579,6 +579,27 @@ U8 API 的行为（已在测试账套实测）：
 - 产成品入库按行 `MoDId` 引用（行不重建），仍然拒绝。
 - 未验证：已审核订单改完工日期；U8 客户端变更时领料申请（`MaterialAppVouchs`）等其他引用怎样改写。
 
+### 参照销售订单生成（ATO）
+
+ATO 模型存货（`Inventory.bATOModel=1`）不能用 `MOrderAdd` 建标准生产订单：U8 在订单行校验里遇到「标准订单、ATO 模型、非订单生成（`OrdFlag` 不为 1）」就拒绝（「标准生产订单物料X属性不可为ATO模型」），而 U8 API 的 `MOrder` 只有新增、修改、删除、读取、审核、弃审，没有任何一个会写 `OrdFlag`、`CustBomId`、需求跟踪键。U8 客户端走的是「生产订单生成（参照销售订单）」（`MO05001`），它的组件可以在桥里直接调用：
+
+- 组件：`<u8Home>\U8M`（以及 `AppServer\Bin\U8M`）的 `UFSoft.U8.U8M.BFDispatcher`。`MOMExecutor.BFMomProcess_GetMOGenBaseData(Hashtable, IContextContainer)` 取生单列表（`MOGenBaseDataDs`，表 `MOGenBaseData`），`MOMExecutor.BFBatchProcess_SaveMOGenQtyData(Hashtable, IContextContainer)` 保存，返回逐行结果 Hashtable。这些代理方法按**自己的方法名**拼 BF 动作（`BFBatchProcess_*` 对应 `UFSoft.U8.MO.BF.BFBatchProcess_R`），必须调用真实的公共静态方法，不能自己拼动作名。`IContextContainer` 用 `UFSoft.U8.Framework.ContextSrv.DefaultContextContainer`。
+- 线程上下文同 U8 API 框架（`UFSoft.U8.U8M.API` 的 `UAPAPIBase`）：`TargetProviderFactory.SetCustomBFProvider(new U8MEntranceHelper())`、`ThreadDBConnInfo.SetSingleDBConnectionType(true)`、`ThreadContext.SetLoginInfo(U8Login.userToken)`。这几样都是按线程的静态量；写线程会被不同请求、不同操作员、不同账套复用，用完要逐项恢复原值（`ThreadContext.ServerToken`、`ThreadContext.U8LoginInfo`、`ThreadDBConnInfo.DBConnectionType` 有公共 setter；原来的自定义 BF 提供者在 `TargetProviderFactory` 的私有按线程字段里）。单连接模式下 U8M 的数据访问都用 `ConnectionCourier` 按线程缓存的连接，而它取连接时不核对 token：U8 API 框架每次调用后关掉它（`CloseCurrentConnection`），这里也必须在换 token 之前和恢复之前关掉，并 `RemoveCustomTransaction`，否则同一线程上随后的调用（例如另一个账套的生产订单新增）会用到这个账套的连接。
+- 列表条件（`Usp_MO_GetMOGenBaseData` 在视图 `V_SA_GenOrdData_ForMO` 上）：销售订单已审核（有变更时变更已审核）、行未关闭（`cSCloser` 空）、存货 `bATOModel=1` 且 `bProductBill=1`（存货档案「允许生产订单」）、所选生产订单类别的生产业务流程（`v_mom_docparameter`，`moclass=1`、`bMMOpeningProcess=1`）`bOrderFlag` 不为 0、预发货日 `dPreDate` 和预完工日 `dPreMoDate` 在日期范围内（为空的行不列出）、可生单数量 `UnGenQty = iQuantity − 手工预留 − iMoQuantity − fomquantity` 大于 0，另按操作员的部门、类别、工厂数据权限过滤。缺省生产部门 `MDeptCode` 是存货的 `cInvDepCode`（无部门数据权限时清空），缺省备注是销售订单行 `cMemo`，`MoClass` 恒为 1。销售订单号、类别编码被拼进动态 SQL（类别编码是 `nvarchar(2)`），含单引号的查不出来。
+- 保存参数三层：单号组 → 行组 → 行。同一行组里的行共用第一行的来源行、`Ufts` 回写销售订单，所以每个销售订单行单独一个行组；同一单号组的第一行 `Type=4`（批次首行）、其余 `Type=5`，共用一个 `MoCode`。行的键同 U8 界面：`Id`、`Acc_Id`、`MoCode`（给了按手工编号 `ByHand`，同号返回 `90022` 时 U8 抛「单号重复」；空串按 `MO21` 自动编号，`90022` 时换号重试）、`OrderDId`、`OrderId`、`CBomId`、`InvCode`、`InvFree1…10`、`Qty`、`DueDate`、`CreateUser` / `CreateDate`（取登录信息的 `UserId` / `OperDate`）、`Remark`、`OrderType`、`STProxyWhFlag`（U8 读完生产制造参数后恒为 0）、`MoTypeCode`、`RequisitionFlag`、`MoClass`、`From=SA`、`GroupType`、`Num` / `InvExchRate`（件数、换算率）、`KeepQty` / `KeepNum`（0）、`Ufts`（列表里销售订单行的 `dufts`）、`v_procmodule=2`（自定义项取参数）、`v_MDeptCode`、`v_Define1…16`、`v_Define22…37`、`GenQtyType=1`。
+- U8 保存时每行各开 `RequiresNew` 事务：部门、类别数据权限（无权 `Cnt` 901027 / 901028）、取号、`Usp_MO_GenMoFromSo`（写 `mom_order`、`mom_orderdetail`：`OrdFlag=1`、`Status=2`、`CustBomId`=销售订单行 `iCusBomID`、需求跟踪键；`mom_morder` 开工日期按提前期倒推；子件有客户 BOM 按客户 BOM 展开，否则订单 BOM、标准 BOM）、`Usp_MO_SOTOWriteBack`（`SO_SODetails.iMoQuantity` 加本行数量）、ATO 净需求冲减；全部行之后更新条码和销售订单 `ufts`。**按行提交**，而且某一行失败（数据权限、展开失败、回写失败）后 U8 **继续处理后面的行**：前面成功的行已经存在；首行失败时，下一行按 `Type=5` 用首行定下的单号（自动编号时是占位号）自己建表头，得到只含其余行的订单（未实测）。只有首行手工单号重号时 U8 抛异常、整批停下（什么都没提交）。不能包 `CoTrans`。
+- 逐行结果 `{Id, Cnt, MoId, MoDId, MoCode}`，`Cnt=0` 成功。错误码：900021 订单数量减预留数量不大于 0，90010 / 900022 BOM 展开失败，900023 客户 BOM 展开失败，900024 / 900025 生成表头 / 明细失败，900027 / 900028 / 900029 子件 / 替代料 / 客户 BOM 替代料失败，900030 销售订单已变更（`Ufts` 不符），900031 回写销售订单失败，900040 存货没有生产单位，901027 / 901028 部门 / 类别无数据权限。
+- 超计划下达：U8 界面改生单数量时，只在数量超过可生单数量**且**生产制造选项「允许超计划下达」（`mom_parameter.RlsOverPlanFlag`，为空按允许）关闭时拒绝；允许时没有上限（不看订单数量，也没有比例参数），保存组件和 `Usp_MO_GenMoFromSo` 只拒绝数量不大于 0（900021），`Usp_MO_WriteBackSo` 直接把数量加到 `iMoQuantity`。界面勾「显示已完成」时，已全部下达的行也列出。
+
+桥的做法（`MoGen*`，`vouchers/generate`，`type=production_order`，`source_type=sale_order`）：
+
+- 单号同 MO05001：MO21 单据编号设置完全自动（`VoucherNumber.bAllowHandWork=0` 且 `bRepeatReDo=0`）时不收 `mo_code`（400），完全手工（`bAllowHandWork=1`）时必须给（400），手工改动、重号自动重取（`bRepeatReDo=1`）时可给可不给。
+- 登录子系统 `MO`。功能权限 `MO05001M`（生产订单生成列表 `MO_List_MO05001` 的「保存」，UFMeta `AA_FormButtonAuths`）；数据权限按存货和最终生产部门（同生产订单新增），类别的数据权限由 U8 判断（901028 → 403）。
+- 调用前在请求连接上按上面的列表条件逐条查，给出确切原因（销售订单不存在 404，未审核、行已关闭、不是 ATO 模型、不允许生产订单、业务流程不允许来源为销售订单（`bOrderFlag=0`；为空时 U8 照样列出）、缺预发货 / 预完工日期 409，来源行不属于这张订单、类别或部门不存在、数量小数位超过 `iStrsQuanDecDgt` 400，单号已存在 409）；然后只取这张销售订单的 U8 列表（含已全部下达的行），可生单数量和缺省生产部门以列表为准：其余列表条件都已先查，不在列表里只剩 U8 按销售订单部门、生产订单类别、工厂的数据权限过滤：受数据权限控制的操作员 403，账套主管 409；`RlsOverPlanFlag` 关闭时超过可生单数量 409，打开时不限；没有生产部门 400。
+- 全部行进同一张生产订单，行序按请求；数量改了时件数按换算率重算（件数小数位 `iNumDecDgt`）。预演（校验模式）停在保存之前。调用前把来源、类别、单号、调用前最大 `MoId` / `MoDId` 和数据库时间、每行来源行、数量、部门、调用前 `iMoQuantity` 写进审计事件 `mo_generate_snapshot`。
+- 结果确认在新连接上：取 `MoDId` 大于调用前最大值、`OrderType=1`、`OrdFlag=1`、`OrderDId` 是请求的来源行，并且（`mom_order.CreateUser` 是本操作员、`CreateTime` 不早于调用前的数据库时间，或 `MoDId` 是 U8 结果里报告成功的行）的订单行。行数相同、同一张订单、单号（给了时）相同、每行数量、生产部门、类别相同，且销售订单行 `iMoQuantity` 正好加了本行数量，才算成功（保存调用抛了异常但全部对上时 200 加 `warnings`）。一行都没有时：U8 也没报告任何一行成功，按逐行错误码 409（数据权限 403）；保存调用异常（含 IPC 错误）一律 504，只有单号已被不含本次来源行的别的订单占用时 409「生产订单号已存在」。其余（部分成功、U8 报告成功却回读不到、对不上）一律 504 `outcome_unknown`，消息列出已生成的行（生产订单号、`MoDId`），不重试。列表等保存之前的调用 IPC 错误才报 503。
+- 未验证（测试账套没有 ATO 存货）：组件在桥进程里的路由（本地 `BFEntrance` 还是经 `U8MPool`）；`CreateUser` 是否与操作员编码一致；`bAllowHandWork` / `bRepeatReDo` 与 U8 编号方式（完全手工 / 手工改动 / 完全自动）的对应；浮动换算率按件数基准时的件数。
+
 ### 物料清单
 
 U8 API 的行为（已在测试账套实测）。桥的实现在 `BomCom`、`BomCreate`、`BomEdit`、`BomState`、`BomRead`。
@@ -593,7 +614,7 @@ U8 API 的行为（已在测试账套实测）。桥的实现在 `BomCom`、`Bom
 桥的做法：
 
 - 只做标准 BOM（`BomType=1`），替代 BOM 400。读取、列表走 SQL（登录 `SA`），写路由登录 `BO`。
-- 新增前查库：母件存在、自制（`bSelf`）、允许 BOM 母件（`bBomMain`）、未停用、有不带自由项的 `bas_part` 行；子件存在、允许 BOM 子件（`bBomSub`）、未停用、有 `bas_part` 行、不是母件本身；仓库存在且未停用；版本号不重复（省略时取最大版本加 `VersionIncrement`）；生效日期不与其他版本重复。新行先按默认仓库规则补仓库。
+- 新增前查库：母件存在、允许 BOM 母件（`bBomMain`，与 U8 `BaseBom.__CheckParent` 相同，不要求自制）、未停用、有不带自由项的 `bas_part` 行；子件存在、允许 BOM 子件（`bBomSub`）、未停用、有 `bas_part` 行、不是母件本身；仓库存在且未停用；版本号不重复（省略时取最大版本加 `VersionIncrement`）；生效日期不与其他版本重复。新行先按默认仓库规则补仓库。
 - 新增后在新连接上按（母件、版本、主 BOM）找：U8 返回成功时认创建时间不早于调用前数据库时间的那一行；调用中途异常或 IPC 错误时另要 `CreateUser` 是本操作员、行号、子件、用量分子逐行相同。有这个版本却认不了 504；一行都没有时 IPC 错误 503、其他 504。
 - 修改：先读出整张清单，把修改叠到现有全部行和标志上，以 `UpdateByDiff=true` 送全部行（每行都送起止日期）。只收 `Status=1`、`IsWFControlled` 不是 1、没有替代料（`bom_opcomponentsub`）、定位符（`bom_opcomponentloc`）、分段损耗（`bom_opcomponentscrap`）、子件自由项的清单；辅计量行不能改用量。改后在新连接上逐项比对表头版本说明、生效日期、母件损耗率和每行行号、工序、子件、用量、损耗率、供应类型、仓库、备注、起止日期、全部标志（`DCompScrapFlag` 除外）；IPC 错误时只有回读已是全部目标状态才按成功。
 - 删除只收 `Status=1`，并查 `mom_orderdetail`、`OM_MODetails`、`AssemVouch`（组装、拆卸、形态转换）、`MatchVouch` / `MatchVouchs.Bomid`（配比出库）、`TransVouch`（调拨）的 `BomId`，有就 409 并说明是哪类单据（历史表不查）。审核只收 1，弃审只收 3。

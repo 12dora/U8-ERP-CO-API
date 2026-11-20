@@ -19,6 +19,8 @@ namespace U8Co
                 MoWrite(MoDelete.DeleteRule, "生产订单删除", A("MO02001D", "MO03001D")),
                 // 修改（MoUpdate）：生产订单输入卡片 MO_Voucher_MO02001 的 tlbModify（MO02001M）。
                 MoWrite(MoUpdate.UpdateRule, "生产订单修改", A("MO02001M")),
+                // 参照销售订单生成（MoGen）：生产订单生成列表 MO_List_MO05001 的「Save」（MO05001M，UFMeta AA_FormButtonAuths）。
+                MoWrite(MoGen.GenRule, "生产订单生成", A("MO05001M")),
                 Inspect("qm_incoming_inspect", "来料报检单", A("QM02010101"), true),
                 Inspect("qm_product_inspect", "产品报检单", A("QM02020101"), false),
                 Qm("qm_incoming_check", "来料检验单", A("QM02010201"), true, true),

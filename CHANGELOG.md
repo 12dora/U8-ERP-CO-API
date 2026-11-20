@@ -2,6 +2,17 @@
 
 本文件的格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 新增
+
+- **生产订单参照销售订单生成（ATO）**：`vouchers/generate` 新增 `production_order` ← `sale_order`，调用 U8「生产订单生成」组件，写来自订单标记、需求跟踪、已下达量和 ATO 净需求；选配过的行按选配结果展开子件。表头 `mo_type` 必填，可带 `mo_code`、`remark`；行带 `source_line_id`、`quantity`、`dept_code`。部分成功 504 `outcome_unknown`。ATO 存货不能用 `vouchers/create`（U8 拒绝），见 §11。
+- **物料清单选配子件** `vouchers/create` / `vouchers/update` 的 `type=bom` 明细可写 `optional`（JSON 布尔）和 `mutex_rule`（1 单选、2 全选、3 任选、4 至少选一）。母件须是模型或选项类，否则 409。新增时 `mutex_rule` 须与 `optional: true` 同送；修改时已是选配的行可只改 `mutex_rule`。写后回读核对两字段。
+
+### 变更
+
+- 物料清单母件闸门改为与 U8 一致：存货只需「允许做物料清单母件」（`bBomMain`），模型、选项类不必是自制件；否则 400「不允许做物料清单母件」。
+
 ## [1.1.0] - 2026-11-15
 
 升级顺序：先桥，后 API。新增的只读例外项、`taxInvoiceNoFields` 等配置键只有新版桥认得，两端升级完成后再写入；回滚到 1.0.0 之前先删除这些配置。

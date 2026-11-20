@@ -357,8 +357,8 @@ uv run --no-project --python 3.12 --with cryptography python -m co.client.u8co_c
 `--file` 为 UTF-8 JSON：
 
 - 新增必须同时有 `head` 和 `lines`；修改至少有其中一项，`lines` 每行带 `op`。
-- 生单的 `lines` 是 `{source_line_id, quantity}`；销售出库的 `lines` 可省略（即整张发货单生成）；`head` 可省略。
-- `--source-type`：`purchase_in` 可取 `purchase_order`（缺省）或 `qm_incoming_check` 等，其他目标见 [接口参考](api-reference.md)「参照生单 `vouchers/generate`」。
+- 生单的 `lines` 是 `{source_line_id, quantity}`；销售出库的 `lines` 可省略（即整张发货单生成）；`head` 可省略（生产订单须带 head.mo_type）。
+- `--source-type`：`purchase_in` 可取 `purchase_order`（缺省）或 `qm_incoming_check` 等；`production_order` 只取 `sale_order`（ATO 模型行）。其他目标见 [接口参考](api-reference.md)「参照生单 `vouchers/generate`」。
 
 写命令（`create`、`update`、`delete`、`verify`、`close`、`generate`、`lock`、审批动作、凭证写操作、档案写操作、`openings-*`、`periods-close`、`ia-*`）可加 `--dry-run` 做预演：能回滚的操作真实执行后回滚，不写入，响应带 `mode`、`docs`、`warnings`。专用审核命令 `sale-order`、`dispatch` 不支持预演，改用 `verify`。
 

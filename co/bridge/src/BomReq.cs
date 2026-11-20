@@ -7,9 +7,9 @@ namespace U8Co
     // 物料清单（vouchers/create、vouchers/update，type=bom）的登录前校验。字段名不分大小写，存进 BomChange 时转小写。
     // 新增：表头 inv_code 必填（母件），version、version_desc、eff_date、parent_scrap 可省；明细 1 到 200 行，
     // inv_code、base_qty_n 必填，base_qty_d（缺省 1）、comp_scrap（0）、wip_type（3 领用）、wh_code、remark、
-    // op_seq（"0000"）、sort_seq（按 10、20… 往后排）可省。
+    // op_seq（"0000"）、sort_seq（按 10、20… 往后排）、optional（选配，布尔）、mutex_rule（1–4，仅选配）可省。
     // 修改：表头只收 version_desc、eff_date、parent_scrap；明细按 sort_seq 定位：update 至少再改一个字段、不能改存货，
-    // delete 只能有 op 和 sort_seq，add 同新增的行。
+    // delete 只能有 op 和 sort_seq，add 同新增的行。optional、mutex_rule 未送则保持现值；已是选配的行可只改 mutex_rule。
     internal static class BomReq
     {
         public const int LinesMax = 200;
@@ -22,11 +22,12 @@ namespace U8Co
         static readonly string[] EditHead = new string[] { "version_desc", "eff_date", "parent_scrap" };
         static readonly string[] AddKeys = new string[]
         {
-            "sort_seq", "op_seq", "inv_code", "base_qty_n", "base_qty_d", "comp_scrap", "wip_type", "wh_code", "remark"
+            "sort_seq", "op_seq", "inv_code", "base_qty_n", "base_qty_d", "comp_scrap", "wip_type", "wh_code", "remark",
+            "optional", "mutex_rule"
         };
         static readonly string[] EditKeys = new string[]
         {
-            "op_seq", "base_qty_n", "base_qty_d", "comp_scrap", "wip_type", "wh_code", "remark"
+            "op_seq", "base_qty_n", "base_qty_d", "comp_scrap", "wip_type", "wh_code", "remark", "optional", "mutex_rule"
         };
 
         // meta 用：新增表头、明细名单，修改表头名单，新增必填。
@@ -229,9 +230,51 @@ namespace U8Co
                 string key = kv.Key.ToLowerInvariant();
                 change.Fields[key] = Field(row, key, kv.Value);
             }
+            CheckMutex(change);
+        }
+
+        // 新增行：mutex_rule 须与 optional: true 同送。修改行：没带 optional 时留给叠完现值再查（CheckMutexRow）。
+        static void CheckMutex(BomChange change)
+        {
+            if (!change.Fields.ContainsKey("mutex_rule"))
+            {
+                return;
+            }
+            object optional;
+            bool has = change.Fields.TryGetValue("optional", out optional);
+            if (change.Op == "update" && !has)
+            {
+                return;
+            }
+            if (!has || (int)optional != 1)
+            {
+                throw BridgeException.BadField("mutex_rule", "mutex_rule 只用于选配子件");
+            }
+        }
+
+        // 叠完现值后：改完不是选配的行不能带 mutex_rule。
+        internal static void CheckMutexRow(BomChange change, BomRow row)
+        {
+            if (change.Fields.ContainsKey("mutex_rule") && row.Optional != 1)
+            {
+                throw BridgeException.BadField("mutex_rule", "mutex_rule 只用于选配子件");
+            }
         }
 
         static object Field(Dictionary<string, object> row, string key, object value)
+        {
+            if (key == "optional")
+            {
+                return Flag(value, key);
+            }
+            if (key == "mutex_rule")
+            {
+                return Int(value, key, 1, 4);
+            }
+            return Typed(row, key, value);
+        }
+
+        static object Typed(Dictionary<string, object> row, string key, object value)
         {
             switch (key)
             {
@@ -249,6 +292,16 @@ namespace U8Co
                     return Rate(value, key);
             }
             return Qty(value, key);
+        }
+
+        // JSON 布尔（不收 0/1、字符串、null）。存成 0/1 以便 BomRow.Apply。
+        static int Flag(object value, string key)
+        {
+            if (!(value is bool))
+            {
+                throw BridgeException.BadField(key, key + " 必须是布尔值");
+            }
+            return (bool)value ? 1 : 0;
         }
 
         static Dictionary<string, object> Row(object raw)

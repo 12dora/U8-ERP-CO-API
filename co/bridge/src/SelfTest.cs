@@ -70,6 +70,7 @@ namespace U8Co
             PermSelfTest.Run();
             LicenseSelfTest.Run();
             MoCreateSelfTest.Run();
+            MoGenSelfTest.Run();
             MoUpdateSelfTest.Run();
             BomSelfTest.Run();
             ArcGlSelfTest.Run();

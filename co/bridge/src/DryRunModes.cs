@@ -116,7 +116,8 @@ namespace U8Co
             "stock_check create delete",
             // 货位调整单：USERPCO 在请求连接的事务里，同形态转换单。
             "position_adjust create delete verify",
-            "production_order close | create update delete verify",
+            // 生产订单参照销售订单生成（MoGen）：U8 生产订单生成组件按行自己提交，闸门查完停。
+            "production_order close | create update delete verify generate",
             "bom | create update delete verify",
             "qm_incoming_inspect generate | delete",
             // 产品报检单单独弃审（unconfirm）由 U8 自己提交（QmInsUnverify）。

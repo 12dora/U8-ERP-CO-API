@@ -54,7 +54,8 @@ namespace U8Co
             return MoCreateOut.Result(kind, id, after);
         }
 
-        static string Operator(WorkContext ctx)
+        // 生产订单参照销售订单生成（MoGen）共用。
+        internal static string Operator(WorkContext ctx)
         {
             string user = ctx.Item.Operator == null ? "" : ctx.Item.Operator.Trim();
             if (user.Length == 0)

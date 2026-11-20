@@ -136,3 +136,7 @@ class CoMoCreatedLine(BaseModel):
     qty: float = Field(description="生产数量")
     status: int = Field(description="行状态：1、2 未审核，3 已审核，4 已关闭。U8API 新增的订单是 2")
     allocates: int = Field(description="U8 按标准 BOM 展开的子件行数；0 表示没有展开（存货没有有效的标准 BOM）")
+    source_line_id: int | None = Field(
+        None, description="参照销售订单生单：来源销售订单行 iSOsID。其它场合省略"
+    )
+    cust_bom: bool | None = Field(None, description="参照销售订单生单：是否按销售订单的选配结果展开子件。其它场合省略")

@@ -58,6 +58,8 @@ SOURCES = {
     "transfer": ("transfer_request",),
     # 采购结算单参照采购发票（co_gen_pu_settle）。
     "purchase_settle": ("purchase_invoice",),
+    # 生产订单参照销售订单（ATO 模型存货，id 是 SO_SOMain.ID）。
+    "production_order": ("sale_order",),
 }
 # 来料报检单参照到货单、产品报检单参照生产订单、检验单参照报检单。
 SOURCES.update(QM_SOURCES)

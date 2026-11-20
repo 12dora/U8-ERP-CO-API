@@ -9,6 +9,7 @@ from u8co_api.co_gen_pu_settle import SETTLE_GEN_HELP
 from u8co_api.co_gen_qm import QM_GEN_HELP
 from u8co_api.co_gen_red_sale import RED_SALE_HELP
 from u8co_api.co_gen_sale_out import SALE_OUT_LINES_HELP
+from u8co_api.co_gen_mo import MO_GEN_HELP
 from u8co_api.co_gen_transfer import TRANSFER_GEN_HELP
 from u8co_api.co_models_bom import BOM_UPDATE_HELP
 from u8co_api.co_models_mo_update import MO_UPDATE_HELP
@@ -79,6 +80,7 @@ GENERATE_TYPE_HELP = field_doc(
             "来料报检单、产品报检单、来料检验单、产品检验单、来料不良品处理单、产品不良品处理单",
             "调拨单（参照调拨申请单）",
             "采购结算单（参照采购发票，整张自动结算）",
+            "生产订单（参照销售订单，ATO 模型存货）",
         ),
     ),
 )
@@ -100,6 +102,7 @@ GENERATE_ID_HELP = field_doc(
             "来料报检单来自到货单（ID）；产品报检单来自生产订单（MoId）",
             "检验单来自报检单（ID）；其他检验单来自其他报检单（ID）；不良品处理单来自检验单（ID）",
             "调拨单来自已审核的调拨申请单（ID）；采购结算单来自已复核的采购发票（PBVID）",
+            "生产订单来自销售订单（SO_SOMain.ID），只收存货为 ATO 模型的行",
         ),
     ),
 )
@@ -114,6 +117,7 @@ GENERATE_SOURCE_HELP = (
     "| 采购退货单 | arrival、purchase_order |\n"
     "| 销售发票 | dispatch、sale_return（退货单，生成红字发票）、sale_invoice（蓝字发票，红冲） |\n"
     "| 采购结算单 | 只能是 purchase_invoice |\n"
+    "| 生产订单 | 只能是 sale_order |\n"
     "| 其它目标 | 只能是各自唯一的来源 |"
 )
 GENERATE_HEAD_HELP = "\n\n".join(
@@ -139,6 +143,7 @@ GENERATE_HEAD_HELP = "\n\n".join(
         RED_SALE_HELP,
         TRANSFER_GEN_HELP,
         SETTLE_GEN_HELP,
+        MO_GEN_HELP,
     )
 )
 GENERATE_LINES_HELP = field_doc(
@@ -189,6 +194,14 @@ GENERATE_LINES_HELP = field_doc(
             "quantity 填正数（桥写负数，不超过发货数量减累计退货数量）",
             "另可带 cWhCode、cMemo、cDefine22–37",
             *APPLY_GENERATE_HELP,
+        ),
+    ),
+    (
+        "生产订单",
+        (
+            "source_line_id 是销售订单行 iSOsID",
+            "只收 source_line_id、quantity、dept_code",
+            "quantity 大于 0、最多 6 位小数、不超过 1000000000000",
         ),
     ),
 )

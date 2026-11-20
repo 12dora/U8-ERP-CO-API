@@ -70,8 +70,8 @@ namespace U8Co
             return seqs;
         }
 
-        // 要查的行：新增的行和改了字段的行（存货、仓库按新增同一套规则查），没动的现有行不查。
-        static List<BomRow> Touched(BomAsk ask)
+        // 要查的行：新增的行和改了字段的行（存货、仓库、选配母件闸门按新增同一套规则查），没动的现有行不查。
+        internal static List<BomRow> Touched(BomAsk ask)
         {
             HashSet<int> changed = new HashSet<int>();
             for (int i = 0; i < ask.Changes.Count; i++)

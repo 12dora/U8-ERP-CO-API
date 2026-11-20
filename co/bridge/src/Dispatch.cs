@@ -445,7 +445,8 @@ namespace U8Co
         static ApiResult Generate(WorkContext ctx)
         {
             VoucherKind kind = NeedKind(ctx);
-            ApiResult result = GenerateOf(ctx, kind);
+            // 生产订单参照销售订单（ATO）：U8 生产订单生成组件，按行自己提交（MoGen）。
+            ApiResult result = kind.Name == "production_order" ? MoGen.Run(ctx, kind) : GenerateOf(ctx, kind);
             return StampNewId(ctx, result);
         }
 

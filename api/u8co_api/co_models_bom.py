@@ -20,19 +20,42 @@ _CREATE_HEAD = ("inv_code", "version", "version_desc", "eff_date", "parent_scrap
 _EDIT_HEAD = ("version_desc", "eff_date", "parent_scrap")
 # 明细字符串字段和最大长度；数值字段另查。
 _TEXT = {"inv_code": 60, "op_seq": 4, "wh_code": 10, "remark": 255}
-_ADD_KEYS = ("sort_seq", "op_seq", "inv_code", "base_qty_n", "base_qty_d", "comp_scrap", "wip_type", "wh_code", "remark")
-_EDIT_KEYS = ("op_seq", "base_qty_n", "base_qty_d", "comp_scrap", "wip_type", "wh_code", "remark")
+_ADD_KEYS = (
+    "sort_seq",
+    "op_seq",
+    "inv_code",
+    "base_qty_n",
+    "base_qty_d",
+    "comp_scrap",
+    "wip_type",
+    "wh_code",
+    "remark",
+    "optional",
+    "mutex_rule",
+)
+_EDIT_KEYS = (
+    "op_seq",
+    "base_qty_n",
+    "base_qty_d",
+    "comp_scrap",
+    "wip_type",
+    "wh_code",
+    "remark",
+    "optional",
+    "mutex_rule",
+)
 BOM_CREATE_HELP = section(
     "物料清单（bom）",
     (
         "只建标准 BOM（主 BOM）的新版本；新版本按账套设置多为未审核",
-        "表头必填 inv_code（母件，自制且允许做 BOM 母件）",
+        "表头必填 inv_code（母件，允许做 BOM 母件）",
         "表头可省 version（整数，省略时取该母件最大版本加版本增量）、version_desc（最长 255）",
         "表头可省 eff_date（yyyy-MM-dd，缺省登录日期，不能与该母件其他版本相同）",
         "表头可省 parent_scrap（母件损耗率 0 到小于 100）",
         "明细 1 到 200 行，必填 inv_code（子件）、base_qty_n（基本用量分子，大于 0，最多 6 位小数）",
         "明细可省 base_qty_d（分母，缺省 1）、comp_scrap（子件损耗率）、wip_type（1 到 5，缺省 3 领用）",
         "明细可省 wh_code、remark、op_seq（缺省 0000）、sort_seq（缺省按 10、20… 往后排）",
+        "明细可省 optional（布尔，选配；母件须是模型或选项类）、mutex_rule（1 单选 2 全选 3 任选 4 至少选一；仅 optional 为 true，缺省 2）",
     ),
 )
 BOM_UPDATE_HELP = section(
@@ -40,7 +63,8 @@ BOM_UPDATE_HELP = section(
     (
         "只改未审核的标准 BOM；表头只收 version_desc、eff_date、parent_scrap",
         "明细按 sort_seq 定位（不用 line_id）",
-        "update 改 base_qty_n、base_qty_d、comp_scrap、wip_type、wh_code、remark、op_seq，不能改 inv_code",
+        "update 改 base_qty_n、base_qty_d、comp_scrap、wip_type、wh_code、remark、op_seq、optional、mutex_rule，不能改 inv_code",
+        "未送的 optional、mutex_rule 保持现值；已是选配的行可只改 mutex_rule；optional 为 false 时不能带 mutex_rule",
         "delete 只带 op 和 sort_seq；add 同新增的行",
     ),
 )
@@ -91,7 +115,7 @@ def _add_row(row: dict, seqs: set[int]) -> None:
         if seq in seqs:
             raise ValueError(f"sort_seq 重复：{seq}")
         seqs.add(seq)
-    _fields(row)
+    _fields(row, False)
 
 
 def _edit_row(row: dict, keyed: set[int], added: set[int]) -> None:
@@ -121,14 +145,14 @@ def _edit_fields(fields: dict) -> None:
     _only(fields, dict.fromkeys(_EDIT_KEYS))
     if not fields:
         raise ValueError("修改行至少要改一个字段")
-    _fields(fields)
+    _fields(fields, True)
     for key in ("wh_code", "remark"):
         value = _get(fields, key)
         if isinstance(value, str) and not value.strip():
             raise ValueError("修改行不能把 wh_code、remark 改成空")
 
 
-def _fields(row: dict) -> None:
+def _fields(row: dict, update: bool) -> None:
     for key, limit in _TEXT.items():
         _text(row, key, limit, required=key in ("inv_code", "op_seq") and _get(row, key) is not None)
     for key in ("base_qty_n", "base_qty_d"):
@@ -138,6 +162,22 @@ def _fields(row: dict) -> None:
         _rate(_get(row, "comp_scrap"), "comp_scrap")
     if _get(row, "wip_type") is not None:
         _int(_get(row, "wip_type"), "wip_type", 5)
+    _optional(row, update)
+
+
+def _has(row: dict, name: str) -> bool:
+    return any(key.lower() == name for key in row)
+
+
+def _optional(row: dict, update: bool) -> None:
+    opt = _get(row, "optional")
+    if _has(row, "optional") and not isinstance(opt, bool):
+        raise ValueError("optional 必须是布尔值")
+    if not _has(row, "mutex_rule"):
+        return
+    _int(_get(row, "mutex_rule"), "mutex_rule", 4)
+    if opt is False or (not update and opt is not True):
+        raise ValueError("mutex_rule 只用于选配子件")
 
 
 def _int(value: object, key: str, top: int) -> int:

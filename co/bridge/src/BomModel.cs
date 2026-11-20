@@ -32,15 +32,36 @@ namespace U8Co
         public int CostWip;
 
         // 调用方的字段（BomReq 已校验、键为小写）叠到本行上。行号、存货只在新增行上出现。
+        // 清除选配时 Mutex 写成 2（U8 ComponentOption 清除 OptionalFlag 同样强制 MutexRule=2）。
         public void Apply(Dictionary<string, object> fields)
         {
             foreach (KeyValuePair<string, object> kv in fields)
             {
                 Set(kv.Key, kv.Value);
             }
+            object optional;
+            if (fields.TryGetValue("optional", out optional) && (int)optional == 0)
+            {
+                Mutex = 2;
+            }
         }
 
         void Set(string key, object value)
+        {
+            if (key == "optional")
+            {
+                Optional = (int)value;
+                return;
+            }
+            if (key == "mutex_rule")
+            {
+                Mutex = (int)value;
+                return;
+            }
+            SetNamed(key, value);
+        }
+
+        void SetNamed(string key, object value)
         {
             switch (key)
             {
@@ -123,6 +144,8 @@ namespace U8Co
         public Dictionary<string, object> Head = new Dictionary<string, object>(StringComparer.Ordinal);
         public List<BomChange> Changes = new List<BomChange>();
         public int PartId;
+        // 母件存货是模型（bInvModel）或选项类（bCheckItem）时，子件才允许选配。
+        public bool CanOptional;
         // 调用前的数据库时间（style 121）：拿不到调用结果时按它认本次新建的版本。
         public string Since = "";
         public string VersionDesc = "";

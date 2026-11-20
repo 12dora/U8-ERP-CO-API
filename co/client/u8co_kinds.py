@@ -126,6 +126,10 @@ GENERATE_SOURCES["transfer"] = ("transfer_request",)
 SOURCE_TYPES += ("transfer_request",)
 # 生产订单可修改（U8API MOrderLoad + MOrderUpdate；id 是 MoId，行按 line_id 定位，改未关闭的订单；已审核、已领料的也可改，材料出库引用由桥改写）。
 UPDATABLE_KINDS += ("production_order",)
+# 生产订单参照销售订单生单（ATO 模型存货，id 是 SO_SOMain.ID，source_line_id 是 iSOsID）。
+GENERATABLE_KINDS += ("production_order",)
+GENERATE_SOURCES["production_order"] = ("sale_order",)
+SOURCE_TYPES += ("sale_order",)
 # 期初结存单（库存期初，U8 单据类型 34）可读、新增、删除、审核、弃审；不能修改（删除后重新录入），没有记账。
 # 新增走 U8 官方 EAI 导入，每行建成一张单据（响应 docs）；日期由桥固定为库存启用日前一天。
 # 新增、删除、审核、弃审只对测试账套开放；存货核算期初记账后不能再新增、删除、弃审。

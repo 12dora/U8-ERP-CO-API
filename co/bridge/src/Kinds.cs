@@ -316,6 +316,8 @@ namespace U8Co
             kind.Creatable = true;
             kind.Deletable = true;
             kind.Updatable = true;
+            // 生单参照销售订单（ATO 模型，MoGen：U8 生产订单生成组件），登录子系统 MO。
+            Source(kind, "sale_order");
             return kind;
         }
 

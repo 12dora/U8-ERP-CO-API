@@ -99,6 +99,12 @@ namespace U8Co
             {
                 return Make(MetaFields.InList(PuArr.MetaHeadKeys()), puLine, 200, None());
             }
+            // 生产订单参照销售订单（MoGenReq）：表头 mo_type 必填，表体另收 dept_code。
+            if (target == "production_order")
+            {
+                return Make(MetaFields.InList(MoGenReq.HeadNames()), MetaFields.InList(MoGenReq.LineNames()),
+                    MoGenReq.LinesMax, MoGenReq.RequiredHead);
+            }
             if (target == "material_out" || target == "product_in")
             {
                 // 产成品入库参照产品检验单最多 CheckLinesMax 行（合并检验一个来源一行），其余来源 1 行（MfgReq.MaxLines）。

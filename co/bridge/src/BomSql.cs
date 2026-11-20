@@ -8,9 +8,10 @@ namespace U8Co
     // 表名、列名都是固定的 U8 表；调用方的值只进 ADO 参数。只认标准 BOM（BomType=1）。
     internal static class BomSql
     {
-        // 存货：是否自制件、能否做母件 / 子件、停用日期，以及不带自由项的物料 PartId（bom_parent.ParentId 指向它）。
-        const string InvSql = "select convert(varchar(10), isnull(i.bSelf,0)) as self,"
-            + " convert(varchar(10), isnull(i.bBomMain,0)) as main, convert(varchar(10), isnull(i.bBomSub,0)) as sub,"
+        // 存货：能否做母件 / 子件、是否模型 / 选项类、停用日期，以及不带自由项的物料 PartId。
+        const string InvSql = "select convert(varchar(10), isnull(i.bBomMain,0)) as main, convert(varchar(10), isnull(i.bBomSub,0)) as sub,"
+            + " convert(varchar(10), isnull(i.bInvModel,0)) as model,"
+            + " convert(varchar(10), isnull(i.bCheckItem,0)) as option_class,"
             + " convert(varchar(10), i.dEDate, 23) as ended, convert(varchar(20), (select min(bp.PartId) from bas_part bp"
             + " where bp.InvCode=i.cInvCode and coalesce(nullif(bp.Free1,N''), nullif(bp.Free2,N''), nullif(bp.Free3,N''),"
             + " nullif(bp.Free4,N''), nullif(bp.Free5,N''), nullif(bp.Free6,N''), nullif(bp.Free7,N''), nullif(bp.Free8,N''),"
@@ -38,6 +39,17 @@ namespace U8Co
 
         internal static int PartOf(object conn, string inv, bool parent, string today)
         {
+            return PartOf(conn, inv, parent, today, null);
+        }
+
+        // 新增母件：同一条存货查询带上模型 / 选项类，供选配闸门用（U8.BOM.1011025）。
+        internal static int ParentOf(object conn, BomAsk ask, string today)
+        {
+            return PartOf(conn, ask.InvCode, true, today, ask);
+        }
+
+        static int PartOf(object conn, string inv, bool parent, string today, BomAsk ask)
+        {
             Dictionary<string, object> row = Rows.One(conn, InvSql, new object[] { inv });
             string who = parent ? "母件" : "子件";
             if (row == null)
@@ -55,15 +67,26 @@ namespace U8Co
             {
                 throw Bad("存货 " + inv + " 没有物料档案（bas_part）");
             }
+            if (ask != null)
+            {
+                ask.CanOptional = AllowsOptional(row);
+            }
             return part;
         }
 
-        // 母件要自制且「允许 BOM 母件」（U8 1011034），子件要「允许 BOM 子件」（U8 1020001）。
+        // U8 BaseBom：OptionalFlag 仅当母件 IsModel 或 IsOptionClass。
+        static bool AllowsOptional(Dictionary<string, object> row)
+        {
+            return CoRows.Col(row, "model") == "1" || CoRows.Col(row, "option_class") == "1";
+        }
+
+        // 母件要「允许 BOM 母件」（U8 BaseBom.__CheckParent 1011034，只看 bBomMain：模型、选项类不是自制件也能做母件），
+        // 子件要「允许 BOM 子件」（U8 1020001）。
         static void Capable(Dictionary<string, object> row, string inv, bool parent)
         {
-            if (parent && (CoRows.Col(row, "self") != "1" || CoRows.Col(row, "main") != "1"))
+            if (parent && CoRows.Col(row, "main") != "1")
             {
-                throw Bad("存货 " + inv + " 不是可做物料清单母件的自制件");
+                throw Bad("存货 " + inv + " 不允许做物料清单母件");
             }
             if (!parent && CoRows.Col(row, "sub") != "1")
             {
@@ -92,6 +115,38 @@ namespace U8Co
                     CheckWh(conn, row.Wh, today);
                 }
             }
+            CheckOptional(conn, ask, rows);
+        }
+
+        // 本次新增或改过的行里有选配时，母件须是模型或选项类。未改动的现有选配行不查（与 U8 按变更行检查一致）。
+        // 修改路径没有走过 ParentOf，按同一条存货 SQL 补读标志。
+        static void CheckOptional(object conn, BomAsk ask, List<BomRow> rows)
+        {
+            if (!AnyOptional(rows))
+            {
+                return;
+            }
+            if (!ask.CanOptional)
+            {
+                Dictionary<string, object> row = Rows.One(conn, InvSql, new object[] { ask.InvCode });
+                ask.CanOptional = row != null && AllowsOptional(row);
+            }
+            if (!ask.CanOptional)
+            {
+                throw new BridgeException(409, "state_mismatch", "母件不是模型或选项类，子件不能选配");
+            }
+        }
+
+        internal static bool AnyOptional(List<BomRow> rows)
+        {
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (rows[i].Optional == 1)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         // 新加的行没给仓库时，U8 的 Component.SetPartId 会填存货的默认仓库（实测）；桥先按同样规则补上并照发，

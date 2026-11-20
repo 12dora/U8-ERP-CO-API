@@ -206,7 +206,7 @@
 | `stock_opening` | 期初结存单（库存期初，单据类型 34） | 是 | 第二级（没有记账） | 第二级，每行一张 | | 第二级 | | | `AutoID` |
 | `product_in` | 产成品入库单 | 是 | 是 | | 是 | 是 | | `qm_product_check`（缺省）、`qm_product_reject`、`production_order` | `AutoID` |
 | `material_out` | 材料出库单 | 是 | 是 | 无来源 | 是 | 是 | | `production_order` | `AutoID` |
-| `production_order` | 生产订单 | SQL | 是（U8 API） | 是（U8 API） | 是（U8 API，§8） | 是（U8 API） | 是 | | `MoDId` |
+| `production_order` | 生产订单 | SQL | 是（U8 API） | 是（U8 API；ATO 用 §11） | 是（U8 API，§8） | 是（U8 API） | 是 | `sale_order`（ATO，§11） | `MoDId` |
 | `bom` | 物料清单（标准 BOM） | SQL | 是（U8 API） | 是（U8 API） | 是（U8 API） | 是（U8 API） | | | `sort_seq`（§8） |
 | `qm_incoming_inspect` | 来料报检单（QM01） | SQL | 保存时自动 | 生单 | | 是 | | `arrival` | `AUTOID` |
 | `qm_product_inspect` | 产品报检单（QM02） | SQL | 保存时自动；可单独弃审 | 生单 | | 是 | | `production_order` | `AUTOID` |
@@ -550,7 +550,7 @@ U8 单据卡片上的「附件」登记在通用附件表 `VoucherAccessories`�
 | 表体 | `wh_code` | 可选。预入仓库，要存在且未停用（400） |
 | 表体 | `remark` | 可选，最长 255。覆盖表头 `remark` |
 
-- 行号按顺序从 1 编，订单类别固定「标准」（`DMoClass=1`）。不收销售订单关联（`DOrderType` / `DOrderCode` / `DOrderSeq`）。
+- 行号按顺序从 1 编，订单类别固定「标准」（`DMoClass=1`）。不收销售订单关联（`DOrderType` / `DOrderCode` / `DOrderSeq`）。ATO 模型存货不能用 `vouchers/create`（U8 拒绝「标准生产订单物料…属性不可为ATO模型」），用 §11 参照销售订单生单。
 - 不送子件，U8 按存货在开工日期有效的标准 BOM 自动展开用料（`Usp_MO_GenAllocate`），数量为 `BaseQtyN / BaseQtyD × qty`。存货没有有效的标准 BOM 时 U8 照样保存、不展开，该行 `allocates` 为 0，响应带 `warnings`。
 - 新订单行 `Status=2`（未审核），制单人是操作员编码。审核、弃审走 §6，修改走 §8「生产订单」（U8 的 `MOrderUpdate` 会清空并重写全部子件，桥把 U8 加载出的子件全部重送并回读核对），删除走 §9，关闭走 §10。
 - 功能权限要有生产订单输入卡片的「增加」（`MO02001N`），否则 403；每行的存货、部门、仓库还要在操作员的数据权限内（403）。
@@ -565,7 +565,7 @@ U8 单据卡片上的「附件」登记在通用附件表 `VoucherAccessories`�
 
 | 位置 | 字段 | 说明 |
 | --- | --- | --- |
-| 表头 | `inv_code` | 必填。母件存货：要存在、自制（`bSelf`）且允许做 BOM 母件（`bBomMain`），在登录日期未停用，有不带自由项的物料（`bas_part`），否则 400 |
+| 表头 | `inv_code` | 必填。母件存货：要存在且允许做 BOM 母件（`bBomMain`；模型、选项类不必是自制件），在登录日期未停用，有不带自由项的物料（`bas_part`），否则 400 |
 | 表头 | `version` | 可选，正整数。省略时取该母件现有标准 BOM 的最大版本加版本增量（`mom_parameter.VersionIncrement`，读不到按 10）；给了且已存在 409 `state_mismatch`「物料清单版本已存在」 |
 | 表头 | `version_desc` | 可选，最长 255，缺省空串 |
 | 表头 | `eff_date` | 可选，`yyyy-MM-dd`，缺省登录日期。与该母件其他版本的生效日期相同 409 `state_mismatch` |
@@ -574,13 +574,15 @@ U8 单据卡片上的「附件」登记在通用附件表 `VoucherAccessories`�
 | 表体 | `base_qty_n` | 必填。基本用量分子，大于 0、不超过 1000000000000、最多 6 位小数 |
 | 表体 | `base_qty_d` | 可选，基本用量分母，同上，缺省 1 |
 | 表体 | `comp_scrap` | 可选，子件损耗率（%），同 `parent_scrap`，缺省 0 |
-| 表体 | `wip_type` | 可选，供应类型 1 入库倒冲、2 工序倒冲、3 领用、4 虚拟件、5 直接供应，缺省 3 |
+| 表体 | `wip_type` | 可选，供应类型 1 入库倒冲、2 工序倒冲、3 领用、4 虚拟件、5 直接供应，缺省 3。子件是选项类、计划品或 PTO 模型时须为 4（U8 拒绝 409） |
 | 表体 | `wh_code` | 可选，最长 10。要存在且未停用（400）；省略时 U8 取存货档案的缺省仓库 |
 | 表体 | `remark` | 可选，最长 255 |
 | 表体 | `op_seq` | 可选，工序行号，最长 4，缺省 `0000` |
 | 表体 | `sort_seq` | 可选，子件行号 1 到 99999，同一请求里不能重复；省略的行接在已用的最大行号后面，每次加 10 |
+| 表体 | `optional` | 可选，布尔，缺省 `false`。`true` 为选配子件。母件须是模型（`bInvModel`）或选项类（`bCheckItem`），否则 409「母件不是模型或选项类，子件不能选配」 |
+| 表体 | `mutex_rule` | 可选，互斥规则：1 单选、2 全选、3 任选、4 至少选一。只用于 `optional: true` 的行，否则 400「mutex_rule 只用于选配子件」；省略取 2 |
 
-- 明细 1 到 200 行。子件的生效日期取版本生效日期，失效日期 `2099-12-31`。每行的其他标志按 U8 缺省送（变动用量、偏置期 0、计划比例 100、非产出品、计成本、非选配、互斥全部、产出类型 1、不带分段损耗、不关联成本在制），缺了 U8 保存时报 `CheckStructureIntegrity`。
+- 明细 1 到 200 行。子件的生效日期取版本生效日期，失效日期 `2099-12-31`。每行的其他标志按 U8 缺省送（变动用量、偏置期 0、计划比例 100、非产出品、计成本、非选配、互斥全部、产出类型 1、不带分段损耗、不关联成本在制；选配、互斥按 `optional`、`mutex_rule`），缺了 U8 保存时报 `CheckStructureIntegrity`。
 - 新版本的状态按 U8 选项「BOM 缺省状态」（`mom_parameter.BomDefaultStatus`，一般是 1 未审核），审批流启用时 U8 自己标 `IsWFControlled`。审核、弃审走 §6，修改走 §8，删除走 §9。
 - 功能权限要有物料清单卡片的「增加」（`BO01001N`），否则 403；母件存货要在操作员的数据权限内（403）。
 - 成功另给：`version`、`lines`（子件行数）、`components`（每行 `line_id`、`sort_seq`、`inv_code`、`base_qty_n`、`base_qty_d`）；`code` 是母件存货编码。
@@ -669,7 +671,7 @@ U8 单据卡片上的「附件」登记在通用附件表 `VoucherAccessories`�
 任何一行带前四类（读取里 `extras` 为 `"1"`）时 409 `state_mismatch`「第 n 行带替代料、定位符、分段损耗或自由项，请在 U8 客户端修改」，不论本次是否改那一行。
 
 - 表头只收 `version_desc`、`eff_date`、`parent_scrap`（规则同新增）；改了 `eff_date` 且与该母件其他版本相同 409。子件生效日期等于旧版本日期或早于新日期的，跟到新日期。
-- 行按 `sort_seq` 定位，不用 `line_id`。`update` 须带 `sort_seq` 并至少再改一个字段，可改 `base_qty_n`、`base_qty_d`、`comp_scrap`、`wip_type`、`wh_code`、`remark`、`op_seq`；带 `inv_code` 400「不能修改存货编码，请删除该行后新增」；`wh_code`、`remark` 不能改成空（400）。`delete` 只能有 `op` 和 `sort_seq`。`add` 的字段同新增的行，`sort_seq` 不能与现有行重复（400「sort_seq 已存在」），省略时取最大行号加 10。`update` / `delete` 的 `sort_seq` 重复 400「明细行重复」，不存在 400「明细行不存在」，删光 400「不能删除全部明细」。新增或改过的行按新增规则查存货和仓库。
+- 行按 `sort_seq` 定位，不用 `line_id`。`update` 须带 `sort_seq` 并至少再改一个字段，可改 `base_qty_n`、`base_qty_d`、`comp_scrap`、`wip_type`、`wh_code`、`remark`、`op_seq`、`optional`、`mutex_rule`（未送的保持现值；`optional: false` 时互斥改回 2；已是选配的行可只送 `mutex_rule`，改完后不是选配时带 `mutex_rule` 400「mutex_rule 只用于选配子件」）；带 `inv_code` 400「不能修改存货编码，请删除该行后新增」；`wh_code`、`remark` 不能改成空（400）。`delete` 只能有 `op` 和 `sort_seq`。`add` 的字段同新增的行，`sort_seq` 不能与现有行重复（400「sort_seq 已存在」），省略时取最大行号加 10。`update` / `delete` 的 `sort_seq` 重复 400「明细行重复」，不存在 400「明细行不存在」，删光 400「不能删除全部明细」。新增或改过的行按新增规则查存货和仓库。
 - 功能权限：物料清单卡片「修改」（`BO01001M`）；母件存货须在数据权限内（403）。
 - 调用后在新连接上回读，与目标状态逐项比对：表头版本说明、生效日期、母件损耗率，行数，每行行号、工序行号、子件、用量分子分母、子件损耗率、供应类型、仓库、备注、生效和失效日期，以及桥送的全部标志（变动用量、偏置期、计划比例、产出品、计成本、选配、互斥、产出类型、成本在制关联）。全部相同才算成功。不一致时：调用异常 504 `outcome_unknown`；IPC 错误（生产制造服务未启动）503 `u8_unavailable`，回读已是目标状态时按成功返回；U8 返回成功却不一致 409。
 - 成功响应同新增（`version`、`lines`、`components`），API 模型为 `CoUpdateOut`。
@@ -1001,10 +1003,13 @@ U8 不让改已审核、已有下游单据的销售订单（`vouchers/update` �
 | `qm_other_check` | 其他报检单（`id` 是报检单 `ID`） | 恰好 1 行，`source_line_id` 是报检单表体 `AUTOID` | 行 `FQUANTITY`；一行只能生成一张（已有检验单或 `BFLAG=1` 409） | 同来料检验单；`cDepCode`（检验部门）省略时取检验员所属部门 | 同来料检验单 |
 | `purchase_settle` | 采购发票（`id` 是 `PBVID`） | 不能带（整张发票自动结算，见下文「采购结算单生单」） | 发票未结算（表头、表体 `dSDate` 为空，没有结算行） | 只收 `settle_date`（`yyyy-MM-dd`，可省，即本次 U8 登录日期） | |
 | `transfer` | 调拨申请单（`id` 是申请单 `ID`） | 1 到 200 行，`source_line_id` 是申请单行 `autoID`，只收 `source_line_id`、`quantity`、`cbmemo` | `iTvChkQuantity - isnull(iTvSumQuantity,0)`（核准数量减累计调拨，比 U8 按存货超额比例 `fInExcess` 放宽的口径严，件数不单独查）；账套选项 `ST.bOverTransRequestTransfer` 为真时不设上限 | `dtvdate`、`cmemo`、`codepcode`、`cidepcode`、`cpersoncode`、`cordcode`、`cirdcode`、`cdefine1`…`16`；仓库取自申请单，不能填 | 见 `lines` |
+| `production_order` | 销售订单（`id` 是 `SO_SOMain.ID`），只收存货为 ATO 模型的行 | 1 到 200 行，`source_line_id` 是 `iSOsID`，只收 `source_line_id`、`quantity`、`dept_code` | `iQuantity - HandToTKeepQty - iMoQuantity - fomquantity`（U8 参照生单列表的可生单数量） | `mo_type`（必填，生产订单类别编码，最长 2）、`mo_code`（最长 30）、`remark`（缺省取各销售订单行备注） | `dept_code`（缺省取 U8 的生产部门缺省值） |
 
 每行必填 `source_line_id`（正整数）和 `quantity`（大于 0，不超过 1000000000000）。来源行重复 400「来源明细重复」，例外：销售出库同一发货行可按批号 / 货位列多次，（行、批号、货位）都相同才算重复，400「明细行重复」，且在桥读取发货单之后才判（发货单不存在、未审核先回 404 / 409）；不良品处理单的来源行就是检验单本身，每种处置一行，`source_line_id` 都等于检验单 ID。数量超过剩余 409「超过可生单数量」。
 
-成功：`{"ok":true,"type","id","code","source_type","source_id","state","lines"}`，`source_type` 是实际来源，`lines` 是新单据的表体行数。请求用 `sources` 时 `source_id` 是第一张来源，另有 `source_ids`（全部来源发货单 `DLID`，按请求顺序）。检验单、不良品处理单另有 `wf`（其他检验单没有审批流，不带）。
+生产订单参照销售订单：全部行生成一张生产订单，走 U8 组件「生产订单生成」（同 U8 界面），由 U8 写来自订单标记、需求跟踪、已生产量（`iMoQuantity`）和 ATO 净需求；选配过的行按选配结果展开子件，未选配的按标准物料清单。生产订单号省略时按 U8 编号规则（MO21）。功能权限「生产订单生成」的保存（`MO05001M`），存货和生产部门在数据权限内（403）。生产制造选项「允许超计划下达」（`mom_parameter.RlsOverPlanFlag`）打开时与 U8 界面一样不按可生单数量拦，已全部下达的行也可再生成。`mo_code` 与 U8 生产订单（MO21）单据编号设置一致：完全自动编号时不能指定（400「该账套生产订单号为自动编号，不能指定 mo_code」），完全手工编号时必须指定（400「该账套生产订单号为手工编号，必须指定 mo_code」），其余可省（由 U8 编号）；已存在 409「生产订单号已存在：x」。U8 逐行提交：一行都没生成时按 U8 的原因 409（数据权限 403）；保存调用异常、只生成了部分行或回读对不上时 504 `outcome_unknown`（消息列出已生成的生产订单号和 MoDId），不要重发，先用 `vouchers/list` 核对；全部生成但 U8 后续步骤异常时 200 并带 `warnings`。销售订单行不在 U8 的生产订单生成列表里时，受数据权限控制的操作员 403（销售部门、生产订单类别、工厂），否则 409。非 ATO 存货仍用 `vouchers/create`。
+
+成功：`{"ok":true,"type","id","code","source_type","source_id","state","lines"}`，`source_type` 是实际来源，`lines` 是新单据的表体行数。请求用 `sources` 时 `source_id` 是第一张来源，另有 `source_ids`（全部来源发货单 `DLID`，按请求顺序）。检验单、不良品处理单另有 `wf`（其他检验单没有审批流，不带）。生产订单另有 `allocates`、`details`（每行 `line_id`、`sort_seq`、`inv_code`、`qty`、`status`、`allocates`、`source_line_id`、`cust_bom`）、`warnings`，同 `vouchers/create`。
 
 采购发票和到货单保存后，桥在同一事务里核对 U8 已把本次数量加到来源累计数上，否则回滚并 409 `u8_rejected`。若 U8 在保存中已自行提交（本连接 `@@TRANCOUNT` 为 0），核对不过时无法回滚，返回 500 `internal`「U8 已自行提交，无法核对回写」，单据已落库，需人工核对。
 
@@ -3544,7 +3549,7 @@ API：`GET /v1/co/meta`（读权限）。桥：`POST /u8co/v1/meta`，照常 HMA
 
 | 路由 | `rollback` | `validate` |
 | --- | --- | --- |
-| `vouchers/create`、`update`、`delete`、`verify`、`close`、`lock`、`generate` | 除右列以外的全部单据类型和操作，包括：生产订单的关闭、打开；报检单（`qm_*_inspect`）的生单；期初结存单（`stock_opening`）的删除、审核、弃审；供应商退款、客户退款、无来源销售出库、采购手工结算、红冲蓝字发票、参照退货申请单生成退货单 | 期初结存单的新增（EAI 导入）；生产订单的新增、修改、删除、审核、弃审；物料清单的全部写操作；检验单（`qm_*_check`）的生单、删除；不良品处理单（`qm_*_reject`）的生单、审核、弃审、删除；报检单的删除（含删除前的弃审）；产品报检单（`qm_product_inspect`）的弃审；其他报检单（`qm_other_inspect`）的新增、审核、弃审、删除；其他检验单（`qm_other_check`）的生单、审核、弃审、删除；退货申请单（`sale_return_apply`）的新增、修改、删除、审核、弃审 |
+| `vouchers/create`、`update`、`delete`、`verify`、`close`、`lock`、`generate` | 除右列以外的全部单据类型和操作，包括：生产订单的关闭、打开；报检单（`qm_*_inspect`）的生单；期初结存单（`stock_opening`）的删除、审核、弃审；供应商退款、客户退款、无来源销售出库、采购手工结算、红冲蓝字发票、参照退货申请单生成退货单 | 期初结存单的新增（EAI 导入）；生产订单的新增、修改、删除、审核、弃审、参照销售订单生单；物料清单的全部写操作；检验单（`qm_*_check`）的生单、删除；不良品处理单（`qm_*_reject`）的生单、审核、弃审、删除；报检单的删除（含删除前的弃审）；产品报检单（`qm_product_inspect`）的弃审；其他报检单（`qm_other_inspect`）的新增、审核、弃审、删除；其他检验单（`qm_other_check`）的生单、审核、弃审、删除；退货申请单（`sale_return_apply`）的新增、修改、删除、审核、弃审 |
 | `gl/vouchers/*` | `void`、`unvoid`、`verify`、`unverify`、`sign`、`unsign`、`delete`、`unpost` | `create`、`update`、`post`、`reverse` |
 | `gl/transfer/pnl`、`gl/transfer/custom` | — | 全部：停在凭证导入之前，分录在 `detail.transfer` |
 | `archives/create`、`update`、`delete` | 项目（`project`）、客户和供应商银行账户（`customer_bank`、`vendor_bank`）的新增、修改、删除；币种、凭证类别、汇率、供应商联系人（`currency`、`voucher_sign`、`exchange_rate`、`vendor_contact`）的修改、删除 | 其余走 EAI 的档案（含原因码 `reason`）；币种、凭证类别、汇率、供应商联系人的新增；客户联系人（`customer_contact`） |

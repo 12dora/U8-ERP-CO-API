@@ -76,6 +76,7 @@ namespace U8Co
                 else
                 {
                     rows[at].Apply(change.Fields);
+                    BomReq.CheckMutexRow(change, rows[at]);
                 }
             }
         }

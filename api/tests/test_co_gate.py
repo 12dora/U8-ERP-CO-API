@@ -117,8 +117,8 @@ _SOURCE_OF = {
     "qm_product_reject": "qm_product_check",
     # 调拨单参照调拨申请单。
     "transfer": "transfer_request",
-    # 采购结算单参照采购发票。
-    "purchase_settle": "purchase_invoice",
+    # 采购结算单参照采购发票；生产订单参照销售订单（ATO）。
+    "purchase_settle": "purchase_invoice", "production_order": "sale_order",
 }
 
 

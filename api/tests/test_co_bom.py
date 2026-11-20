@@ -7,6 +7,7 @@ from tests.support import make_client
 from tests.test_co_gate import FakeBridge, _client
 from tests.test_co_core_routes import _auth, _sealed
 from tests.test_co_gl_arc import test_gl_arc_forwards_exact_sealed_keys as _forwards
+from u8co_api.co_models_bom import check_bom_create, check_bom_update
 from u8co_api.errors import ApiError
 
 _KIND = "bom"
@@ -116,6 +117,13 @@ def test_other_create_has_no_bom_fields() -> None:
         _body(lines=[dict(_LINE, sort_seq=10), dict(_LINE, sort_seq=10)]),
         _body(lines=[dict(_LINE, line_id=1)]),
         _body(lines=[dict(_LINE, remark="备\t注")]),
+        _body(lines=[dict(_LINE, optional=1)]),
+        _body(lines=[dict(_LINE, optional="true")]),
+        _body(lines=[dict(_LINE, mutex_rule=1)]),
+        _body(lines=[dict(_LINE, optional=False, mutex_rule=1)]),
+        _body(lines=[dict(_LINE, optional=True, mutex_rule=0)]),
+        _body(lines=[dict(_LINE, optional=True, mutex_rule=5)]),
+        _body(lines=[dict(_LINE, optional=True, mutex_rule=True)]),
     ],
 )
 def test_bom_create_rejects_before_the_bridge(body: dict) -> None:
@@ -156,6 +164,8 @@ def test_bom_update_forwards_sort_seq_rows() -> None:
         _edit(lines=[{"op": "delete", "sort_seq": 10}, {"op": "update", "sort_seq": 10, "base_qty_n": 2}]),
         _edit(lines=[{"op": "add", "base_qty_n": 1}]),
         _edit(lines=[{"op": "move", "sort_seq": 10}]),
+        _edit(lines=[{"op": "update", "sort_seq": 10, "optional": False, "mutex_rule": 1}]),
+        _edit(lines=[{"op": "add", "inv_code": "C003", "base_qty_n": 1, "optional": 1}]),
     ],
 )
 def test_bom_update_rejects_before_the_bridge(body: dict) -> None:
@@ -173,6 +183,44 @@ def test_bom_verify_and_delete() -> None:
     gone = _client(fake).post(_DELETE, json=_auth(type=_KIND, id=9))
     assert gone.status_code == 200, gone.text
     assert gone.json()["deleted"] is True
+
+
+def test_bom_create_forwards_optional_and_mutex_rule() -> None:
+    fake = _BomBridge()
+    lines = [dict(_LINE, optional=True, mutex_rule=1), dict(_LINE, inv_code="C002", base_qty_n=1, optional=True)]
+    done = _client(fake).post(_CREATE, json=_body(lines=lines))
+    assert done.status_code == 200, done.text
+    assert fake.calls[-1][1]["lines"] == lines
+
+
+def test_bom_update_forwards_optional_and_mutex_rule() -> None:
+    fake = _BomBridge()
+    lines = [
+        {"op": "update", "sort_seq": 10, "optional": True, "mutex_rule": 3},
+        {"op": "update", "sort_seq": 20, "optional": False},
+        {"op": "update", "sort_seq": 30, "mutex_rule": 1},
+        {"op": "add", "inv_code": "C003", "base_qty_n": 1, "optional": True, "mutex_rule": 4},
+    ]
+    done = _client(fake).post(_UPDATE, json=_edit({"version_desc": "x"}, lines))
+    assert done.status_code == 200, done.text
+    assert fake.calls[-1][1]["lines"] == lines
+
+
+def test_bom_optional_messages() -> None:
+    line = dict(_LINE)
+    check_bom_create(_HEAD, [dict(line, optional=True, mutex_rule=2)])
+    check_bom_update(None, [{"op": "update", "sort_seq": 10, "optional": True}])
+    with pytest.raises(ValueError, match="optional 必须是布尔值"):
+        check_bom_create(_HEAD, [dict(line, optional=1)])
+    with pytest.raises(ValueError, match="mutex_rule 只用于选配子件"):
+        check_bom_create(_HEAD, [dict(line, mutex_rule=1)])
+    with pytest.raises(ValueError, match="mutex_rule 只用于选配子件"):
+        check_bom_create(_HEAD, [dict(line, optional=False, mutex_rule=1)])
+    with pytest.raises(ValueError, match="mutex_rule 必须是 1 到 4 的整数"):
+        check_bom_create(_HEAD, [dict(line, optional=True, mutex_rule=5)])
+    check_bom_update(None, [{"op": "update", "sort_seq": 10, "mutex_rule": 3}])
+    with pytest.raises(ValueError, match="mutex_rule 只用于选配子件"):
+        check_bom_update(None, [{"op": "update", "sort_seq": 10, "optional": False, "mutex_rule": 3}])
 
 
 def test_bom_create_takes_an_idempotency_key() -> None:

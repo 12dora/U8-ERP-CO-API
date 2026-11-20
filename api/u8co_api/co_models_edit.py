@@ -25,7 +25,9 @@ from u8co_api.co_gen_red_sale import check_red_sale_invoice
 from u8co_api.co_gen_sale_invoice import SOURCES_HELP, CoInvSource, check_invoice_lines, check_invoice_sources
 from u8co_api.co_gen_sale_out import check_sale_out
 from u8co_api.co_gen_sale_return import check_apply_update, check_sale_return
+from u8co_api.co_gen_mo import check_mo_gen
 from u8co_api.co_gen_transfer import check_transfer_gen
+from u8co_api.co_models_mo import CoMoCreatedLine
 from u8co_api.co_models_bom import CoBomComponent, check_bom_update
 from u8co_api.co_models import Cell, CoAuth, CoDocState
 from u8co_api.co_models_dry import DryRunFlag
@@ -104,6 +106,8 @@ GenerateType = Literal[
     "qm_incoming_reject", "qm_product_reject", "qm_other_check",
     # 调拨单参照调拨申请单；采购结算单参照采购发票（整张发票自动结算）
     "transfer", "purchase_settle",
+    # 生产订单参照销售订单（ATO 模型存货）
+    "production_order",
 ]
 # 检验单表头可带 items（检验项目列表），其余值不能嵌套（nested_head 把关）。
 GenHead = dict[str, Cell | list[dict[str, Cell]]]
@@ -317,6 +321,13 @@ class CoCloseIn(CoAuth):
         return self
 
 
+# 只收 head、lines 的生单目标（调拨单、生产订单），按类型分发，避免 _checked 再加分支。
+_HEAD_LINE_GEN = {
+    "transfer": check_transfer_gen,  # 调拨单参照调拨申请单（co_gen_transfer）
+    "production_order": check_mo_gen,  # 生产订单参照销售订单（co_gen_mo）
+}
+
+
 class CoGenerateIn(CoAuth):
     type: GenerateType = Field(..., description=GENERATE_TYPE_HELP)
     # 销售发票参照多张发货单时用 sources 代替 id + lines（co_gen_sale_invoice）；其余一律必填。
@@ -368,8 +379,9 @@ class CoGenerateIn(CoAuth):
         if self.type in QM_GEN_KINDS:
             check_qm_gen(self.type, self.head, self.lines, self.id)
             return self
-        if self.type == "transfer":
-            check_transfer_gen(self.head, self.lines)  # 调拨单参照调拨申请单（co_gen_transfer）
+        checker = _HEAD_LINE_GEN.get(self.type)
+        if checker:
+            checker(self.head, self.lines)
             return self
         if self.type == SETTLE_KIND:
             check_settle_gen(self.head, self.lines, self.year, self.date)  # 采购结算参照采购发票（co_gen_pu_settle）
@@ -453,6 +465,14 @@ class CoGenerateOut(CoEditOut):
     wf: CoGenWf | None = Field(None, description="检验单、不良品处理单：新单据的审批流状态（未提交）。其它类型省略")
     items: int | None = Field(None, description="检验单：保存后的检验项目行数。其它类型省略")
     settle_date: str | None = Field(None, description="采购结算单：结算日期（即本次的 U8 登录日期）。其它类型省略")
+    allocates: int | None = Field(None, description="生产订单：U8 按 BOM 展开的子件总行数。其它类型省略")
+    details: list[CoMoCreatedLine] | None = Field(
+        None,
+        description="生产订单：每行的主键、行号、存货、数量、状态、子件行数、来源行和选配。其它类型省略",
+    )
+    warnings: list[str] | None = Field(
+        None, description="生产订单：有行没有展开子件时的提示。没有则省略"
+    )
 
 
 class CoCloseLine(BaseModel):

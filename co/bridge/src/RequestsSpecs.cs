@@ -481,6 +481,8 @@ namespace U8Co
             {
                 StockGen.CheckGenerateIn(item);
             }
+            // 生产订单参照销售订单（MoGenReq，只管 production_order）：同新增用 MO 登录。
+            MoGenReq.CheckGenerate(item, kind);
         }
 
         // 退货单参照蓝字发货单：表头表体字段、日期、行数在登录前校验。
