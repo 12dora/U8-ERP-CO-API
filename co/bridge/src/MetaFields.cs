@@ -156,8 +156,9 @@ namespace U8Co
             AddAll(all, BomReq.LineNames());
             // 质量单据生单（QmReq）。
             AddAll(all, QmReq.MetaNames());
-            // 不良品处理单生单（QmRejReq）。
+            // 不良品处理单生单（QmRejReq）、修改（QmRejEditReq）。
             AddAll(all, QmRejReq.MetaNames());
+            AddAll(all, QmRejEditReq.MetaNames());
             // 其他报检单新增（QmOthReq）。
             AddAll(all, QmOthReq.MetaNames());
             // 采购结算参照采购发票（PuSettleReq）。

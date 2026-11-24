@@ -8,12 +8,14 @@ name 在 callers 里、路由 / 单据类型 / 来源规则与 operators 行完�
 登录 U8，受 U8 自身权限和信任项 operators.allow / deny 约束）。审计 read_only_match 记 operator 或 caller。
 type 只能是 archives 或 vouchers。
 type=archives：op 只能是 customer_person、customer_fields、customer_address、customer_address_add、
-customer_address_delete（客户主数据的受控 SQL 写入）、create 或 delete；请求路径必须恰好是 archives/<op>。
+customer_address_delete、customer_invoice_company_add、customer_invoice_company_delete、
+customer_invoice_company（客户主数据的受控 SQL 写入）、create 或 delete；请求路径必须恰好是 archives/<op>。
 op=create、delete 必须写 archives：非空的档案种类列表，每项都在代码里该 op 的可开放集合内
 （create：district_class、customer；delete：只有 district_class），放行时请求体的 archive 须在列表里；
 其它 op 不能写 archives。地区分类的 delete 与 create 成对开放，用来回滚刚新增的档案；客户只开放新增
 （EAI 新增是 INSERT，不经清银行账号的 diffedit），不开放删除（停用客户用 customer_fields 写停用日期）；
-customer_address_delete 与 customer_address_add 同理成对。
+customer_address_delete 与 customer_address_add 同理成对，customer_invoice_company_delete 与
+customer_invoice_company_add 也成对（回滚新增），设默认 customer_invoice_company 单独开放。
 type=vouchers：op 与单据类型 voucher 只能是登记表 readonly_voucher_ops.VOUCHER_OPS 里的一对（head_fix 发货单、
 so_defines / create / update / close 销售订单、verify 销售订单 / 发货单 / 销售发票（发票只是复核，不含应收审核）、
 generate 发货单参照销售订单或销售发票参照发货单、delete 销售订单 / 发货单），一项一对；
@@ -57,6 +59,9 @@ _OPS = {
         "customer_address",
         "customer_address_add",
         "customer_address_delete",
+        "customer_invoice_company_add",
+        "customer_invoice_company_delete",
+        "customer_invoice_company",
         *_ARCHIVE_OPS,
     ),
     _VOUCHERS: tuple(VOUCHER_OPS),

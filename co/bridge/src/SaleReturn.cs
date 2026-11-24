@@ -11,6 +11,8 @@ namespace U8Co
         // 未覆盖：VoucherTypeSA 10 = DispatchRed（注册类型库里的枚举序号，未在测试账套跑过）。
         public const int RedVt = 10;
         public const string RedCard = "03";
+        // 未覆盖：getDefaltVTID 按卡片 03 没给模板时的退货单模板号（SoSave.Stamp 对所有卡片 03 的单据兜底）。
+        public const string RedVtidFallback = "75";
         const string ShapeSql = "select cVouchType, bReturnFlag, bFirst, iverifystate from DispatchList where DLID=?";
         const string OutSql = "select top 1 convert(varchar(20), r.AutoID) from rdrecords32 r "
             + "where r.iDLsID<>0 and r.iDLsID in (select s.iDLsID from DispatchLists s where s.DLID=? and s.iDLsID<>0)";

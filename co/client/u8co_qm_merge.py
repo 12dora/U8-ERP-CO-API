@@ -53,8 +53,8 @@ def merged_body(call: U8Call, draft: MergedCheck) -> dict[str, Any]:
 
 
 def _rules(raw: object) -> list[Any]:
-    if not isinstance(raw, (list, tuple)) or not 1 <= len(raw) <= 9:
-        raise ValueError("merge_rules 必须是 1 到 9 个合并规则编码")
+    if not isinstance(raw, (list, tuple)) or len(raw) != 1:
+        raise ValueError("merge_rules 只能给一个合并规则编码")
     for one in raw:
         if not (type(one) is int or (type(one) is str and one.isdigit())):
             raise ValueError("merge_rules 的每一项必须是整数或数字串")

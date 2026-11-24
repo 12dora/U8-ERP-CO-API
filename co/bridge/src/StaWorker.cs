@@ -21,6 +21,8 @@ namespace U8Co
         public static void Start(BridgeConfig cfg)
         {
             AuthCache.Configure(cfg.AuthCacheSeconds);
+            PermCache.Configure(cfg.PermCacheSeconds);
+            PermCache.Clear();
             LoginCache.Configure(cfg.LoginReuse, 16, 60, cfg.LoginReuseOffHours);
             // 「登录状态不是 0」自愈（wedgedLoginRecycle、wedgedLoginRestart）。
             WedgedLogin.Configure(cfg);
@@ -199,7 +201,7 @@ namespace U8Co
                 running,
                 SigCheck.HealthSummary(),
                 LicenseHealth(),
-                LoginCache.HealthFragment(),
+                LoginCache.HealthFragment() + PermCache.HealthFragment(),
                 WritePolicy.HealthFragment(),
                 ReadOnlyGate.HealthFragment(),
                 TestAccountGate.HealthFragment(),

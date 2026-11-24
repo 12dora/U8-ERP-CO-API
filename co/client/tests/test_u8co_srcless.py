@@ -17,7 +17,7 @@ _MO_LINES = [{"source_line_id": 1000000051, "quantity": 1}]
 
 class SourcelessCreateTests(unittest.TestCase):
     def test_kind_sets(self) -> None:
-        for kind in ("dispatch", "sale_invoice", "arrival", "material_out"):
+        for kind in ("dispatch", "sale_return", "sale_invoice", "arrival", "purchase_return", "material_out"):
             self.assertIn(kind, SRCLESS_CREATE_KINDS)
             self.assertIn(kind, CREATABLE_KINDS)
         self.assertEqual(len(CREATABLE_KINDS), len(set(CREATABLE_KINDS)))

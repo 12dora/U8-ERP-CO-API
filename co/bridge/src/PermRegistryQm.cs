@@ -2,7 +2,7 @@ using System.Collections.Generic;
 
 namespace U8Co
 {
-    // 质量单据写路由（QmGen / QmDelete 用 ForKey 取）：write:<类型>:create|delete（检验单、其他报检单另有 update，QmEdit）；不良品处理单（QmRejOps）另有 verify|unverify。
+    // 质量单据写路由（QmGen / QmDelete 用 ForKey 取）：write:<类型>:create|delete（检验单、其他报检单另有 update，QmEdit）；不良品处理单（QmRejOps）另有 verify|unverify|update。
     // 报检单不开放单独审核；产品报检单开放单独弃审 write:qm_product_inspect:unverify。删除已审核的报检单前要有
     // 弃审按钮权限（QmSpec.UnverifyAuth，QmDelete.Gate 直接查）。
     // 功能 id 见 QmSpec（UFMeta AA_FormButtonAuths 的卡片按钮）。数据权限按请求的每一行判断：供应商（来料必有）、部门、
@@ -31,13 +31,15 @@ namespace U8Co
                     rules.Add(QmWrite(spec, "unverify", title + "弃审", spec.UnverifyAuth));
                 }
             }
-            // 不良品处理单：新增、删除、审核、弃审（QmRejSpec 的卡片按钮 id，见 QmRejSpec）。
+            // 不良品处理单：新增、删除、审核、弃审（QmRejSpec 的卡片按钮 id，见 QmRejSpec）；修改与新增、保存同一个 id
+            // （卡片 Modify 按钮与 Add 共用 …03，AA_FormButtonAuths 已核对）。
             foreach (QmRejSpec spec in QmRejSpec.List())
             {
                 rules.Add(RejWrite(spec, "create", "新增", spec.AddAuth));
                 rules.Add(RejWrite(spec, "delete", "删除", spec.DeleteAuth));
                 rules.Add(RejWrite(spec, "verify", "审核", spec.VerifyAuth));
                 rules.Add(RejWrite(spec, "unverify", "弃审", spec.UnverifyAuth));
+                rules.Add(RejWrite(spec, "update", "修改", spec.AddAuth));
             }
             // 其他报检单、其他检验单新增、删除、审核、弃审（QmOthSpec 的 id）；其他报检单新增后的补审核另查审核 id（QmOthIns）。
             foreach (QmOthSpec spec in QmOthSpec.List())

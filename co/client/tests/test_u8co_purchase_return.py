@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import contextlib
-import io
 import json
 import unittest
 
 from co.client.tests.test_u8co_update_close_gen import PASSWORD, SECRET, _AUTH, _argv, _assert_signed, _JsonFile, _Running
-from co.client.u8co_cli import _gen_draft, _parser
+from co.client.u8co_cli import _draft, _gen_draft, _parser
 from co.client.u8co_client import U8Call, U8CoClient, VoucherGen
 from co.client.u8co_kinds import GENERATE_SOURCES, check_source
 
@@ -72,9 +70,9 @@ class PurchaseReturnTests(unittest.TestCase):
             self.assertEqual(_gen_draft(parsed).source_type, "arrival")
             bare = _parser().parse_args(_argv("generate", "--type", "purchase_return", "--id", "6", "--file", path))
             self.assertEqual(_gen_draft(bare).source_type, "")
-        with contextlib.redirect_stderr(io.StringIO()):
-            with self.assertRaises(SystemExit):
-                _parser().parse_args(_argv("create", "--type", "purchase_return", "--file", "x"))
+        with _JsonFile({"head": {"cVenCode": "S900001"}, "lines": [{"cInvCode": "A001", "iQuantity": 1}]}) as path:
+            created = _draft(_parser().parse_args(_argv("create", "--type", "purchase_return", "--file", path)))
+            self.assertEqual(created.kind, "purchase_return")
 
 
 if __name__ == "__main__":

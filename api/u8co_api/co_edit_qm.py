@@ -1,15 +1,30 @@
-"""质量单据修改（vouchers/update）的专用校验：来料 / 产品检验单、其他检验单、其他报检单。与桥 QmEditReq 一致。
+"""质量单据修改（vouchers/update）的专用校验：来料 / 产品检验单、其他检验单、其他报检单（桥 QmEditReq），
+来料 / 产品不良品处理单（桥 QmRejEditReq）。
 
-只收 head，不收 lines。检验单表头可改 dDate、cCheckPersonCode、cChkConclusion、cReasonCode、fRegQuantity、fConQuantiy、
-fDisQuantity、cDefine1–16、chDefine11–16 和 items（按检验项目、指标覆盖已有行）；三个数量之和由桥按单据上已有的检验数量核对。
+检验单、报检单只收 head，不收 lines。检验单表头可改 dDate、cCheckPersonCode、cChkConclusion、cReasonCode、
+fRegQuantity、fConQuantiy、fDisQuantity、cDefine1–16、chDefine11–16 和 items（按检验项目、指标覆盖已有行）；
+三个数量之和由桥按单据上已有的检验数量核对。
 其他报检单只改 dDate、cInspectDepCode、cDefine1–16、chDefine11–16。表头键不区分大小写，同名只能出现一次。
 产品报检单不能修改（测试账套实测 U8 对该单据不提供修改），vouchers/verify 只收 unverify（check_qm_verify）。
+不良品处理单表头同生单（dDate、cDefine1–16、chDefine11–16），lines 按 op 增删改处理行（line_id 是表体 AUTOID）；
+处理数量合计、处理方式与原因的档案、降级后存货由桥按单据和检验单核对。
 """
 
 from __future__ import annotations
 
 from u8co_api.co_doctext import section
-from u8co_api.co_gen_qm import YIELD_CODE, YIELD_DATE, _date, _define, _lowered, _number, _text, check_items
+from u8co_api.co_gen_qm import (
+    REJECT_KINDS,
+    YIELD_CODE,
+    YIELD_DATE,
+    _date,
+    _define,
+    _lowered,
+    _number,
+    _reject_head,
+    _text,
+    check_items,
+)
 
 QM_EDIT_CHECKS = ("qm_incoming_check", "qm_product_check", "qm_other_check")
 QM_EDIT_INSPECT = "qm_other_inspect"
@@ -34,6 +49,13 @@ QM_UPDATE_HELP = "\n\n".join(
         ),
         section("其他报检单", ("只改 dDate、cInspectDepCode、cDefine1–16、chDefine11–16",)),
         section(
+            "来料不良品处理单、产品不良品处理单",
+            (
+                "head 可改 dDate、cDefine1–16、chDefine11–16；处理行见 lines",
+                "已审核的先弃审；受审批流控制且已提交的先在审批流中撤回",
+            ),
+        ),
+        section(
             "质量单据通用",
             (
                 "只改未提交审批、未审核、没有下游的单据（已审核的其他报检单、其他检验单先弃审）",
@@ -42,6 +64,22 @@ QM_UPDATE_HELP = "\n\n".join(
         ),
     )
 )
+QM_REJECT_LINES_HELP = section(
+    "来料不良品处理单、产品不良品处理单的处理行",
+    (
+        "add：quantity、cScrapDisCode、cReasonCode 必填，可带 cDimInvCode、fDimQuantity、cbWhCode",
+        "update：line_id（表体 AUTOID）加上述字段至少一个；delete：只有 op 和 line_id",
+        "改完后各行 quantity 之和必须等于本处理单的待处理不良品数量（FSUMQUANTITY）",
+        "不良原因 + 处理方式不能重复，至少保留一行",
+        "降级类处理方式（处理流程 2）必须有 cDimInvCode；fDimQuantity 缺省同 quantity，必须大于 0",
+        "改成非降级类处理方式时，处理后存货与数量随之清除",
+        "不收检验单、存货、来源字段；行已入库、已返工或单据有下游时 409",
+    ),
+)
+_REJECT_FIELDS = frozenset({"quantity", "cscrapdiscode", "creasoncode", "cdiminvcode", "fdimquantity", "cbwhcode"})
+_REJECT_ADD_NEED = ("quantity", "cscrapdiscode", "creasoncode")
+_REJECT_OPS = ("add", "update", "delete")
+_ID_MAX = 2147483647
 _TEXT_NEED = ("ccheckpersoncode", "cchkconclusion", "creasoncode", YIELD_CODE)
 _SPLIT = ("fregquantity", "fconquantiy", "fdisquantity")
 
@@ -78,8 +116,67 @@ def _inspect_field(low: str, value: object) -> None:
         raise ValueError("不能设置字段 " + low)
 
 
+def _reject_values(row: dict) -> int:
+    sent = 0
+    for key, value in row.items():
+        if key in ("op", "line_id"):
+            continue
+        if key not in _REJECT_FIELDS:
+            raise ValueError("不能设置字段 " + key)
+        sent += 1
+        if key in ("quantity", "fdimquantity"):
+            _number(key, value, True)
+        else:
+            _text(key, value, True)
+    return sent
+
+
+def _reject_line_id(row: dict, seen: set[int]) -> None:
+    raw = row.get("line_id")
+    if type(raw) is not int or raw < 1 or raw > _ID_MAX:
+        raise ValueError("line_id 无效")
+    if raw in seen:
+        raise ValueError("line_id 重复")
+    seen.add(raw)
+
+
+def _reject_op(raw: object, seen: set[int]) -> None:
+    if not isinstance(raw, dict):
+        raise ValueError("表体行必须是对象")
+    row = _lowered(raw)
+    op = row.get("op")
+    if op not in _REJECT_OPS:
+        raise ValueError("op 只能是 add、update 或 delete")
+    sent = _reject_values(row)
+    if op == "add":
+        if "line_id" in row:
+            raise ValueError("新增行不能带 line_id")
+        for key in _REJECT_ADD_NEED:
+            if key not in row:
+                raise ValueError("新增行必须指定 " + key)
+        return
+    _reject_line_id(row, seen)
+    if op == "delete" and sent:
+        raise ValueError("删除行只能有 op 和 line_id")
+    if op == "update" and not sent:
+        raise ValueError("修改行至少再改一个字段")
+
+
+def _check_reject(head: dict | None, lines: list | None) -> None:
+    if not head and not lines:
+        raise ValueError("没有要修改的内容")
+    if head:
+        _reject_head(_lowered(head))
+    seen: set[int] = set()
+    for raw in lines or ():
+        _reject_op(raw, seen)
+
+
 def check_qm_update(kind: str, head: dict | None, lines: list | None) -> bool:
-    """质量单据修改的表头校验；不是这四类返回 False（交给通用规则），是则校验通过返回 True。"""
+    """质量单据修改的校验；不是这六类返回 False（交给通用规则），是则校验通过返回 True。"""
+    if kind in REJECT_KINDS:
+        _check_reject(head, lines)
+        return True
     if kind not in QM_EDIT_KINDS:
         return False
     if lines:

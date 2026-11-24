@@ -55,6 +55,17 @@ def test_read_routes_do_not_classify(route: str) -> None:
             {"code": "C900001", "address": "2"},
             ("archives", "customer_address_delete"),
         ),
+        (
+            "archives/customer_invoice_company_add",
+            {"code": "C900001:C900002"},
+            ("archives", "customer_invoice_company_add"),
+        ),
+        (
+            "archives/customer_invoice_company_delete",
+            {"code": "C900001:C900002"},
+            ("archives", "customer_invoice_company_delete"),
+        ),
+        ("archives/customer_invoice_company", {"code": "C900001:C900002"}, ("archives", "customer_invoice_company")),
         ("vouchers/head_fix", {"type": "dispatch", "id": 1}, ("dispatch", "head_fix")),
         ("vouchers/so_defines", {"type": "sale_order", "id": 1}, ("sale_order", "so_defines")),
         ("arap/writeoff/auto", {}, ("arap", "writeoff")),

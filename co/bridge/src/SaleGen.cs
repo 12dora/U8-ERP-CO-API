@@ -5,6 +5,7 @@ using System.Globalization;
 namespace U8Co
 {
     // 发货单 ← 销售订单，销售发票 ← 发货单。参照视图是 U8 客户端生单用的。
+    // 退货单 ← 销售订单（SaleReturnSo.cs）共用发货单的构造：卡片 03 模板、负数量、表头 breturnflag=1，保存走 SaveReturn。
     internal static partial class SaleGen
     {
         const string HeadSql = "select cSOCode, cVerifier, cCloser from SO_SOMain where ID=?";
@@ -61,7 +62,7 @@ namespace U8Co
             CheckKeys(head, true, HeadKeys, false);
             string soCode;
             ShipLine[] plan = Plan(ctx.Conn, sourceId, lines, out soCode);
-            return Build(ctx, kind, sourceId, head, soCode, plan);
+            return Build(ctx, kind, sourceId, plan, HeadFillOf(null, null, head, soCode, null));
         }
 
         public static ApiResult Invoice(WorkContext ctx, VoucherKind kind, int sourceId, Dictionary<string, object> head, object[] lines)
@@ -87,9 +88,10 @@ namespace U8Co
             return BuildInvoice(ctx, kind, sources, head, want, plan);
         }
 
-        static ApiResult Build(WorkContext ctx, VoucherKind kind, int sourceId, Dictionary<string, object> head,
-            string soCode, ShipLine[] plan)
+        // fill 带请求表头、订单号；fill.Red 非空时是退货单参照销售订单（卡片按 kind.SaCard 取 03，VT 按 kind.SaVt 取 10）。
+        static ApiResult Build(WorkContext ctx, VoucherKind kind, int sourceId, ShipLine[] plan, HeadFill fill)
         {
+            RetJob red = fill.Red;
             object srcHead = null;
             object sys = null;
             object co = null;
@@ -97,17 +99,19 @@ namespace U8Co
             try
             {
                 // 核对字段：收货地址须属于订单客户，列存在、类型长度按列目录；保存后回读（SalePins）。
-                SalePins pins = SalePins.ForDispatch(ctx.Conn, LoginDate(ctx), sourceId, head, PinLines(plan));
+                fill.Pins = red != null ? null : SalePins.ForDispatch(ctx.Conn, LoginDate(ctx), sourceId, fill.Head, PinLines(plan));
                 srcHead = LoadRef(ctx.Conn, RefHead, sourceId, "参照视图没有该销售订单");
                 SaSession.OpenSa(ctx.Conn, ctx.Session.Login, SaSession.SaVt(kind), out sys, out co);
                 string card = kind.SaCard == null || kind.SaCard.Length == 0 ? "01" : kind.SaCard;
                 SoDom.Templates(co, ctx.Conn, card, ctx.Item, doms);
-                HeadFill fill = HeadFillOf(sys, srcHead, head, soCode, card);
-                fill.Pins = pins;
-                soCode = FillHead(ctx, doms, fill);
-                FillLines(ctx, co, doms, head, soCode, plan);
+                fill.Sys = sys;
+                fill.SrcHead = srcHead;
+                fill.Card = card;
+                fill.SoCode = FillHead(ctx, doms, fill);
+                FillLines(ctx, co, doms, fill, plan);
                 string code;
-                int id = SoSave.SaveDispatch(ctx.Conn, co, doms, ctx.Item, pins, out code);
+                int id = red != null ? SaveReturn(red, co, doms, out code)
+                    : SoSave.SaveDispatch(ctx.Conn, co, doms, ctx.Item, fill.Pins, out code);
                 return AfterSave(ctx, kind, id, code, Echo(IdSql, "DLID", "sale_order", sourceId));
             }
             finally
@@ -148,17 +152,23 @@ namespace U8Co
             {
                 DomRows.Set(doms[0], row, "csocode", code);
             }
-            DomRows.Set(doms[0], row, "breturnflag", "0");
+            DomRows.Set(doms[0], row, "breturnflag", fill.Red == null ? "0" : "1");
+            if (fill.Red != null)
+            {
+                DomRows.Set(doms[0], row, "bneedbill", fill.Red.Invoiced ? "1" : "0");
+            }
             DomRows.Set(doms[0], row, "editprop", "A");
             DomRows.Set(doms[0], row, "cMaker", User(ctx));
             SoSave.Stamp(ctx, fill.Sys, doms[0], fill.Card);
             return code;
         }
 
-        static void FillLines(WorkContext ctx, object co, object[] doms, Dictionary<string, object> head, string soCode, ShipLine[] plan)
+        // 退货单（head.Red 非空）的行数量与金额取负，不挂原发货行。
+        static void FillLines(WorkContext ctx, object co, object[] doms, HeadFill head, ShipLine[] plan)
         {
             DropAll(doms[1]);
-            LineFill fill = LineFillOf(co, head, soCode);
+            LineFill fill = LineFillOf(co, head.Head, head.SoCode);
+            fill.Sign = head.Red == null ? 1m : -1m;
             for (int i = 0; i < plan.Length; i++)
             {
                 FillLine(ctx, doms, fill, plan[i], i);
@@ -189,7 +199,7 @@ namespace U8Co
                 object dst = DomRows.AddRow(doms[1]);
                 int at = DomRows.RowsOf(doms[1]).Count - 1;
                 DomRows.CopyInto(doms[1], dst, srcRows[0], BodySkip);
-                Scale(doms[1], dst, line.Qty);
+                ScaleSigned(doms[1], dst, fill.Sign, line.Qty);
                 SaleTaxFlag.Keep(ctx, doms[1], dst);
                 string msg = SaleCalc.Check(fill.Co, doms[0], doms[1], dst, "iquantity", false);
                 if (msg.Length > 0)
@@ -251,7 +261,20 @@ namespace U8Co
 
         static ShipLine[] Plan(object conn, int sourceId, object[] lines, out string soCode)
         {
-            soCode = "";
+            soCode = OpenOrder(conn, sourceId);
+            Dictionary<int, Dictionary<string, object>> body = IndexLines(conn, sourceId);
+            ShipLine[] plan = new ShipLine[lines.Length];
+            Dictionary<int, bool> seen = new Dictionary<int, bool>();
+            for (int i = 0; i < lines.Length; i++)
+            {
+                plan[i] = ReadLine(lines[i], body, seen);
+            }
+            return plan;
+        }
+
+        // 来源订单已审核、未关闭；返回订单号。
+        static string OpenOrder(object conn, int sourceId)
+        {
             Dictionary<string, object> order = Rows.One(conn, HeadSql, new object[] { sourceId });
             if (order == null)
             {
@@ -265,15 +288,7 @@ namespace U8Co
             {
                 throw new BridgeException(409, "state_mismatch", "单据已关闭");
             }
-            soCode = CoRows.Col(order, "cSOCode");
-            Dictionary<int, Dictionary<string, object>> body = IndexLines(conn, sourceId);
-            ShipLine[] plan = new ShipLine[lines.Length];
-            Dictionary<int, bool> seen = new Dictionary<int, bool>();
-            for (int i = 0; i < lines.Length; i++)
-            {
-                plan[i] = ReadLine(lines[i], body, seen);
-            }
-            return plan;
+            return CoRows.Col(order, "cSOCode");
         }
 
         static ShipLine ReadLine(object raw, Dictionary<int, Dictionary<string, object>> body, Dictionary<int, bool> seen)

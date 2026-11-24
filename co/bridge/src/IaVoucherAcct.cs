@@ -39,13 +39,18 @@ namespace U8Co
             return new IaVoucherAcct(heads, opps);
         }
 
-        // 给一行定存货科目、对方科目。缺科目或多行同样匹配、科目不同时 409，消息点名单据和哪一方。
+        // 给一行定存货科目、对方科目（成对业务只有存货科目）。缺科目或多行同样匹配、科目不同时 409，消息点名单据和哪一方。
         public void Resolve(IaBill bill, IaRow row)
         {
             row.InHead = Head(row, "h_inv");
             if (row.InHead.Length == 0)
             {
                 throw Missing(bill, row, "存货科目", "存货核算「存货科目」");
+            }
+            row.OppHead = "";
+            if (row.Pair.Length > 0)
+            {
+                return;
             }
             string opp = OppColumn(row);
             row.OppHead = opp == "h_out" ? Head(row, opp) : Opp(row, opp);
@@ -56,7 +61,8 @@ namespace U8Co
             }
         }
 
-        // 对方科目取哪一列：采购入库单暂估记账（bFlag=1）、红字回冲单取暂估科目，销售出库单取发出商品科目，其余取对方科目。
+        // 对方科目取哪一列：采购入库单暂估记账（bFlag=1）、红字回冲单取暂估科目，销售出库单（发出商品 3201）取发出商品科目，
+        // 其余（含销售出库单 32）取对方科目。
         internal static string OppColumn(IaRow row)
         {
             switch (row.Type.Opp)

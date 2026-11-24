@@ -1,4 +1,4 @@
-"""退货单（红字发货单）参照蓝字发货单生单的专用校验。与桥 SaleGen.CheckReturn 一致。"""
+"""退货单（红字发货单）参照蓝字发货单、退货申请单或销售订单生单的专用校验。与桥 SaleGen.CheckReturn 一致。"""
 
 from __future__ import annotations
 
@@ -30,9 +30,10 @@ def _check_keys(row: dict, allowed: frozenset[str], first: int, last: int) -> No
 def check_sale_return(head: dict | None, lines: list[dict]) -> None:
     """表头只收 dDate（yyyy-MM-dd）、cMemo、cDepCode、cPersonCode、cDefine1–16 和布尔 invoiced，可省略。
 
-    invoiced：false 未开票退货、true 已开票退货；省略时桥按可退数量自动选。
+    invoiced：false 未开票退货、true 已开票退货；省略时桥按可退数量自动选（参照销售订单时为未开票）。
 
-    明细是原蓝字发货行 iDLsID（source_line_id）和正数 quantity，另可带 cWhCode、cMemo、cDefine22–37；不收自由项。
+    明细是来源行（原蓝字发货行 iDLsID；参照销售订单时为订单行 iSOsID）和正数 quantity，另可带 cWhCode、cMemo、
+    cDefine22–37；不收自由项。
     """
     found = head or {}
     _check_keys(found, _HEAD_KEYS, 1, 16)

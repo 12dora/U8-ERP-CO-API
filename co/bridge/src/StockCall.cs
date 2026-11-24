@@ -153,17 +153,22 @@ namespace U8Co
         // 时回滚不了：任何异常都改报 504 outcome_unknown（不报 500，免得调用方重投造成重复），并记下供人工核对。
         public static void AfterCheck(WorkContext ctx, StockCheck check, string label)
         {
+            AfterCheck(ctx.Conn, ctx.Item, check, label);
+        }
+
+        public static void AfterCheck(object conn, WorkItem item, StockCheck check, string label)
+        {
             try
             {
-                check(ctx.Conn);
+                check(conn);
             }
             catch (Exception ex)
             {
-                if (Alive(ctx.Conn))
+                if (Alive(conn))
                 {
                     throw;
                 }
-                CoRows.Note(ctx.Item, "U8 已提交，回写核对失败 " + label + "：" + ex.Message);
+                CoRows.Note(item, "U8 已提交，回写核对失败 " + label + "：" + ex.Message);
                 throw new BridgeException(504, "outcome_unknown",
                     "U8 已自行提交（已保存/已删除），回写核对失败，需要人工核对：" + label);
             }

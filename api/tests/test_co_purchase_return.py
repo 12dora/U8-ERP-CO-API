@@ -123,15 +123,38 @@ def test_purchase_return_delete_and_load_are_allowed() -> None:
     assert loaded.status_code == 200, loaded.text
 
 
-def test_purchase_return_cannot_be_created_or_closed() -> None:
+def test_purchase_return_cannot_be_closed() -> None:
     fake = FakeBridge()
-    client = _client(fake)
-    for path, extra in (
-        ("/v1/co/vouchers/create", {"head": {"cMemo": "x"}, "lines": [{"cInvCode": "A", "iQuantity": 1}]}),
-        ("/v1/co/vouchers/close", {"id": 7, "action": "close"}),
-    ):
-        denied = client.post(path, json=_auth(type="purchase_return", **extra))
-        assert denied.status_code == 400, (path, denied.text)
+    denied = _client(fake).post("/v1/co/vouchers/close", json=_auth(type="purchase_return", id=7, action="close"))
+    assert denied.status_code == 400, denied.text
+    assert fake.calls == []
+
+
+def test_purchase_return_create_forwards_sourceless_body() -> None:
+    fake = FakeBridge()
+    head = {"cVenCode": "S900001", "cMemo": "m"}
+    line = {"cInvCode": "A001", "iQuantity": 1, "iOriTaxCost": 5}
+    made = _client(fake).post("/v1/co/vouchers/create", json=_auth(type="purchase_return", head=head, lines=[line]))
+    assert made.status_code == 200, made.text
+    path, sent = fake.calls[-1]
+    assert path == "/v1/vouchers/create"
+    assert (sent["type"], sent["head"], sent["lines"]) == ("purchase_return", head, [line])
+
+
+@pytest.mark.parametrize(
+    ("head", "line"),
+    (
+        ({"cMemo": "x"}, {"cInvCode": "A", "iQuantity": 1}),
+        ({"cVenCode": "S900001"}, {"cInvCode": "A", "iQuantity": -1}),
+        ({"cVenCode": "S900001"}, {"cInvCode": "A", "iQuantity": 1, "iPOsID": 3}),
+        ({"cVenCode": "S900001"}, {"cInvCode": "A", "iQuantity": 1, "iCorID": 3}),
+        ({"cVenCode": "S900001", "cPOCode": "P"}, {"cInvCode": "A", "iQuantity": 1}),
+    ),
+)
+def test_purchase_return_create_rejects_bad_body_before_the_bridge(head: dict, line: dict) -> None:
+    fake = FakeBridge()
+    denied = _client(fake).post("/v1/co/vouchers/create", json=_auth(type="purchase_return", head=head, lines=[line]))
+    assert denied.status_code == 400, denied.text
     assert fake.calls == []
 
 
@@ -139,7 +162,8 @@ def test_purchase_return_is_in_the_openapi_enums() -> None:
     spec = _spec()
     for schema in ("CoLoadIn", "CoVoucherVerifyIn", "CoDeleteIn", "CoGenerateIn", "CoVoucherListIn"):
         assert "purchase_return" in _enum(spec, schema, "type"), schema
-    assert "purchase_return" not in _enum(spec, "CoCreateIn", "type")
+    assert "purchase_return" in _enum(spec, "CoCreateIn", "type")
+    assert "purchase_return" not in _enum(spec, "CoCloseIn", "type")
     assert "arrival" in _enum(spec, "CoGenerateIn", "source_type")
     source = spec["components"]["schemas"]["CoGenerateIn"]["properties"]["source_type"]["description"]
     assert "采购退货单" in source

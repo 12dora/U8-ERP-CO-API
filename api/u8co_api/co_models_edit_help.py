@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from u8co_api.co_doctext import field_doc
 from u8co_api.co_edit_dispatch_add import DISPATCH_ADD_HELP
-from u8co_api.co_edit_qm import QM_UPDATE_HELP
+from u8co_api.co_edit_qm import QM_REJECT_LINES_HELP, QM_UPDATE_HELP
 from u8co_api.co_gen_pu_settle import SETTLE_GEN_HELP
 from u8co_api.co_gen_qm import QM_GEN_HELP
 from u8co_api.co_gen_qm_merge import QM_MERGE_HELP
@@ -30,6 +30,7 @@ UPDATE_TYPE_HELP = field_doc(
             "生单来的类型不能新增行；发货单、来源为库存的销售出库单除外，可增删行、不能换仓库",
             "物料清单、生产订单、退货申请单",
             "来料检验单、产品检验单、其他检验单、其他报检单",
+            "来料不良品处理单、产品不良品处理单",
         ),
     ),
 )
@@ -60,7 +61,7 @@ UPDATE_LINES_HELP = "\n\n".join(
                     "add 不能带 line_id；update 和 delete 要有不重复的 line_id",
                     "delete 只能有 op 和 line_id；update 至少再改一个字段",
                     "生单来的单据不能 add（发货单、来源为库存的销售出库单除外）",
-                    "生单来的单据不能删光明细，数量只能减少（退货单、采购退货单填正数）",
+                    "生单来的单据不能删光明细，数量只能减少（退货单、采购退货单、红字采购发票填正数）",
                     "货位调整单不能改存货 cinvcode（删除该行后新增），改完按新增的规则核对货位、批号、结存",
                 ),
             ),
@@ -69,6 +70,7 @@ UPDATE_LINES_HELP = "\n\n".join(
         BOM_UPDATE_HELP,
         MO_UPDATE_HELP,
         APPLY_UPDATE_HELP,
+        QM_REJECT_LINES_HELP,
     )
 )
 
@@ -92,13 +94,14 @@ GENERATE_ID_HELP = field_doc(
         "",
         (
             "发货单来自销售订单；销售出库来自发货单；销售发票来自发货单",
-            "采购入库来自采购订单、来料检验单或蓝字到货单（ID）",
+            "采购入库来自采购订单、来料检验单、来料不良品处理单或蓝字到货单（ID）",
             "材料出库来自生产订单（MoId）",
             "产成品入库来自产品检验单（检验单 ID）、产品不良品处理单（处理单 ID）或生产订单（MoId）",
             "采购发票来自采购入库单（红字入库单生成红字发票）",
             "到货单来自采购订单（POID）；采购退货单来自蓝字到货单（ID）或采购订单（POID）",
             "退货单（红字发货单）来自已审核的蓝字发货单（DLID）",
             "退货单也可来自已审核的退货申请单（source_type=sale_return_apply，申请单 ID）",
+            "退货单也可只挂订单行来自已审核的销售订单（source_type=sale_order，SO_SOMain.ID），可退为订单行累计发货数量（iFHQuantity）",
             "红字销售发票（source_type=sale_return）来自已审核的退货单（DLID）",
             "红冲蓝字销售发票（source_type=sale_invoice）来自已复核的蓝字销售发票（SBVID）",
             "来料报检单来自到货单（ID）；产品报检单来自生产订单（MoId）",
@@ -112,11 +115,12 @@ GENERATE_SOURCE_HELP = (
     "来源单据类型，省略时取缺省来源。\n\n"
     "| 目标单据 | 可选来源（第一个是缺省） |\n"
     "|---|---|\n"
-    "| 采购入库 | purchase_order、qm_incoming_check、purchase_return（采购退货单，生成红字采购入库）、"
-    "arrival（蓝字到货单，lines 可省） |\n"
+    "| 采购入库 | purchase_order、qm_incoming_check、qm_incoming_reject（来料不良品处理单）、"
+    "purchase_return（采购退货单，生成红字采购入库）、arrival（蓝字到货单，lines 可省） |\n"
     "| 产成品入库 | qm_product_check、qm_product_reject、production_order |\n"
     "| 采购发票 | 只能是 purchase_in |\n"
     "| 采购退货单 | arrival、purchase_order |\n"
+    "| 退货单 | dispatch、sale_return_apply（退货申请单）、sale_order（销售订单，只挂订单行） |\n"
     "| 销售发票 | dispatch、sale_return（退货单，生成红字发票）、sale_invoice（蓝字发票，红冲） |\n"
     "| 采购结算单 | 只能是 purchase_invoice |\n"
     "| 生产订单 | 只能是 sale_order |\n"
@@ -134,9 +138,10 @@ GENERATE_HEAD_HELP = "\n\n".join(
                     "采购发票只收字符串 cPBVCode（必填，最长 30）、cPBVBillType（01 或 02）",
                     "采购发票另收 dPBVDate（yyyy-MM-dd）、cPBVMemo（最长 255）",
                     "到货单和采购退货单只收字符串 cWhCode、dDate（yyyy-MM-dd）、cMemo、cDepCode，可省略",
-                    "参照来料检验单的采购入库必须有 cWhCode",
+                    "参照来料检验单、来料不良品处理单的采购入库必须有 cWhCode",
                     "退货单只收 dDate（yyyy-MM-dd）、cMemo、cDepCode、cPersonCode、cDefine1–16，可省略",
                     "退货单另可带布尔 invoiced：false 未开票退货，true 已开票退货，省略时按可退数量自动选",
+                    "参照销售订单（source_type=sale_order）的退货单省略 invoiced 时为未开票退货",
                 ),
             ),
         ),
@@ -177,6 +182,7 @@ GENERATE_LINES_HELP = field_doc(
         "采购入库",
         (
             "参照来料检验单：只能有 1 行，source_line_id 是检验单 ID，可带 cbatch、cbmemo、cposition",
+            "参照来料不良品处理单：1 到 200 行，source_line_id 是处理单表体 AUTOID，quantity 须等于剩余的处理后数量",
             "参照采购退货单（红字采购入库）：source_line_id 是退货单行 Autoid，quantity 填正数（桥写负数）",
             "参照到货单：source_line_id 是到货单行 Autoid，可带 cbatch、cbmemo、cposition、cWhCode",
             "参照到货单时表头没给仓库，各行 cWhCode 须一致",
@@ -186,7 +192,7 @@ GENERATE_LINES_HELP = field_doc(
     (
         "货位 cposition",
         (
-            "采购入库（四种来源）、材料出库、产成品入库的行都可带",
+            "采购入库（五种来源）、材料出库、产成品入库的行都可带",
             "仓库启用货位管理时每行必填该仓库的末级货位，否则不能填",
         ),
     ),
@@ -203,6 +209,8 @@ GENERATE_LINES_HELP = field_doc(
         (
             "source_line_id 是原发货单行 iDLsID",
             "quantity 填正数（桥写负数，不超过发货数量减累计退货数量）",
+            "参照销售订单（source_type=sale_order）时 source_line_id 是订单行 iSOsID，只挂订单行",
+            "此时 quantity 不超过订单行累计发货数量（iFHQuantity，已扣过以前的退货）",
             "另可带 cWhCode、cMemo、cDefine22–37",
             *APPLY_GENERATE_HELP,
         ),

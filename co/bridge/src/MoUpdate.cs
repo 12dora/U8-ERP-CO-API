@@ -10,6 +10,7 @@ namespace U8Co
     // 调用前在请求连接上读快照（行、全部子件及其替代料、材料出库引用）；调用后在新连接上回读，行字段要等于请求，每行子件数不变、
     // 子件数量等于原值或按新行数量重算的值，否则 504 outcome_unknown（MOrderUpdate 会重写全部子件，不能悄悄丢用料）。
     // API 自己开 TransactionScope 提交，不包 CoTrans。见 docs/u8-notes.md「生产订单修改」。
+    // 行上带了 allocations（调用方给的替代料）是第二级写入（TestAccountGate）；只改替代料时不调用 U8（MoUpdateSubsWrite）。
     internal static class MoUpdate
     {
         public const string UpdateRule = "write:production_order:update";
@@ -34,6 +35,7 @@ namespace U8Co
                 throw new BridgeException(400, "bad_request", "该单据类型不支持修改");
             }
             MoUpdateAsk ask = MoUpdateReq.Parse(head, lines);
+            MoUpdateSubsReq.RequireTier(ctx.Item, ask);
             PermContext perm = PermCheck.Of(ctx);
             PermRule rule = PermRegistry.ForKey(UpdateRule);
             PermCheck.RequireRule(perm, rule);
@@ -47,16 +49,17 @@ namespace U8Co
             MoDelete.CheckRows(perm, rule, RowsOf(before));
             MoUpdateSql.Digits(ctx.Conn, before);
             MoRefs refs = MoUpdateRemap.Capture(ctx.Conn, id, before);
+            MoUpdateSubsReq.Resolve(ctx.Conn, ask, before, ctx.Item.Date ?? "");
             MoPlan plan = MoUpdatePlan.Build(ask, before);
             MoUpdateRemap.CheckIssued(plan);
-            // 预演（校验模式）：MOrderUpdate 自己提交，计划算完就停（没有改动时也停，detail.input.changed=false）。
             MoDry.UpdateInput(plan);
-            DryRun.Stop(ctx, plan.Changed ? "U8API MOrderUpdate" : "无改动，不调用 U8");
             if (!plan.Changed)
             {
-                // 请求的值与现值相同：不调用 U8（MOrderUpdate 会重写全部子件，没必要冒险）。
-                return MoUpdateCheck.Result(kind, id, before, plan);
+                // 没有 U8 字段要改：无改动直接返回，只改替代料走 SQL 事务（预演时回滚）。
+                return MoUpdateSubsWrite.Run(ctx, kind, id, before, plan);
             }
+            // 预演（校验模式）：MOrderUpdate 自己提交，计划算完就停。
+            DryRun.Stop(ctx, "U8API MOrderUpdate");
             MoUpdateRestore.LogSnapshot(ctx, id, before);
             MoUpdateRemap.LogRefs(ctx, id, before.Code, refs);
             Exception lost = MoUpdateCom.Invoke(ctx, before.Code, plan);
@@ -137,13 +140,15 @@ namespace U8Co
             return rows;
         }
 
-        static MoSnap Reread(WorkContext ctx, int id, MoSnap before)
+        // 新连接上回读（含每个子件的替代料，供核对和响应）。
+        internal static MoSnap Reread(WorkContext ctx, int id, MoSnap before)
         {
             object conn = null;
             try
             {
                 conn = ctx.OpenFresh();
                 MoSnap after = MoUpdateSql.Load(conn, id);
+                MoUpdateSubs.Capture(conn, after);
                 after.QtyDigits = before.QtyDigits;
                 after.AuxDigits = before.AuxDigits;
                 return after;
@@ -170,7 +175,7 @@ namespace U8Co
         }
 
         // 回读等于目标就算成功（即使调用有异常或 U8 报了错）；否则一律 504，消息带前几项不符，审计 detail 记全部。
-        static void Confirm(WorkContext ctx, MoPlan plan, MoSnap before, MoSnap after, Exception lost)
+        internal static void Confirm(WorkContext ctx, MoPlan plan, MoSnap before, MoSnap after, Exception lost)
         {
             List<string> bad = MoUpdateCheck.Diff(plan, after);
             if (bad.Count == 0)
@@ -178,7 +183,8 @@ namespace U8Co
                 return;
             }
             CoRows.Note(ctx.Item, "MoUpdate 回读不符：" + string.Join("；", bad.ToArray()));
-            string head = lost == null ? "U8 返回成功但回读与请求不符" : "U8 修改调用报错但库里已有改动，结果未知";
+            string head = !plan.Changed ? "替代料已提交但回读与请求不符" : lost == null ? "U8 返回成功但回读与请求不符"
+                : "U8 修改调用报错但库里已有改动，结果未知";
             if (lost != null)
             {
                 string text = MoApi.FirstLine(lost.Message);

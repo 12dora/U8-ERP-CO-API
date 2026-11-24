@@ -31,6 +31,9 @@ _CUSTOMER_OPS = (
     "customer_address",
     "customer_address_add",
     "customer_address_delete",
+    "customer_invoice_company_add",
+    "customer_invoice_company_delete",
+    "customer_invoice_company",
 )
 _ARCHIVES_OPS = "、".join((*_CUSTOMER_OPS, "create", "delete"))
 _VOUCHER = "/v1/co/vouchers/create"

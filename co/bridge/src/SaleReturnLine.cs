@@ -9,8 +9,6 @@ namespace U8Co
     // 表体 autoid / autoid2 / dlid 是原发货单的主键，数量是原行的全数（负）。
     internal static partial class SaleGen
     {
-        // 未覆盖：getDefaltVTID 按卡片 03 没给模板时的退货单模板号。
-        const string RedVtidFallback = "75";
         // 实测（XE 跟踪）：挂上 isosid / csocode / cordercode / iorderrowno 后 U8 回写订单行 fretquantity、iFHQuantity。
         // false 时不挂订单行（同 GetNegaVouchData 的原样），此时不核对订单行回写。
         static readonly bool RetLinkSo = true;

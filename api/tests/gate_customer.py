@@ -34,6 +34,10 @@ def _arc_customer_address_rows(payload: dict) -> dict:
     }
 
 
+def _arc_customer_invoice_company(payload: dict) -> dict:
+    return {"ok": True, "code": payload["code"], "changed": True, "before": [], "after": []}
+
+
 def _voucher_head_fix(payload: dict) -> dict:
     return {
         "ok": True,
@@ -65,6 +69,9 @@ CUSTOMER_BUILDERS = {
     "/v1/archives/customer_address": _arc_customer_address,
     "/v1/archives/customer_address_add": _arc_customer_address_rows,
     "/v1/archives/customer_address_delete": _arc_customer_address_rows,
+    "/v1/archives/customer_invoice_company_add": _arc_customer_invoice_company,
+    "/v1/archives/customer_invoice_company_delete": _arc_customer_invoice_company,
+    "/v1/archives/customer_invoice_company": _arc_customer_invoice_company,
     "/v1/vouchers/head_fix": _voucher_head_fix,
     "/v1/vouchers/so_defines": _voucher_so_defines,
 }

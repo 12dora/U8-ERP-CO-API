@@ -16,7 +16,8 @@ namespace U8Co
         {
             "create", "update", "delete", "verify", "unverify", "close", "open", "generate", "lock", "unlock",
             "workflow", "writeoff", "voucher", "post", "process", "other", "customer_person", "customer_fields",
-            "customer_address", "customer_address_add", "customer_address_delete", "head_fix", "so_defines"
+            "customer_address", "customer_address_add", "customer_address_delete", "customer_invoice_company_add",
+            "customer_invoice_company_delete", "customer_invoice_company", "head_fix", "so_defines"
         };
 
         static readonly string[] TopKeys = new string[]

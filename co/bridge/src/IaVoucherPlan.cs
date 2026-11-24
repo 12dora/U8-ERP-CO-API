@@ -21,11 +21,11 @@ namespace U8Co
             IaVoucherAcct acct = IaVoucherAcct.Load(conn, job.Year);
             IaVoucherLines.Cache cache = new IaVoucherLines.Cache();
             List<IaBill> eligible = new List<IaBill>();
-            foreach (IaBill bill in job.Bills)
+            foreach (List<IaBill> unit in IaVoucherPair.Units(job.Bills))
             {
-                if (bill.Skip.Length == 0 && Prepare(conn, acct, job, bill))
+                if (unit[0].Skip.Length == 0 && Prepare(conn, acct, job, unit))
                 {
-                    eligible.Add(bill);
+                    eligible.AddRange(unit);
                 }
             }
             if (job.Ask.All)
@@ -34,9 +34,9 @@ namespace U8Co
             }
             else
             {
-                foreach (IaBill bill in eligible)
+                foreach (List<IaBill> unit in IaVoucherPair.Units(eligible))
                 {
-                    IaPlan plan = TryPlan(conn, job, bill, cache);
+                    IaPlan plan = TryPlan(conn, job, unit, cache);
                     if (plan != null)
                     {
                         job.Plans.Add(plan);
@@ -56,45 +56,54 @@ namespace U8Co
             return IaVoucherLoad.Refuse("没有可制单的单据" + (first != null ? "；如 " + first.Label() + "：" + first.Skip : ""));
         }
 
-        // 一张单据：防重复制单（总账里已有没回写的凭证），定各行的科目和摘要。按月份逐张制单时不合格就跳过（false），其余情况 409。
-        static bool Prepare(object conn, IaVoucherAcct acct, IaJob job, IaBill bill)
+        // 一个制单单元（一张单据，或成对业务的两边）：防重复制单（总账里已有没回写的凭证），定各行的科目和摘要。
+        // 按月份逐张制单时不合格就整个单元跳过（false），其余情况 409。
+        static bool Prepare(object conn, IaVoucherAcct acct, IaJob job, List<IaBill> unit)
         {
             try
             {
-                IaVoucherBack.NoOrphan(conn, bill);
-                foreach (IaRow row in bill.Rows)
+                foreach (IaBill bill in unit)
                 {
-                    acct.Resolve(bill, row);
-                    row.Digest = Digest(job.Ask.Digest, row);
+                    IaVoucherBack.NoOrphan(conn, bill);
+                    foreach (IaRow row in bill.Rows)
+                    {
+                        acct.Resolve(bill, row);
+                        row.Digest = Digest(job.Ask.Digest, row);
+                    }
                 }
                 return true;
             }
             catch (BridgeException ex)
             {
-                if (!Skippable(job, ex))
-                {
-                    throw;
-                }
-                bill.Skip = ex.Message;
-                return false;
+                return Skip(job, unit, ex);
             }
         }
 
-        static IaPlan TryPlan(object conn, IaJob job, IaBill bill, IaVoucherLines.Cache cache)
+        static IaPlan TryPlan(object conn, IaJob job, List<IaBill> unit, IaVoucherLines.Cache cache)
         {
             try
             {
-                return Plan(conn, job, new List<IaBill>(new IaBill[] { bill }), cache);
+                return Plan(conn, job, unit, cache);
             }
             catch (BridgeException ex)
             {
-                if (!Skippable(job, ex))
-                {
-                    throw;
-                }
-                bill.Skip = ex.Message;
+                Skip(job, unit, ex);
                 return null;
             }
+        }
+
+        // 可跳过时把原因记在单元的每张单据上（返回 false）；否则原样抛出。
+        static bool Skip(IaJob job, List<IaBill> unit, BridgeException ex)
+        {
+            if (!Skippable(job, ex))
+            {
+                throw ex;
+            }
+            foreach (IaBill bill in unit)
+            {
+                bill.Skip = ex.Message;
+            }
+            return false;
         }
 
         static bool Skippable(IaJob job, BridgeException ex)
@@ -102,11 +111,13 @@ namespace U8Co
             return job.Ask.Month > 0 && !job.Ask.All && ex.Status == 409;
         }
 
-        // 摘要：调用方给了就用；否则单据备注，没有备注时单据类型名（同 U8：IA_Subsidiary.cPZdigest 回测核对）。
+        // 摘要：调用方给了就用；否则单据备注，没有备注时单据类型名，成对业务是业务单据名（调拨单、形态转换单等）
+        // （同 U8：IA_Subsidiary.cPZdigest 回测核对）。
         internal static string Digest(string asked, IaRow row)
         {
             string memo = (row.Memo ?? "").Trim();
-            string text = asked.Length > 0 ? asked : (memo.Length > 0 ? memo : row.Type.Name);
+            string name = row.Pair.Length > 0 ? IaType.PairDigest(row.Pair) : row.Type.Name;
+            string text = asked.Length > 0 ? asked : (memo.Length > 0 ? memo : name);
             return IaText.Clip(text, IaVoucherReq.DigestMax);
         }
 
@@ -134,10 +145,10 @@ namespace U8Co
             return plan;
         }
 
-        // 逐张制单时拒绝原因前加单据（合计为 0、行数超限这类不带单据名的）。
+        // 逐张制单时拒绝原因前加单据（合计为 0、行数超限这类不带单据名的）；成对业务带第一张。
         static BridgeException Named(List<IaBill> bills, BridgeException ex)
         {
-            if (bills.Count != 1 || ex.Message.StartsWith("单据 ", StringComparison.Ordinal))
+            if (IaVoucherPair.Units(bills).Count != 1 || ex.Message.StartsWith("单据 ", StringComparison.Ordinal))
             {
                 return ex;
             }
@@ -173,7 +184,7 @@ namespace U8Co
                 {
                     throw;
                 }
-                string who = plan.Bills.Count == 1 ? "单据 " + plan.Bills[0].Label() + "：" : "";
+                string who = IaVoucherPair.Units(plan.Bills).Count == 1 ? "单据 " + plan.Bills[0].Label() + "：" : "";
                 throw IaVoucherLoad.Refuse(who + "凭证分录不合格：" + ex.Message);
             }
         }
@@ -199,7 +210,7 @@ namespace U8Co
             }
         }
 
-        static int Month(string date)
+        internal static int Month(string date)
         {
             return DateTime.ParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture).Month;
         }

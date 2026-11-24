@@ -67,6 +67,23 @@ def _address_delete(**over) -> dict:
     return body
 
 
+_INVOICE_ADD = "/v1/co/archives/customer_invoice_company_add"
+_INVOICE_DELETE = "/v1/co/archives/customer_invoice_company_delete"
+_INVOICE_DEFAULT = "/v1/co/archives/customer_invoice_company"
+
+
+def _invoice_add(**over) -> dict:
+    body = _login(operator="op009", code="C900001:C900002")
+    body.update(over)
+    return body
+
+
+def _invoice_row(**over) -> dict:
+    body = _login(operator="op009", code="C900001:C900002", expect={"bdefault": False})
+    body.update(over)
+    return body
+
+
 def _drop(**over) -> dict:
     body = _login(operator="op009", archive="district_class", code="33")
     body.update(over)
@@ -92,6 +109,9 @@ def _all_rules() -> tuple:
         (_ADDRESS, _address(), "/v1/archives/customer_address"),
         (_ADDRESS_ADD, _address_add(), "/v1/archives/customer_address_add"),
         (_ADDRESS_DELETE, _address_delete(), "/v1/archives/customer_address_delete"),
+        (_INVOICE_ADD, _invoice_add(), "/v1/archives/customer_invoice_company_add"),
+        (_INVOICE_DELETE, _invoice_row(), "/v1/archives/customer_invoice_company_delete"),
+        (_INVOICE_DEFAULT, _invoice_row(), "/v1/archives/customer_invoice_company"),
         (_CREATE, _district(), "/v1/archives/create"),
         (_DELETE, _drop(), "/v1/archives/delete"),
     ),
@@ -109,6 +129,9 @@ _OWN = (
     ("customer_address", _ADDRESS),
     ("customer_address_add", _ADDRESS_ADD),
     ("customer_address_delete", _ADDRESS_DELETE),
+    ("customer_invoice_company_add", _INVOICE_ADD),
+    ("customer_invoice_company_delete", _INVOICE_DELETE),
+    ("customer_invoice_company", _INVOICE_DEFAULT),
 )
 
 
@@ -120,6 +143,9 @@ def test_a_rule_admits_only_its_own_op(path: str) -> None:
         _ADDRESS: _address(),
         _ADDRESS_ADD: _address_add(),
         _ADDRESS_DELETE: _address_delete(),
+        _INVOICE_ADD: _invoice_add(),
+        _INVOICE_DELETE: _invoice_row(),
+        _INVOICE_DEFAULT: _invoice_row(),
     }
     for op, own in _OWN:
         fake = FakeBridge()
@@ -196,7 +222,12 @@ def test_allows_matches_the_path_and_the_archive() -> None:
     assert allows(rules, "co:archives/customer_address", district) is True
     assert allows(rules, "co:archives/customer_address_add", district) is True
     assert allows(rules, "co:archives/customer_address_delete", district) is True
+    assert allows(rules, "co:archives/customer_invoice_company_add", district) is True
+    assert allows(rules, "co:archives/customer_invoice_company_delete", district) is True
+    assert allows(rules, "co:archives/customer_invoice_company", district) is True
     assert allows(rules, "co:archives/customer_address_x", district) is False
+    assert allows(_rules(op="customer_invoice_company"), "co:archives/customer_invoice_company_add", district) is False
+    assert allows(_rules(op="customer_invoice_company_add"), "co:archives/customer_invoice_company", district) is False
     assert allows(_rules(op="customer_address"), "co:archives/customer_address_add", district) is False
     assert allows(_rules(op="customer_address_add"), "co:archives/customer_address", district) is False
     assert allows(_rules(op="customer_address_add"), "co:archives/customer_address_delete", district) is False
@@ -214,6 +245,9 @@ def test_matching_new_ops_record_the_exception_outcome(capsys) -> None:
         (_ADDRESS, _address(), "customer_address"),
         (_ADDRESS_ADD, _address_add(), "customer_address_add"),
         (_ADDRESS_DELETE, _address_delete(), "customer_address_delete"),
+        (_INVOICE_ADD, _invoice_add(), "customer_invoice_company_add"),
+        (_INVOICE_DELETE, _invoice_row(), "customer_invoice_company_delete"),
+        (_INVOICE_DEFAULT, _invoice_row(), "customer_invoice_company"),
         (_CREATE, _district(), "create"),
         (_DELETE, _drop(), "delete"),
     ):
@@ -232,6 +266,9 @@ def test_dry_run_of_new_ops_passes_the_gate() -> None:
         (_ADDRESS, _address()),
         (_ADDRESS_ADD, _address_add()),
         (_ADDRESS_DELETE, _address_delete()),
+        (_INVOICE_ADD, _invoice_add()),
+        (_INVOICE_DELETE, _invoice_row()),
+        (_INVOICE_DEFAULT, _invoice_row()),
         (_CREATE, _district()),
         (_DELETE, _drop()),
     )
@@ -244,8 +281,8 @@ def test_health_summary_has_archives_only_for_create_and_delete() -> None:
     data = _gated(read_only_exceptions=_all_rules()).get("/v1/co/health").json()
     summaries = data["api_read_only_exceptions"]
     assert [item["op"] for item in summaries] == [*_CUSTOMER_OPS, "create", "delete"]
-    assert [item.get("archives") for item in summaries] == [None] * 5 + [["district_class"]] * 2
-    assert all("archives" not in item for item in summaries[:5])
+    assert [item.get("archives") for item in summaries] == [None] * len(_CUSTOMER_OPS) + [["district_class"]] * 2
+    assert all("archives" not in item for item in summaries[: len(_CUSTOMER_OPS)])
 
 
 class _CreateExBridge(FakeBridge):

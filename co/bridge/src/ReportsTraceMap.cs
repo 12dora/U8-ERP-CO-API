@@ -251,7 +251,10 @@ namespace U8Co
                 "QMCHECKVOUCHER u JOIN QMREJECTVOUCHER d ON d.CHECKID=u.ID",
                 " AND u.CVOUCHTYPE=N'QM03' AND d.CVOUCHTYPE=N'QM05'"));
             all.Add(E("qm_incoming_check", "purchase_in", "u.ID", "d.ID",
-                "QMCHECKVOUCHER u JOIN rdrecords01 d ON d.iCheckIdBaks=u.ID", " AND u.CVOUCHTYPE=N'QM03'"));
+                "QMCHECKVOUCHER u JOIN rdrecords01 d ON d.iCheckIdBaks=u.ID",
+                " AND u.CVOUCHTYPE=N'QM03' AND ISNULL(d.iRejectIds,0)=0"));
+            all.Add(E("qm_incoming_reject", "purchase_in", "u.ID", "d.ID",
+                "QMREJECTVOUCHERS u JOIN rdrecords01 d ON d.iRejectIds=u.AUTOID", ""));
             all.Add(E("arrival", "purchase_in", "u.ID", "d.ID", Arr + " JOIN rdrecords01 d ON d.iArrsId=u.Autoid",
                 ArrBlue + " AND ISNULL(d.iCheckIdBaks,0)=0"));
             all.Add(E("purchase_return", "purchase_in", "u.ID", "d.ID", Arr + " JOIN rdrecords01 d ON d.iArrsId=u.Autoid",

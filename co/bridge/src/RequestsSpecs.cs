@@ -64,6 +64,10 @@ namespace U8Co
             // 客户收货地址新增、删除（ArcCusAddrRows）。
             new string[] { ArcCusAddrRows.AddPath, "code", "address", "fields" },
             new string[] { ArcCusAddrRows.DeletePath, "code", "address", "expect" },
+            // 客户开票单位新增、删除、设默认（ArcCusInvoice）。
+            new string[] { ArcCusInvoice.AddPath, "code", "default", "expect" },
+            new string[] { ArcCusInvoice.DeletePath, "code", "expect" },
+            new string[] { ArcCusInvoice.DefaultPath, "code", "expect" },
             new string[] { ListPath, "type", "filter", "keys_only", "changed_since", "after", "limit" },
             // 单据搜索（VoucherSearchArgs）、单据批量读取（LoadManyReq）、档案批量读取（ArcGetMany）。
             new string[]
@@ -451,8 +455,8 @@ namespace U8Co
             }
             else if (path == "/u8co/v1/vouchers/update")
             {
-                // 生产订单修改（MoUpdate）：登录前校验表头表体。
-                MoUpdateReq.Parse(item.Head, item.Lines);
+                // 生产订单修改（MoUpdate）：登录前校验表头表体；带了 allocations（替代料）的查测试账套名单。
+                MoUpdateSubsReq.RequireTier(item, MoUpdateReq.Parse(item.Head, item.Lines));
                 item.SubId = kind.VerifySub;
             }
         }

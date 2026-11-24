@@ -84,6 +84,13 @@ namespace U8Co
             return p;
         }
 
+        // 按档案种类名取两段主键的规格（写入路由在登录前拆编码用）；没有登记返回 null。
+        internal static ArcPair Named(string name)
+        {
+            ArcPair p;
+            return Specs.TryGetValue(name, out p) ? p : null;
+        }
+
         // ArcKindRo 建档案时调用：主键、分类列取第一列，编码整串最长 Max1 + 1 + Max2。
         internal static ArcKind Apply(ArcKind k)
         {

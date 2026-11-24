@@ -6,15 +6,15 @@ namespace U8Co
     // 不良品处理单生单（QM05 参照来料检验单、QM06 参照产品检验单）：UFQMCo 不良品处理单 CO 的 AddVoucher。
     // 实测 AddVoucher 在 U8 自己的连接上提交，请求连接的事务回滚不了：不包 CoTrans，调用前查完能查的，
     // 预演（校验模式）在取号和保存之前停；保存后在新连接上按检验单 ID 找新单并核对单号、制单人。
-    // U8 保存后把检验单 BREJFLAG 置 1；单号按 U8 编号规则取（QmNo / BillNo，按 U8 单据编号规则生成，形如 QMRJ202601010001），取了不退。
+    // U8 保存后把检验单的 BREJFLAG 置 1；
+    // 单号按 U8 编号规则取（QmNo / BillNo，按 U8 单据编号规则生成，形如 QMRJ202601010001），取了不退。
     internal static class QmRejGen
     {
         const string FoundSql = "select convert(varchar(20), ID) as ID, CREJECTCODE as code, CMAKER as maker,"
             + " CVERIFIER as verifier, convert(varchar(19), DVERIFYDATE, 120) as verify_date,"
             + " convert(varchar(5), isnull(IsWfControlled,0)) as wf, convert(varchar(10), isnull(iVerifyStateNew,0)) as vs"
-            + " from QMREJECTVOUCHER where CHECKID=? and CVOUCHTYPE=? order by ID";
+            + " from QMREJECTVOUCHER where CHECKID=? and CVOUCHTYPE=?";
         const string LinesSql = "select count(*) from QMREJECTVOUCHERS where ID=?";
-        const string FlagSql = "select convert(varchar(5), isnull(BREJFLAG,0)) from QMCHECKVOUCHER where ID=?";
 
         public static ApiResult Run(WorkContext ctx, QmRejSpec spec, int checkId, Dictionary<string, object> head,
             object[] lines)
@@ -60,11 +60,13 @@ namespace U8Co
             ComUtil.ReleaseOne(DomRows.AddRow(doms[0]));
             ComUtil.ReleaseOne(DomRows.AddRow(doms[1]));
             co.Push(doms[0], doms[1]);
-            co.FromCheck("select * from " + CoRows.Ident(spec.CheckView)
-                + " where ID=? and CVOUCHTYPE=? and isnull(PU_CBCLOSER,'')=''", job.Ask.CheckId, spec.CheckType);
+            object[] args;
+            string refSql = QmRejSrc.RefSql(job, out args);
+            co.FromCheck(refSql, args);
             doms[2] = co.Head();
             doms[3] = co.Body();
-            QmRejDom.FillHead(doms[2], QmRejDom.HeadFields(spec, job.Ask, job.Wf, job.DefineNames));
+            List<string[]> head = QmRejDom.HeadFields(spec, job.Ask, job.Wf, job.DefineNames);
+            QmRejDom.FillHead(doms[2], head);
             QmRejDom.FillBody(doms[3], job.Ask, job.Unit);
             co.Push(doms[2], doms[3]);
             if (co.RowCount() < 1)
@@ -82,6 +84,7 @@ namespace U8Co
             }
             Dictionary<string, object> input = new Dictionary<string, object>();
             input["source_id"] = job.Ask.CheckId;
+            input["source_line_id"] = job.Ask.Lines[0].SourceLineId;
             input["quantity"] = job.Ask.Total();
             input["wf_controlled"] = job.Wf;
             List<Dictionary<string, object>> heads = Rows.FromDom(doms[2], 1);
@@ -93,7 +96,8 @@ namespace U8Co
             DryRun.Set("input", input);
         }
 
-        // 新连接上按检验单找本类型的不良品处理单：恰好一张、单号与本次取的号相同、制单人是本操作员、U8 没报错才算找到；
+        // 新连接上按检验单找本类型的不良品处理单：恰好一张、单号与本次取的号相同、制单人是本操作员、
+        // U8 没报错才算找到；
         // 找到后还要表体行数等于请求行数、检验单 BREJFLAG 已置 1，否则 504（已保存但不完整，需人工核对）。
         // 找到了但对不上或 U8 报错：504（可能已保存）；没找到：U8 原文 409，其他异常或「成功却没有单据」504。
         static ApiResult Confirm(QmRejJob job, QmOutcome outcome, string code)
@@ -106,11 +110,11 @@ namespace U8Co
             try
             {
                 conn = ctx.OpenFresh();
-                found = QmSql.Many(conn, FoundSql, 3, job.Ask.CheckId, job.Spec.VouchType);
+                found = QmSql.Many(conn, FoundSql + " order by ID", 3, job.Ask.CheckId, job.Spec.VouchType);
                 if (found.Count == 1)
                 {
                     items = (int)QmSql.Dec(QmSql.Scalar(conn, LinesSql, CoRows.AsId(CoRows.Col(found[0], "ID"))));
-                    flag = QmSql.Scalar(conn, FlagSql, job.Ask.CheckId);
+                    flag = QmRejSrc.Flag(conn, job.Ask.CheckId, 0);
                 }
             }
             catch (Exception ex)

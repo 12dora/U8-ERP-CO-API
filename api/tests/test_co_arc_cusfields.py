@@ -12,7 +12,8 @@ from tests.test_co_core_routes import _auth, _sealed, _Up, _wired
 from tests.test_co_gate import _SECRET, FakeBridge, _client
 from tests.test_co_update_close_gen import _spec
 from u8co_api.co_bridge import to_api_error
-from u8co_api.co_models_arc_cusfields import FIELD_KEYS
+from u8co_api.co_models_arc_cusfields import CUSTOMER_FIELDS_HELP
+from u8co_api.co_models_arc_cusfields_keys import FIELD_KEYS, KEYS
 from u8co_api.errors import ApiError
 
 _PATH = "/v1/co/archives/customer_fields"
@@ -78,7 +79,8 @@ def test_clearing_values_are_accepted() -> None:
 
 
 def test_sa_protocol_alone_and_clearing_are_forwarded() -> None:
-    for fields, expect in (({"sa_protocol": "A001"}, {"sa_protocol": ""}), ({"sa_protocol": ""}, {"sa_protocol": "A001"})):
+    pairs = (({"sa_protocol": "A001"}, {"sa_protocol": ""}), ({"sa_protocol": ""}, {"sa_protocol": "A001"}))
+    for fields, expect in pairs:
         fake = _FieldsBridge()
         ok = _client(fake).post(_PATH, json=_body(fields=fields, expect=expect))
         assert ok.status_code == 200, ok.text
@@ -89,7 +91,7 @@ def test_sa_protocol_alone_and_clearing_are_forwarded() -> None:
 
 
 def test_name_and_tax_no_are_forwarded() -> None:
-    assert FIELD_KEYS == ("abbrname", "district", "end_date", "sa_protocol", "name", "tax_no")
+    assert FIELD_KEYS[:6] == ("abbrname", "district", "end_date", "sa_protocol", "name", "tax_no")
     cases = (
         ({"name": "示例客户有限公司"}, {"name": "旧名称"}),
         ({"name": " 示例客户 ", "tax_no": "EXAMPLE-TAX-NO-001"}, {"name": "", "tax_no": ""}),
@@ -200,6 +202,11 @@ def test_audit_names_the_customer(capsys) -> None:
         (409, "district_invalid"),
         (409, "sa_protocol_invalid"),
         (409, "abbrname_taken"),
+        (409, "name_taken"),
+        (409, "crelvendor_taken"),
+        (409, "head_corp_invoice_company"),
+        (409, "ccustradeccode_invalid"),
+        (409, "self_define3_invalid"),
         (400, "bad_request"),
         (504, "outcome_unknown"),
     ),
@@ -232,7 +239,8 @@ def test_state_mismatch_current_reaches_the_caller() -> None:
 
 
 def test_abbrname_taken_keeps_status_and_field() -> None:
-    bridge = {"ok": False, "code": "abbrname_taken", "message": "简称已被其他客户使用：示例简称", "field": "fields.abbrname"}
+    message = "简称已被其他客户使用：示例简称"
+    bridge = {"ok": False, "code": "abbrname_taken", "message": message, "field": "fields.abbrname"}
     error = to_api_error(409, bridge)
     assert (error.status, error.code, error.field) == (409, "abbrname_taken", "fields.abbrname")
     assert error.detail is None
@@ -257,11 +265,20 @@ def test_dry_run_is_forwarded_as_validate() -> None:
 
 def test_openapi_lists_the_write() -> None:
     operation = _spec()["paths"][_PATH]["post"]
-    assert operation["summary"] == "修改客户名称、简称、税号、地区分类、停用日期、销售默认收付款协议"
+    assert operation["summary"].startswith("按白名单修改客户档案列")
     assert operation["operationId"] == "coArchiveCustomerFields"
     assert operation["tags"] == ["基础档案"]
     description = operation["description"]
     assert "权限：写" in description
-    words = ("cCusAbbName", "cDCCode", "dEndDate", "cCusSAProtocol", "cCusName", "cCusRegCode", "AS011", "customer_fields")
+    words = ("cCusAbbName", "cDCCode", "dEndDate", "cCusSAProtocol", "cCusName", "cCusRegCode", "AS011")
+    words += ("customer_fields",)
     for word in (*words, "district_invalid", "sa_protocol_invalid", "abbrname_taken", "detail.current", "expect"):
         assert word in description
+    for spec in KEYS.values():  # 每个键和它的列都出现在说明里（说明由键表生成；自定义项合写成一行）
+        if not spec.key.startswith("self_define"):
+            assert spec.key in description
+            assert spec.column in description
+    assert "self_define1…self_define16" in description
+    for word in ("name_taken", "crelvendor_taken", "head_corp_invoice_company", "整张白名单", "RptCusName"):
+        assert word in description
+    assert CUSTOMER_FIELDS_HELP.count("→") >= len(KEYS) - 15

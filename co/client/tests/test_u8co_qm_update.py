@@ -33,8 +33,10 @@ class QmUpdateTests(unittest.TestCase):
     def test_kinds(self) -> None:
         self.assertEqual(QM_UPDATE_KINDS, ("qm_incoming_check", "qm_product_check", "qm_other_inspect", "qm_other_check"))
         self.assertLessEqual(set(QM_UPDATE_KINDS), set(UPDATABLE_KINDS))
-        for kind in ("qm_incoming_inspect", "qm_product_inspect", "qm_incoming_reject"):
+        for kind in ("qm_incoming_inspect", "qm_product_inspect"):
             self.assertNotIn(kind, UPDATABLE_KINDS)
+        for kind in ("qm_incoming_reject", "qm_product_reject"):
+            self.assertIn(kind, UPDATABLE_KINDS)
         # 产品报检单只开放弃审（不能修改）。
         self.assertIn("qm_product_inspect", VERIFIABLE_KINDS)
         self.assertNotIn("qm_incoming_inspect", VERIFIABLE_KINDS)
@@ -44,6 +46,16 @@ class QmUpdateTests(unittest.TestCase):
             sent = self._update(VoucherEdit(kind, _HEAD, None))
             self.assertEqual(list(sent), _AUTH + ["type", "id", "head"])
             self.assertEqual(sent["head"], _HEAD)
+
+    def test_reject_update_sends_head_and_line_ops(self) -> None:
+        head = {"chDefine15": "文本A"}
+        lines = [
+            {"op": "update", "line_id": 11, "quantity": 1},
+            {"op": "add", "quantity": 1, "cScrapDisCode": "Sys03", "cReasonCode": "01", "cDimInvCode": "A01"},
+        ]
+        sent = self._update(VoucherEdit("qm_product_reject", head, lines))
+        self.assertEqual(list(sent), _AUTH + ["type", "id", "head", "lines"])
+        self.assertEqual((sent["head"], sent["lines"]), (head, lines))
 
     def test_inspect_update_head_only(self) -> None:
         head = {"dDate": "2026-09-30", "cDefine10": "B-1"}

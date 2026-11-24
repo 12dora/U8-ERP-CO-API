@@ -78,7 +78,7 @@ namespace U8Co
                 all = all && Has(data, obj, "all");
             }
             Expect("snap supervisor all", all && (bool)body["supervisor"]);
-            Expect("snap ttl", (int)body["ttl_s"] == PermSnapshot.TtlSeconds && (bool)body["ok"]);
+            Expect("snap ttl", (int)body["ttl_s"] == PermCache.Seconds && (bool)body["ok"]);
         }
 
         // 同样的权限、不同的读入顺序与操作员：指纹相同；改一个编码、一个功能 id、主管标志或字段权限：指纹不同。

@@ -55,7 +55,7 @@ namespace U8Co
             return All;
         }
 
-        // 写规则键：write:<类型>:create|delete|verify|unverify（PermRegistry.QmWriteRules 登记）。
+        // 写规则键：write:<类型>:create|delete|verify|unverify|update（PermRegistry.QmWriteRules 登记）。
         public string RuleKey(string op)
         {
             return "write:" + Kind + ":" + op;

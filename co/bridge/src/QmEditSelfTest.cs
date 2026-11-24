@@ -55,7 +55,8 @@ namespace U8Co
                 Expect("edit dry " + kinds[i], "validate", DryRunModes.Lookup("vouchers/update", kinds[i], "update", ""));
                 True("edit rule " + kinds[i], PermRegistry.ForKey("write:" + kinds[i] + ":update") != null);
             }
-            string[] fixedKinds = new string[] { "qm_incoming_inspect", "qm_product_inspect", "qm_incoming_reject" };
+            string[] fixedKinds = new string[] { "qm_incoming_inspect", "qm_product_inspect" };
+            True("edit reject not qm edit", !QmEditReq.Handles(Kinds.Find("qm_incoming_reject")));  // QmRejEdit
             for (int i = 0; i < fixedKinds.Length; i++)
             {
                 VoucherKind k = Kinds.Find(fixedKinds[i]);

@@ -23,6 +23,7 @@ WRITE_COMMANDS = (
     "wf-submit", "wf-withdraw", "wf-resubmit", "wf-approve", "wf-disagree", "wf-return", "wf-abandon",
     "gl-create", "gl-update", "arc-create", "arc-update", "arc-delete", "arc-customer-person",
     "arc-customer-fields", "arc-customer-address", "arc-customer-address-add", "arc-customer-address-delete",
+    "arc-customer-invoice-company-add", "arc-customer-invoice-company-delete", "arc-customer-invoice-company",
     "voucher-head-fix",  # 历史发货单表头修正
     "voucher-so-defines",  # 销售订单表头自定义项写入
     "openings-post", "periods-close",

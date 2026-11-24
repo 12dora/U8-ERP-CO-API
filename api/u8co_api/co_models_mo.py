@@ -11,12 +11,15 @@ from decimal import Decimal, InvalidOperation
 from pydantic import BaseModel, ConfigDict, Field
 
 from u8co_api.co_doctext import section
+from u8co_api.errors import FieldValueError
 
 _OUT = ConfigDict(extra="ignore")
 _QTY_MAX = Decimal(10**12)
 LINES_MAX = 50
 # 与桥 TryParseExact("yyyy-MM-dd") 一致：四位年、两位月日，只收 ASCII 数字（fromisoformat 还收 2026-W39-1 这类写法）。
 _DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+# datetime 列的最早日期（SQL Server datetime 范围下限），与桥 BomReq.MinDatetime 一致；更早的日期写库会转换溢出。
+MIN_DATETIME = dt.datetime(1753, 1, 1)
 # 表头：mo_code 省略则 U8 按 MO21 规则自动编号；remark 是各行备注的缺省。「code」在全局禁写名单里，所以单号叫 mo_code。
 _HEAD = {"mo_code": 30, "remark": 255}
 # 表体：字符串字段和最大长度；qty 另查。
@@ -123,9 +126,16 @@ def _date(value: object, key: str) -> dt.date:
     try:
         if _DATE.fullmatch(text) is None:
             raise ValueError(text)
-        return dt.datetime.strptime(text, "%Y-%m-%d").date()
+        parsed = dt.datetime.strptime(text, "%Y-%m-%d")
     except ValueError as exc:
         raise ValueError(key + " 必须是 yyyy-MM-dd") from exc
+    check_min_datetime(parsed, key)
+    return parsed.date()
+
+
+def check_min_datetime(value: dt.datetime, key: str) -> None:
+    if value < MIN_DATETIME:
+        raise FieldValueError(key, key + " 不能早于 1753-01-01")
 
 
 class CoMoCreatedLine(BaseModel):

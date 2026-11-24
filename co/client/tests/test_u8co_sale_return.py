@@ -35,12 +35,14 @@ class SaleReturnTests(unittest.TestCase):
         self.assertIs(sent["head"]["invoiced"], False)
 
     def test_sources_and_kind_lists(self) -> None:
-        self.assertEqual(GENERATE_SOURCES["sale_return"], ("dispatch", "sale_return_apply"))  # 另可参照退货申请单
+        # 另可参照退货申请单、销售订单（只挂订单行）。
+        self.assertEqual(GENERATE_SOURCES["sale_return"], ("dispatch", "sale_return_apply", "sale_order"))
         self.assertEqual(check_source("sale_return", "dispatch"), "dispatch")
+        self.assertEqual(check_source("sale_return", "sale_order"), "sale_order")
         self.assertIn("sale_return", KIND_NAMES)
         self.assertIn("sale_return", VERIFIABLE_KINDS)
         call = U8Call("801", "2026", "op001", PASSWORD, "2026-09-28", 6)
-        for source in ("sale_order", "arrival"):
+        for source in ("sale_invoice", "arrival"):
             with self.assertRaises(ValueError) as caught:
                 _offline().generate_voucher(call, VoucherGen("sale_return", None, _LINES, source))
             self.assertIn("来源", str(caught.exception))
@@ -75,9 +77,8 @@ class SaleReturnTests(unittest.TestCase):
             self.assertEqual(_gen_draft(parsed).source_type, "dispatch")
             bare = _parser().parse_args(_argv("generate", "--type", "sale_return", "--id", "6", "--file", path))
             self.assertEqual(_gen_draft(bare).source_type, "")
-        with contextlib.redirect_stderr(io.StringIO()):
-            with self.assertRaises(SystemExit):
-                _parser().parse_args(_argv("create", "--type", "sale_return", "--file", "x"))
+        created = _parser().parse_args(_argv("create", "--type", "sale_return", "--file", "x"))
+        self.assertEqual(created.type, "sale_return")
 
 
 if __name__ == "__main__":

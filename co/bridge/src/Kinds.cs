@@ -120,7 +120,8 @@ namespace U8Co
                 ReturnsApplyRead.Kind() };
         }
 
-        // 退货单（红字发货单）：同发货单表，bReturnFlag=1；VT 10、卡片 03。参照蓝字发货单生成（SaleGen.Return）。
+        // 退货单（红字发货单）：同发货单表，bReturnFlag=1；VT 10、卡片 03。参照蓝字发货单或销售订单生成（SaleGen.Return），
+        // 无来源新增（SrcLess，不受 SA.bMustSO_ptxs 约束）。
         static VoucherKind SaleReturnKind()
         {
             VoucherKind kind = Blank("sale_return", "退货单(红字发货单)", "sa", "SA");
@@ -131,8 +132,10 @@ namespace U8Co
             kind.Deletable = true;
             kind.Updatable = true;
             kind.LineIdColumn = "iDLsID";
-            // K12：另可参照已审核的退货申请单（SaleGenApplyRet，source_line_id 是申请单行 AutoID）。
-            Source(kind, "dispatch", ReturnsApplyRead.KindName);
+            kind.Creatable = true;
+            // K12：另可参照已审核的退货申请单（SaleGenApplyRet，source_line_id 是申请单行 AutoID）；
+            // 参照销售订单只挂订单行（SaleReturnSo，source_line_id 是订单行 iSOsID）。
+            Source(kind, "dispatch", ReturnsApplyRead.KindName, "sale_order");
             return kind;
         }
 
@@ -206,6 +209,8 @@ namespace U8Co
             kind.Updatable = true;
             kind.LineIdColumn = "Autoid";
             Source(kind, "arrival", "purchase_order");
+            // 无来源新增（SrcLess，红字 Init；不受 PU.bPTHavePO 限制，同红字采购入库）。
+            kind.Creatable = true;
             return kind;
         }
 
@@ -388,6 +393,9 @@ namespace U8Co
             qm[3].Updatable = true;
             qm[6].Updatable = true;
             qm[7].Updatable = true;
+            // 不良品处理单可修改（vouchers/update，QmRejEdit：表头日期与自定义项，处理行可增删改）。
+            qm[4].Updatable = true;
+            qm[5].Updatable = true;
             // 产品报检单可单独弃审（只收 unverify，QmInsUnverify；审核仍 400）。不开放修改：
             // VoucherOperate("update") 报「表体行数必须大于0行！」或「更新发退货报检单失败！」。
             qm[1].Verifiable = true;
@@ -420,7 +428,7 @@ namespace U8Co
                 kind.Creatable = true;
                 kind.Updatable = true;
                 // 采购退货单（红字到货单）→ 红字采购入库（StockGenRed）；蓝字到货单 → 采购入库（StockGenArr）。
-                Source(kind, "purchase_order", "qm_incoming_check", "purchase_return", StockGen.ArrSourceName);
+                Source(kind, "purchase_order", "qm_incoming_check", "qm_incoming_reject", "purchase_return", StockGen.ArrSourceName);
             }
             else if (name == "sale_out")
             {

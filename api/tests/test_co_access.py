@@ -189,6 +189,12 @@ _WRITES = (
         "/v1/co/archives/customer_address_delete",
         _auth(code="C900001", address="2", expect={"name": "示例车间二", "unit": "", "default": False}),
     ),
+    ("/v1/co/archives/customer_invoice_company_add", _auth(code="C900001:C900002", default=True)),
+    (
+        "/v1/co/archives/customer_invoice_company_delete",
+        _auth(code="C900001:C900002", expect={"bdefault": False}),
+    ),
+    ("/v1/co/archives/customer_invoice_company", _auth(code="C900001:C900002", expect={"bdefault": False})),
 )
 
 # 不在路由表里的 GET 路由：健康检查、字段元数据。

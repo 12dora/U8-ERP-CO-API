@@ -21,7 +21,8 @@ namespace U8Co
         static void CheckRules()
         {
             Expect("qmm rules default", QmMergeRules.Text(QmMergeRules.Parse(null)) == "0");
-            Expect("qmm rules sorted", QmMergeRules.Text(QmMergeRules.Parse(new ArrayList(new object[] { "2", 0, 1L }))) == "0,1,2");
+            Expect("qmm rules one", QmMergeRules.Text(QmMergeRules.Parse(new ArrayList(new object[] { 1L }))) == "1");
+            ExpectStatus("qmm rules two", 400, delegate { QmMergeRules.Parse(new ArrayList(new object[] { "0", 1 })); });
             ExpectStatus("qmm rules 3", 400, delegate { QmMergeRules.Parse(new ArrayList(new object[] { "3" })); });
             ExpectStatus("qmm rules 9", 400, delegate { QmMergeRules.Parse(new ArrayList(new object[] { 9 })); });
             ExpectStatus("qmm rules dup", 400, delegate { QmMergeRules.Parse(new ArrayList(new object[] { "0", 0 })); });
@@ -31,7 +32,7 @@ namespace U8Co
             Dictionary<string, object> b = Peek("x", "D2");
             List<QmMergeRule> free = QmMergeRules.Parse(null);
             Expect("qmm rules free same", QmMergeRules.Mismatch(free, a, b) == "");
-            Expect("qmm rules dept", QmMergeRules.Mismatch(QmMergeRules.Parse(new ArrayList(new object[] { 0, 1 })), a, b) == "生产部门");
+            Expect("qmm rules dept", QmMergeRules.Mismatch(QmMergeRules.Parse(new ArrayList(new object[] { 1 })), a, b) == "生产部门");
             Expect("qmm rules free diff", QmMergeRules.Mismatch(free, a, Peek("y", "D1")) == "自由项");
             Expect("qmm rules null blank", QmMergeRules.Mismatch(free, Peek("", "D1"), new Dictionary<string, object>()) == "");
         }

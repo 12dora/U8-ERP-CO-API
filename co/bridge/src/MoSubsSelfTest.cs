@@ -17,6 +17,7 @@ namespace U8Co
             CheckRestore();
             CheckVerify();
             CheckMask();
+            MoSubsReplaceSelfTest.Run();
             Expect("mo sub refs", !MoUpdateRefs.Lists("mom_moallocatesub", "AllocateId"));
         }
 
@@ -83,22 +84,19 @@ namespace U8Co
             Expect("sub define int", (int)SubstituteRows.DefineValue("5", "i") == 5);
         }
 
+        // 保留（没给替代料）：新子件上没有就插快照全部，已有相同的不动，已有不同的不覆盖（null，调用方报 504）。
         static void CheckRestore()
         {
-            MoAllocRow old = Old();
-            Expect("mo sub insert all", MoUpdateSubs.ToInsert(old, new List<MoSubRow>(), "MO-T1").Count == 1);
-            Expect("mo sub kept", MoUpdateSubs.ToInsert(old, new List<MoSubRow> { Sub(900, 1, 501, "1.000000", MoUpdateCols.NullMark) },
-                "MO-T1").Count == 0);
-            bool lost = false;
-            try
-            {
-                MoUpdateSubs.ToInsert(old, new List<MoSubRow> { Sub(900, 1, 502, "1.000000", MoUpdateCols.NullMark) }, "MO-T1");
-            }
-            catch (BridgeException ex)
-            {
-                lost = ex.Status == 504 && ex.Message.Contains("mo_update_snapshot");
-            }
-            Expect("mo sub changed", lost);
+            MoAllocTarget t = new MoAllocTarget();
+            t.Row = Old();
+            MoSubStep all = MoUpdateSubs.Step(t, new List<MoSubRow>());
+            Expect("mo sub insert all", all != null && !all.Clear && all.Add.Count == 1);
+            MoSubStep kept = MoUpdateSubs.Step(t, new List<MoSubRow> { Sub(900, 1, 501, "1.000000", MoUpdateCols.NullMark) });
+            Expect("mo sub kept", kept != null && !kept.Clear && kept.Add.Count == 0);
+            Expect("mo sub kept scale", MoUpdateSubs.Step(t, new List<MoSubRow> { Sub(900, 1, 501, "1.0", MoUpdateCols.NullMark) })
+                .Add.Count == 0);
+            Expect("mo sub changed", MoUpdateSubs.Step(t, new List<MoSubRow> { Sub(900, 1, 502, "1.000000", MoUpdateCols.NullMark) }) == null);
+            Expect("mo sub lost text", MoUpdateRestore.Lost("MO-T1", "x").Message.Contains("mo_update_snapshot"));
         }
 
         static void CheckVerify()
@@ -153,7 +151,7 @@ namespace U8Co
             return body;
         }
 
-        static MoAllocRow Old()
+        internal static MoAllocRow Old()
         {
             MoAllocRow old = new MoAllocRow();
             old.InvCode = "DEMO-001";
@@ -162,7 +160,7 @@ namespace U8Co
             return old;
         }
 
-        static MoSubRow Sub(int allocateId, int seq, int partId, string factor, string define22)
+        internal static MoSubRow Sub(int allocateId, int seq, int partId, string factor, string define22)
         {
             MoSubRow sub = new MoSubRow();
             sub.AllocateId = allocateId;

@@ -1,7 +1,7 @@
 """存货核算制单、取消制单：/v1/ia/voucher、/v1/ia/voucher/delete。混入 U8CoClient。
 
 把已记账、未制单的出入库单据生成总账凭证（U8「存货核算 → 生成凭证」）：按单据选（ids：[(type, id)]，type 是存货核算
-单据类型如 01、09、3201，id 是来源单据表头主键）或按月份选（month，可加 types）。merge 为 per_bill（缺省，一张单据一张凭证，
+单据类型如 01、09、32、3201，id 是来源单据表头主键）或按月份选（month，可加 types）。merge 为 per_bill（缺省，一张单据一张凭证，
 ids 最多 10 张；按月份时一次做前 10 张，其余在响应的 pending）或 all（全部合成一张，最多 100 张）。取消制单按外部业务号 pz_id（4 位年度 + IA + 13 位数字）。
 第二级写入：桥 config.json 的 enableReplicatedWrites 缺省关闭（403 feature_disabled）；打开后
 只对 testAccounts 里的账套开放，其余账套桥在登录前返回 403 test_account_only。

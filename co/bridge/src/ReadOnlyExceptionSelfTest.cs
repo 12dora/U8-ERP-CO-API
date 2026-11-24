@@ -7,7 +7,7 @@ namespace U8Co
 {
     // --selftest 的只读例外泛化部分（ReadOnlyGate 的另一半，由 ReadOnlyGateSelfTest 调用）：
     // 客户专用路由（ArcCustomerOps.Ops：customer_person / customer_fields / customer_address / customer_address_add /
-    // customer_address_delete）各自只放行自己的路径；type=vouchers 的 op=head_fix（路径恰为 vouchers/head_fix、
+    // customer_address_delete / customer_invoice_company_add / customer_invoice_company_delete / customer_invoice_company）各自只放行自己的路径；type=vouchers 的 op=head_fix（路径恰为 vouchers/head_fix、
     // 请求体 type=dispatch）和 op=so_defines（路径恰为 vouchers/so_defines、请求体 type=sale_order）互不放行
     // （登记表 ReadOnlyVoucherOps 的其余 op 见 ReadOnlyVoucherOpsSelfTest），
     // archives 键不能用在它们和客户专用路由上；

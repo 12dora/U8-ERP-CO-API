@@ -145,15 +145,10 @@ namespace U8Co
             return text;
         }
 
+        // 开工、完工日期写 datetime 列：同 BomReq.Date（yyyy-MM-dd，不早于 1753-01-01）。
         internal static string Date(Dictionary<string, object> map, string key)
         {
-            string text = Str(map, key, 10, true);
-            DateTime parsed;
-            if (!DateTime.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out parsed))
-            {
-                throw BridgeException.BadField(key, key + " 必须是 yyyy-MM-dd");
-            }
-            return text;
+            return BomReq.Date(map, key);
         }
 
         // 数量是大于 0、不超过 1000000000000、最多 6 位小数的 JSON 数（mom_orderdetail.Qty 是 6 位小数）。

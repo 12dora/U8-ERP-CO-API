@@ -8,7 +8,7 @@ using System.Web.Script.Serialization;
 
 namespace U8Co
 {
-    // perm/snapshot：把读路由过滤用的同一个 PermContext（PermCheck.Of，60 秒缓存）原样序列化，作为人员权限的唯一来源。
+    // perm/snapshot：把读路由过滤用的同一个 PermContext（PermCheck.Of，缓存秒数见 PermCache）原样序列化，作为人员权限的唯一来源。
     // 只读、读线程池，只用 ctx.Conn。不含口令、档案名称；受控对象的编码集合为空表示一行都不给（与 U8 一致，空不等于全部）。
     // perm/evaluate（PermEvaluate）用同一个 ToJson 序列化被查询操作员的快照。
     internal static class PermSnapshot
@@ -16,7 +16,6 @@ namespace U8Co
         internal const string Path = "/u8co/v1/perm/snapshot";
         internal const string Action = "perm_snapshot";
         internal const string RuleKey = "perm:snapshot";
-        internal const int TtlSeconds = 60;
         internal static readonly string[] Spec = new string[] { Path };
 
         // 本路由或 perm/evaluate。
@@ -55,7 +54,7 @@ namespace U8Co
             body["data"] = data;
             Dictionary<string, object> columns = ColumnsOf(p);
             body["columns"] = columns;
-            body["ttl_s"] = TtlSeconds;
+            body["ttl_s"] = PermCache.Seconds;
             body["fingerprint"] = Fingerprint(p.Supervisor, (List<string>)body["functions"], data, columns);
             return body;
         }

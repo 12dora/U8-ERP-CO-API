@@ -5,7 +5,7 @@ namespace U8Co
     {
         internal static bool IsRejectSource(string source)
         {
-            return source == RejSourceTitle;
+            return source == RejSrc.Product.Title;
         }
 
         internal static void RefuseEdit(object conn, VoucherKind kind, int id, string source)

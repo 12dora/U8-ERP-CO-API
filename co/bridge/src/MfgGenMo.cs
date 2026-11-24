@@ -91,7 +91,7 @@ namespace U8Co
         static string DelSource(VoucherKind kind, string have, string source)
         {
             bool product = kind.Name == "product_in";
-            if (product && have == RejSourceTitle)
+            if (product && have == RejSrc.Product.Title)
             {
                 return "reject";
             }

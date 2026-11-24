@@ -8,6 +8,8 @@ from typing import Any
 from co.client.u8co_cli import _add_auth, _file_parts, _json_object
 from co.client.u8co_client import KIND_NAMES, U8Call, U8CoClient
 from co.client.u8co_kinds import NOTE_KINDS  # 票据列表
+from co.client.u8co_cli_invoice import HANDLERS as INVOICE_HANDLERS  # 客户开票单位新增、删除、设默认
+from co.client.u8co_cli_invoice import add_commands as add_invoice_commands
 from co.client.u8co_cli_head_fix import HANDLERS as HEAD_FIX_HANDLERS  # 历史发货单表头修正
 from co.client.u8co_cli_head_fix import add_commands as add_head_fix_commands
 from co.client.u8co_cli_so_defines import HANDLERS as SO_DEFINES_HANDLERS  # 销售订单表头自定义项写入
@@ -55,6 +57,7 @@ def add_commands(sub: Any) -> None:
     _arc_commands(sub)
     _list_commands(sub)
     add_lock_commands(sub)
+    add_invoice_commands(sub)
     add_head_fix_commands(sub)
     add_so_defines_commands(sub)
     add_openings_commands(sub)
@@ -125,7 +128,7 @@ def _arc_commands(sub: Any) -> None:
     person.add_argument("--code", required=True)
     person.add_argument("--person", required=True)
     person.add_argument("--expect", default=None)
-    # 客户字段（abbrname / district / end_date / sa_protocol / name / tax_no）、收货地址（改）：--file 是 {"fields": {...}, "expect": {...}}，expect 可选（改地址的 name / unit / default 时必填）。
+    # 客户字段（archives/customer_fields 的键表，见 docs/api-reference.md）、收货地址（改）：--file 是 {"fields": {...}, "expect": {...}}，expect 可选（改地址的 name / unit / default 时必填）。
     cus_fields = sub.add_parser("arc-customer-fields")
     _add_auth(cus_fields)
     cus_fields.add_argument("--code", required=True)
@@ -336,6 +339,7 @@ HANDLERS = {
 }
 HANDLERS.update({f"gl-{op}": _cmd_gl_key for op in GL_OPS})
 HANDLERS.update(LOCK_HANDLERS)
+HANDLERS.update(INVOICE_HANDLERS)
 HANDLERS.update(HEAD_FIX_HANDLERS)
 HANDLERS.update(SO_DEFINES_HANDLERS)
 HANDLERS.update(OPENINGS_HANDLERS)

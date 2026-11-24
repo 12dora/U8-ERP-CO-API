@@ -94,14 +94,14 @@ namespace U8Co
             "sale_order create update delete verify close lock",
             "dispatch create update delete verify generate",
             "sale_invoice create update delete verify generate",
-            "sale_return update delete verify generate",
+            "sale_return create update delete verify generate",
             // K12 退货申请单：销售 CO（VT 34）的保存、删除、审核转给 SaVoucherService 自行提交（ReturnsApplyTran），停在调用之前。
             "sale_return_apply | create update delete verify",
             "purchase_order create update delete verify close",
             // 到货单关闭 / 打开（PuArrClose）在请求连接的事务里。
             "arrival create update delete verify generate close",
             "purchase_invoice update delete verify generate",
-            "purchase_return update delete verify generate",
+            "purchase_return create update delete verify generate",
             "purchase_requisition create update delete verify close",
             // 采购结算单：自动结算（bRdBVAutoSettle）、删除都在请求连接的事务里（测试账套实测可回滚）；
             // 手工结算（PuSettleMan）是请求连接上的 SQL，同样在事务里。
@@ -128,9 +128,9 @@ namespace U8Co
             "qm_product_inspect generate | delete verify",
             "qm_incoming_check | generate delete update",
             "qm_product_check | generate delete update",
-            // 不良品处理单：保存、审核、弃审、删除都由 U8 自己提交（QmRejGen / QmRejOps）。
-            "qm_incoming_reject | generate verify delete",
-            "qm_product_reject | generate verify delete",
+            // 不良品处理单：保存、修改、审核、弃审、删除都由 U8 自己提交（QmRejGen / QmRejEdit / QmRejOps）。
+            "qm_incoming_reject | generate verify delete update",
+            "qm_product_reject | generate verify delete update",
             // 其他报检单新增、审核、弃审、删除，其他检验单生单、审核、弃审、删除：VO 接口，都由 U8 自己提交（QmOthIns / QmOthChk / QmOthOps）。
             // 修改：VoucherOperate(update) 与 VO 的 UpdateVoucher 都由 U8 自己提交（QmEdit / QmOthEdit）。
             "qm_other_inspect | create verify delete update",

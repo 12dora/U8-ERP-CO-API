@@ -136,12 +136,12 @@ namespace U8Co
             return CoRows.AsId(Values.Text(ComUtil.Get(_vo, "RowCount")));
         }
 
-        // 生单前两步：AddNewVoucher 盖上制单日期、制单人、单据类型；AddVoucherByRef 按检验单记录集带入表头。
-        // 这两步不写库，U8 拒绝时 409 u8_rejected。
-        public void FromCheck(string viewSql, int checkId, string checkType)
+        // 生单前两步：AddNewVoucher 盖上制单日期、制单人、单据类型；AddVoucherByRef 按检验单记录集带入表头
+        // （QmRejSrc.RefSql）。这两步不写库，U8 拒绝时 409 u8_rejected。
+        public void FromCheck(string refSql, object[] args)
         {
             AddNew();
-            FromSource(viewSql, new object[] { checkId, checkType }, "检验单不可参照（已关闭或不存在）");
+            FromSource(refSql, args, "检验单不可参照（已关闭或不存在）");
         }
 
         // AddNewVoucher(login, vo, "")：盖上制单日期、制单人、单据类型，不写库。

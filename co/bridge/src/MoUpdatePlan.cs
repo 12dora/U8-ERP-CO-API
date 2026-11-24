@@ -8,6 +8,7 @@ namespace U8Co
     // MOrderUpdate 会清掉每一行已有的子件，再按送去的 Mom_MoAllocate 重插（docs/u8-notes.md §9），所以全部行、全部子件都要重送：
     // 没改数量的行子件原样；改了数量的行，每个子件的数量、件数按 U8 自己的算法重算（MoUpdateAlloc：变动 / 固定用量、
     // 子件损耗率、母件损耗率、返工订单）。行上有辅计量的按换算率重算行件数。
+    // 调用方给了替代料的子件（ask.Subs）目标替代料换成给的（Given），其余保留快照的。
     internal static class MoUpdatePlan
     {
         public static MoPlan Build(MoUpdateAsk ask, MoSnap snap)
@@ -26,9 +27,10 @@ namespace U8Co
                     ? Round(target.Qty / row.ChangeRate, snap.AuxDigits) : -1m;
                 plan.Lines.Add(target);
                 plan.BySeq[row.SortSeq] = target;
-                plan.Allocs[row.MoDId] = AllocTargets(snap.AllocsOf(row.MoDId), target, snap);
+                plan.Allocs[row.MoDId] = AllocTargets(snap.AllocsOf(row.MoDId), target, snap, ask.Subs);
                 CheckDue(target, plan.Allocs[row.MoDId]);
                 plan.Changed = plan.Changed || target.Touched;
+                plan.SubsChanged = plan.SubsChanged || SubsChanged(plan.Allocs[row.MoDId]);
             }
             return plan;
         }
@@ -121,7 +123,20 @@ namespace U8Co
             return false;
         }
 
-        static List<MoAllocTarget> AllocTargets(List<MoAllocRow> allocs, MoTarget line, MoSnap snap)
+        static bool SubsChanged(List<MoAllocTarget> allocs)
+        {
+            for (int i = 0; i < allocs.Count; i++)
+            {
+                if (allocs[i].SubsChanged)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        static List<MoAllocTarget> AllocTargets(List<MoAllocRow> allocs, MoTarget line, MoSnap snap,
+            Dictionary<int, List<MoSubRow>> subs)
         {
             List<MoAllocTarget> list = new List<MoAllocTarget>();
             for (int i = 0; i < allocs.Count; i++)
@@ -136,6 +151,13 @@ namespace U8Co
                 if (line.QtyChanged)
                 {
                     MoUpdateAlloc.Scale(t, line.Row, line.Qty, snap.QtyDigits, snap.AuxDigits);
+                }
+                List<MoSubRow> want;
+                if (subs.TryGetValue(a.AllocateId, out want))
+                {
+                    t.Given = true;
+                    t.Want = want;
+                    t.SubsChanged = !MoSubs.SameSet(want, a.SubRows ?? new List<MoSubRow>());
                 }
                 list.Add(t);
             }
@@ -178,6 +200,8 @@ namespace U8Co
         // 行 MoDId → 该行全部子件的目标（顺序同快照）。
         public Dictionary<int, List<MoAllocTarget>> Allocs = new Dictionary<int, List<MoAllocTarget>>();
         public bool Changed;
+        // 有子件的替代料要换（调用方给的与现有的不同）。
+        public bool SubsChanged;
         public int QtyDigits = 6;
         public int AuxDigits = 6;
     }
@@ -204,5 +228,9 @@ namespace U8Co
         public decimal AuxQty;
         // UpperMoQty 目标（原文或按比例的值，空串表示 NULL）。
         public string Upper = "";
+        // 调用方给了替代料（Want 是目标，可为空表示清空）；否则目标是快照的 Row.SubRows。SubsChanged：Want 与现有的不同。
+        public bool Given;
+        public List<MoSubRow> Want;
+        public bool SubsChanged;
     }
 }

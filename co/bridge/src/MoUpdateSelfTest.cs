@@ -129,7 +129,7 @@ namespace U8Co
             Expect("mo upd byproduct due", refused);
         }
 
-        static MoSnap Snap()
+        internal static MoSnap Snap()
         {
             MoSnap snap = new MoSnap();
             snap.Code = "MO-T1";

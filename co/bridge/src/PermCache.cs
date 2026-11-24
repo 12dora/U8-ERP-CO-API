@@ -3,18 +3,47 @@ using System.Collections.Generic;
 
 namespace U8Co
 {
-    // 权限快照缓存：键 = 账套 + 请求年度 + 登录年度 + 操作员，60 秒过期，最多 256 条。
+    // 权限快照缓存：键 = 账套 + 请求年度 + 登录年度 + 操作员，过期秒数取配置 permCacheSeconds（缺省 60，0 不缓存），最多 256 条。
     // 只在登录成功（或登录缓存命中）之后读，所以命中缓存不会绕过口令检查。登录失败时 StaExec 调 Forget 清掉该操作员。
     // 过期后重建条目时，数据权限开关、授权都重新读。
     internal static class PermCache
     {
         const int MaxEntries = 256;
-        const long TtlTicks = 60L * TimeSpan.TicksPerSecond;
+        public const int DefaultSeconds = 60;
+        static volatile int _seconds = DefaultSeconds;
         static readonly object Gate = new object();
         static readonly Dictionary<string, PermContext> Map = new Dictionary<string, PermContext>(StringComparer.Ordinal);
 
+        // 当前过期秒数（perm/snapshot 的 ttl_s、健康检查的 perm_cache_s 都读这里）。
+        public static int Seconds
+        {
+            get { return _seconds; }
+        }
+
+        // 进程启动时按 permCacheSeconds 设置，0 不缓存：每次查询都重新读库，也不留条目。
+        public static void Configure(int seconds)
+        {
+            _seconds = seconds < 0 ? 0 : seconds;
+        }
+
+        static long TtlTicks
+        {
+            get { return (long)_seconds * TimeSpan.TicksPerSecond; }
+        }
+
         public static PermContext Get(object conn, string acc, int year, int dateYear, string op)
         {
+            return Get(acc, year, dateYear, op, delegate { return PermLoad.Load(conn, acc, year, dateYear, op); });
+        }
+
+        // 读库的动作由调用方给出（自检用）。
+        internal static PermContext Get(string acc, int year, int dateYear, string op, Func<PermContext> load)
+        {
+            long ttl = TtlTicks;
+            if (ttl <= 0)
+            {
+                return load();
+            }
             string key = KeyOf(acc, year, dateYear, op);
             long now = DateTime.UtcNow.Ticks;
             lock (Gate)
@@ -22,7 +51,7 @@ namespace U8Co
                 PermContext hit;
                 if (Map.TryGetValue(key, out hit))
                 {
-                    if (now - hit.LoadedTicks < TtlTicks && now >= hit.LoadedTicks)
+                    if (now - hit.LoadedTicks < ttl && now >= hit.LoadedTicks)
                     {
                         return hit;
                     }
@@ -30,10 +59,10 @@ namespace U8Co
                 }
             }
             // 读库在锁外：同一操作员并发时各读一次，最后写入的留下，结果相同。
-            PermContext fresh = PermLoad.Load(conn, acc, year, dateYear, op);
+            PermContext fresh = load();
             lock (Gate)
             {
-                Purge(DateTime.UtcNow.Ticks);
+                Purge(DateTime.UtcNow.Ticks, ttl);
                 Map[key] = fresh;
             }
             return fresh;
@@ -61,6 +90,23 @@ namespace U8Co
             }
         }
 
+        // 追加到 StaWorker.HealthJson（紧跟 LoginCache 的片段）：当前生效的过期秒数，0 即不缓存。
+        public static string HealthFragment()
+        {
+            return ",\"perm_cache_s\":" + _seconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        internal static int Count
+        {
+            get
+            {
+                lock (Gate)
+                {
+                    return Map.Count;
+                }
+            }
+        }
+
         public static void Clear()
         {
             lock (Gate)
@@ -70,14 +116,14 @@ namespace U8Co
         }
 
         // 调用方持有 Gate。先丢过期的，仍满就丢最早读的。
-        static void Purge(long now)
+        static void Purge(long now, long ttl)
         {
             List<string> stale = new List<string>();
             string oldest = null;
             long oldestTicks = long.MaxValue;
             foreach (KeyValuePair<string, PermContext> pair in Map)
             {
-                if (now - pair.Value.LoadedTicks >= TtlTicks)
+                if (now - pair.Value.LoadedTicks >= ttl)
                 {
                     stale.Add(pair.Key);
                 }

@@ -312,6 +312,10 @@ namespace U8Co
             string archive = ArcCustomerOps.IsPath(item.Path)
                 ? "customer" : Requests.KeyPart(Requests.Field(body, "archive"));
             string code = Requests.KeyPart(Requests.Field(body, "code")).ToUpperInvariant();
+            if (ArcCustomerOps.IsPath(item.Path))
+            {
+                code = ArcCustomerOps.LockCode(code);
+            }
             // 客户、供应商的银行账户和联系人另锁上级档案（ArcPartner.LockKeys）。
             string[] partner = ArcPartner.LockKeys(archive, code);
             string[] keys = partner != null ? partner : new string[] { "arc:" + archive + ":" + code };

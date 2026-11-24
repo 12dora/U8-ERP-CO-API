@@ -3,7 +3,8 @@ using System.Collections.Generic;
 namespace U8Co
 {
     // 生产订单写预演（校验模式）：U8API 自己开 TransactionScope 提交，桥查完闸门后在调用前停（DryRun.Stop），
-    // detail.input 带上规整后的请求（新增：行；修改：要改的行和是否有改动）。
+    // detail.input 带上规整后的请求（新增：行；修改：要改的行、是否有改动、替代料是否要换）。
+    // 只改替代料的修改不在这里停：在请求连接的事务里真写，提交钩子回滚（MoUpdateSubsWrite）。
     internal static class MoDry
     {
         public static void CreateInput(MoCreateAsk ask)
@@ -60,6 +61,7 @@ namespace U8Co
             }
             Dictionary<string, object> input = new Dictionary<string, object>();
             input["changed"] = plan.Changed;
+            input["substitutes_changed"] = plan.SubsChanged;
             input["lines"] = lines;
             DryRun.Set("input", input);
         }

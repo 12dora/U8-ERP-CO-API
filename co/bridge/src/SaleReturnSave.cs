@@ -7,11 +7,13 @@ namespace U8Co
     // 退货单保存：CoTrans 里带 UPDLOCK 重读原发货行（按选定的未开票 / 已开票规则再查可退数量）与订单行作基准，
     // GetVoucherNO 取号、Save(h, b, 0, newId)，提交前在同一事务里核对（XE 跟踪实测 U8 在保存里回写）：
     // 新单行数与负数量合计；原行 iRetQuantity +qty、fretqtywkp（未开票）或 fretqtyykp（已开票）+qty；
-    // 挂订单时订单行 fretquantity +qty、iFHQuantity −qty。不符 409 回滚，审计 detail 记基准与实际值。
+    // 挂订单时订单行 fretquantity +qty、iFHQuantity −qty（挂发货行与只挂订单行的都如此）。
+    // 不符 409 回滚，审计 detail 记基准与实际值。
     internal static partial class SaleGen
     {
         const string NewLinesSql = "select count(*) as n, sum(case when x.iQuantity >= 0 then 1 else 0 end) as pos, "
-            + "convert(varchar(40), isnull(sum(-x.iQuantity),0)) as back from DispatchLists x "
+            + "convert(varchar(40), isnull(sum(-x.iQuantity),0)) as back, sum(case when isnull(x.iCorID,0)<>0 "
+            + "or isnull(x.iSOsID,0)<>0 or isnull(xh.cVouchType,'')<>'05' then 1 else 0 end) as odd from DispatchLists x "
             + "inner join DispatchList xh on xh.DLID=x.DLID where xh.cDLCode=? and xh.bReturnFlag=1";
         const string RetLockSql = "select " + RetRoomCols + " from DispatchLists d with (updlock, holdlock) where d.iDLsID=?";
         const string RetNowSql = "select " + RetRoomCols + " from DispatchLists d where d.iDLsID=?";
@@ -73,6 +75,12 @@ namespace U8Co
             for (int i = 0; i < job.Lines.Count; i++)
             {
                 RetLine line = job.Lines[i];
+                // 参照销售订单：没有原发货行，带 UPDLOCK 重查订单行可退数量（SaleReturnSo.cs）。
+                if (line.SoOnly)
+                {
+                    AddSoRow(so, line.SoLine, LockSoRoom(conn, line), line.Qty);
+                    continue;
+                }
                 Dictionary<string, object> row = Rows.One(conn, RetLockSql, new object[] { line.LineId });
                 if (row == null)
                 {
@@ -97,14 +105,24 @@ namespace U8Co
         // 订单行 → {fretquantity 基准, iFHQuantity 基准, 本次退货合计}，带 UPDLOCK。
         static void AddSo(object conn, Dictionary<int, decimal[]> so, int soLine, decimal qty)
         {
-            decimal[] slot;
-            if (!so.TryGetValue(soLine, out slot))
+            Dictionary<string, object> row = null;
+            if (!so.ContainsKey(soLine))
             {
-                Dictionary<string, object> row = Rows.One(conn, SoLockSql, new object[] { soLine });
+                row = Rows.One(conn, SoLockSql, new object[] { soLine });
                 if (row == null)
                 {
                     throw new BridgeException(409, "state_mismatch", "销售订单行不存在");
                 }
+            }
+            AddSoRow(so, soLine, row, qty);
+        }
+
+        // row：已带 UPDLOCK 读出的订单行（列 ret、fh），该订单行已有基准时不用。
+        static void AddSoRow(Dictionary<int, decimal[]> so, int soLine, Dictionary<string, object> row, decimal qty)
+        {
+            decimal[] slot;
+            if (!so.TryGetValue(soLine, out slot))
+            {
                 slot = new decimal[] { PuInv.Num(CoRows.Col(row, "ret")), PuInv.Num(CoRows.Col(row, "fh")), 0m };
                 so[soLine] = slot;
             }
@@ -117,6 +135,10 @@ namespace U8Co
             for (int i = 0; i < job.Lines.Count; i++)
             {
                 RetLine line = job.Lines[i];
+                if (line.SoOnly)
+                {
+                    continue;
+                }
                 RequireOrig(conn, job.Ctx.Item, line.LineId, new decimal[] { line.RetBefore, line.AccBefore, line.Qty },
                     job.Invoiced);
                 RequireApplied(conn, job, line);
@@ -126,20 +148,29 @@ namespace U8Co
 
         static void RequireNewLines(object conn, RetJob job)
         {
-            Dictionary<string, object> row = Rows.One(conn, NewLinesSql, new object[] { job.Code });
             decimal want = 0m;
             for (int i = 0; i < job.Lines.Count; i++)
             {
                 want = want + job.Lines[i].Qty;
             }
-            decimal n = row == null ? 0m : PuInv.Num(CoRows.Col(row, "n"));
-            decimal pos = row == null ? 0m : PuInv.Num(CoRows.Col(row, "pos"));
-            decimal back = row == null ? 0m : PuInv.Num(CoRows.Col(row, "back"));
-            if (n == job.Lines.Count && pos == 0m && Near(back, want))
+            RequireNewLines(conn, job.Ctx.Item, job.Code, new decimal[] { job.Lines.Count, want }, false);
+        }
+
+        // 新单（按单号，bReturnFlag=1）：行数 want[0]、每行负数量、退货合计 want[1]。
+        // sourceless（无来源退货单，SrcLessSa）另要单据类型 05、每行不挂发货行（iCorID）和订单行（iSOsID）。
+        internal static void RequireNewLines(object conn, WorkItem item, string code, decimal[] want, bool sourceless)
+        {
+            Dictionary<string, object> row = Rows.One(conn, NewLinesSql, new object[] { code });
+            decimal n = PuInv.Num(CoRows.Col(row, "n"));
+            decimal pos = PuInv.Num(CoRows.Col(row, "pos"));
+            decimal back = PuInv.Num(CoRows.Col(row, "back"));
+            decimal odd = sourceless ? PuInv.Num(CoRows.Col(row, "odd")) : 0m;
+            if (n == want[0] && pos == 0m && odd == 0m && Near(back, want[1]))
             {
                 return;
             }
-            NoteBack(job.Ctx.Item, "新单 " + job.Code + " 行数 " + Num(n) + " 非负行 " + Num(pos) + " 退货合计 " + Num(back) + "/" + Num(want));
+            NoteBack(item, "新单 " + code + " 行数 " + Num(n) + "/" + Num(want[0]) + " 非负行 " + Num(pos)
+                + " 带来源或类型不符行 " + Num(odd) + " 退货合计 " + Num(back) + "/" + Num(want[1]));
             throw new BridgeException(409, "u8_rejected", "U8 保存的退货单行与请求不一致");
         }
 
@@ -172,7 +203,7 @@ namespace U8Co
                     continue;
                 }
                 NoteBack(item, "订单行" + Id(pair.Key) + " fret " + Num(slot[0]) + "→" + Num(ret)
-                    + " fh " + Num(slot[1]) + "→" + Num(fh));
+                    + " fh " + Num(slot[1]) + "→" + Num(fh) + " 应变 " + Num(sign * slot[2]) + "/" + Num(-sign * slot[2]));
                 throw new BridgeException(409, "u8_rejected", "U8 没有回写销售订单的退货数量或累计发货数量");
             }
         }

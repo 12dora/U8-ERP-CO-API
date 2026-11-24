@@ -22,7 +22,7 @@ SOURCE_IDS_HELP = (
 # U8 枚举 QM.ProMergeCheckRule 里支持的编码（3 需求跟踪不支持），与桥 QmMergeRules 一致。
 MERGE_RULES = frozenset({"0", "1", "2", "4", "5", "6", "7", "8"})
 MERGE_RULES_HELP = (
-    "合并检验的合并规则（U8 合并规则编码，只与 source_ids 一起给）：各来源这些项必须相同。缺省 [\"0\"]。"
+    "合并检验的合并规则（一个 U8 合并规则编码，只与 source_ids 一起给）：各来源这一项必须相同。缺省 [\"0\"]。"
     "0 自由项、1 生产部门、2 仓库、4 合同号、5 生产订单号、6 客户、7 生产批号、8 项目大类+项目；3 需求跟踪不支持"
 )
 SOURCE_IDS_OUT_HELP = (
@@ -34,8 +34,8 @@ QM_MERGE_HELP = section(
     (
         "source_ids：2 到 20 个已审核产品报检单的表体行 id（AUTOID，不是报检单 ID），可来自不同报检单；不带 id",
         "各来源的存货、辅计量单位与换算率、批号、检验方式和检验类型必须相同；未生成过检验单，不是分拣后的报检行",
-        "merge_rules：U8 合并规则编码，缺省 [\"0\"]（自由项相同）；另可选 1 生产部门、2 仓库、4 合同号、5 生产订单号、"
-        "6 客户、7 生产批号、8 项目大类+项目，3 需求跟踪不支持",
+        "merge_rules：一个 U8 合并规则编码，缺省 [\"0\"]（自由项相同）；另可选 1 生产部门、2 仓库、4 合同号、"
+        "5 生产订单号、6 客户、7 生产批号、8 项目大类+项目，3 需求跟踪不支持",
         "lines 可省略：每条来源检验整行数量、全部合格",
         "lines 给出时与 source_ids 一一对应，每行可带 quantity、fRegQuantity、fConQuantiy、fDisQuantity，"
         "可带 source_line_id（必须等于对应的 source_ids）",

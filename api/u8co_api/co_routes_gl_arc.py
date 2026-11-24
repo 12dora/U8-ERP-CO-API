@@ -20,6 +20,15 @@ from u8co_api.co_models_arc_cusaddr_rows import (
     ArcCustomerAddressRowsOut,
 )
 from u8co_api.co_models_arc_cusfields import CUSTOMER_FIELDS_HELP, ArcCustomerFieldsIn, ArcCustomerFieldsOut
+from u8co_api.co_models_arc_cusinvoice import (
+    CUSTOMER_INVOICE_COMPANY_ADD_HELP,
+    CUSTOMER_INVOICE_COMPANY_DELETE_HELP,
+    CUSTOMER_INVOICE_COMPANY_HELP,
+    ArcCustomerInvoiceCompanyAddIn,
+    ArcCustomerInvoiceCompanyDeleteIn,
+    ArcCustomerInvoiceCompanyIn,
+    ArcCustomerInvoiceCompanyOut,
+)
 from u8co_api.co_models_arc_pperson import CUSTOMER_PERSON_HELP, ArcCustomerPersonIn, ArcCustomerPersonOut
 from u8co_api.co_models_gl import (
     GlCreateIn,
@@ -330,7 +339,7 @@ _ARC_ROUTES = (
     _customer(
         "customer_fields",
         (ArcCustomerFieldsIn, ArcCustomerFieldsOut),
-        "修改客户名称、简称、税号、地区分类、停用日期、销售默认收付款协议",
+        "按白名单修改客户档案列（名称、简称、联系方式、银行、结算、协议、分类、自定义项、比率等）",
         CUSTOMER_FIELDS_HELP,
     ),
     _customer(
@@ -350,6 +359,24 @@ _ARC_ROUTES = (
         (ArcCustomerAddressDeleteIn, ArcCustomerAddressRowsOut),
         "删除客户收货地址",
         CUSTOMER_ADDRESS_DELETE_HELP,
+    ),
+    _customer(
+        "customer_invoice_company_add",
+        (ArcCustomerInvoiceCompanyAddIn, ArcCustomerInvoiceCompanyOut),
+        "新增客户开票单位",
+        CUSTOMER_INVOICE_COMPANY_ADD_HELP,
+    ),
+    _customer(
+        "customer_invoice_company_delete",
+        (ArcCustomerInvoiceCompanyDeleteIn, ArcCustomerInvoiceCompanyOut),
+        "删除客户开票单位",
+        CUSTOMER_INVOICE_COMPANY_DELETE_HELP,
+    ),
+    _customer(
+        "customer_invoice_company",
+        (ArcCustomerInvoiceCompanyIn, ArcCustomerInvoiceCompanyOut),
+        "设置客户默认开票单位",
+        CUSTOMER_INVOICE_COMPANY_HELP,
     ),
 )
 

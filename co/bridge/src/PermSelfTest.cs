@@ -21,6 +21,8 @@ namespace U8Co
             CheckPair();
             // 权限快照、权限评估（PermSnapshotSelfTest）。
             PermSnapshotSelfTest.Run();
+            // 权限快照缓存的过期秒数配置（PermCacheSelfTest）。
+            PermCacheSelfTest.Run();
             // 字段权限（PermColumnSelfTest）。
             PermColumnSelfTest.Run();
             // 读权限收紧：凭证按科目整张过滤、水位不给金额、按部门过滤、幂等查询按操作员（ReadLeakSelfTest）。

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from u8co_api.co_doctext import section
 from u8co_api.co_models_mo import CoMoCreatedLine, _date, _get, _only, _qty, _text
+from u8co_api.co_models_mo_subs import check_allocations
 
 LINES_MAX = 50
 _ID_MAX = 2147483647
@@ -14,7 +17,7 @@ _HEAD = {"remark": 255}
 _LINE_TEXT = {"due_date": 10, "remark": 255, "inv_code": 60}
 _NO_START = "暂不支持修改开工日期（U8 重建子件时不重算需求日期）"
 _DEFINES = {f"define{n}": 60 for n in (22, 23, 24, 25)} | {f"define{n}": 120 for n in range(28, 34)}
-_LINE_KEYS = {"op": 0, "line_id": 0, "qty": 0, "start_date": 0, **_LINE_TEXT, **_DEFINES}
+_LINE_KEYS = {"op": 0, "line_id": 0, "qty": 0, "start_date": 0, "allocations": 0, **_LINE_TEXT, **_DEFINES}
 _NOT_EMPTY = ("remark", "inv_code", *_DEFINES)
 MO_UPDATE_HELP = section(
     "生产订单（production_order，id 是 MoId）",
@@ -30,7 +33,10 @@ MO_UPDATE_HELP = section(
         "有产出品子件的行不能改 due_date（桥 409）",
         "子件被材料出库以外的单据或计划引用（领料申请、调拨等）、由替代料生成或用替代料出库的订单不能改",
         "改了数量的行，桥按 U8 的算法重算每个子件（固定用量、损耗率、返工订单），其余子件原样重送",
-        "U8 重插子件后桥写回丢掉的关联列和替代料（原样，不能增删替换）",
+        "U8 重插子件后桥写回丢掉的关联列和替代料（没给 allocations 的子件原样保留）",
+        "行上可带 allocations（每项 sort_seq、inv_code 定位子件，substitutes 整组替换该子件的替代料，空数组清空；"
+        "替代料每项同物料清单，另收 defines）；只带 allocations 的行也算修改，只改替代料时不调用 U8；"
+        "带 allocations 的请求只对配置为测试账套的账套开放（403 test_account_only / feature_disabled）",
         "回读子件数、数量、关联列或替代料对不上时 504 outcome_unknown",
     ),
 )
@@ -71,6 +77,8 @@ def _check_line(row: dict, seen: set[int]) -> None:
         _not_empty(row, key)
     if _get(row, "qty") is not None:
         _qty(_get(row, "qty"))
+    if _get(row, "allocations") is not None:
+        check_allocations(_get(row, "allocations"))
     _dates(row)
 
 
@@ -96,6 +104,19 @@ def _not_empty(row: dict, key: str) -> None:
         raise ValueError(key + " 不能清空（U8 接口不写空值）")
 
 
+class CoMoSubsChanged(BaseModel):
+    """生产订单修改里替代料改了的一个子件。"""
+
+    model_config = ConfigDict(extra="allow")
+    line_id: int = Field(description="明细主键 MoDId")
+    allocate_id: int = Field(description="子件主键 AllocateId（只改替代料时不变）")
+    sort_seq: int = Field(description="子件行号")
+    inv_code: str = Field(description="子件存货编码")
+    substitutes: list[dict[str, Any]] = Field(
+        description="替代料：sequence、inv_code、factor、replace_flag、eff_begin、eff_end，自定义项有值时 defines"
+    )
+
+
 class CoMoUpdateOut(BaseModel):
     """修改响应（co_models_update_out.CoUpdateOut）里生产订单专有的字段；其它类型省略。"""
 
@@ -105,5 +126,9 @@ class CoMoUpdateOut(BaseModel):
         None, description="生产订单修改：每行的主键、行号、存货、数量、状态和子件行数。其它类型省略"
     )
     changed: int | None = Field(
-        None, description="生产订单修改：本次改动的行数（0 表示请求与现值相同，没有调用 U8）。其它类型省略"
+        None,
+        description="生产订单修改：本次改动的行数（含只改了替代料的行；0 表示请求与现值相同，没有写入）。其它类型省略",
+    )
+    allocations: list[CoMoSubsChanged] | None = Field(
+        None, description="生产订单修改：替代料改了的子件及回读的替代料（形状同读取）。没改替代料或其它类型省略"
     )

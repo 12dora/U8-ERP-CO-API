@@ -19,6 +19,7 @@ namespace U8Co
             CheckLines();
             CheckBill();
             CheckKeys();
+            IaVoucherPairSelfTest.Run();
         }
 
         // 合并键（业务员、存货方另分组）、排序稳定、业务类型前两个字、回冲单来源、导入被拒时的重试判断、按分类又按仓库的存货科目行。
@@ -32,12 +33,8 @@ namespace U8Co
             IaLine y = Line("1405", 5, 0);
             x.Seq = 1;
             Expect("iv stable", All(IaVoucherLines.CompareLines(x, y) > 0, IaVoucherLines.CompareLines(y, x) < 0));
-            IaBill bill = new IaBill();
-            bill.Type = IaType.Find("09");
-            bill.Id = 1;
-            bill.Rows.Add(Row("09", "", "", ""));
-            bill.Rows[0].Business = "组装出库";
-            Expect("iv bill assembly", IaVoucherLoad.Problem(bill) != null);
+            Expect("iv pair prefix", All(IaType.PairOf("09", "组装出库") == "组装", IaType.PairOf("08", "调拨入库") == "调拨",
+                IaType.PairOf("11", "调拨出库") == "", IaType.PairOf("09", "其他出库") == "", IaType.PairOf("09", "") == ""));
             Expect("iv source", All(IaType.Find("24").SourceOk(""), IaType.Find("30").SourceOk("01"), !IaType.Find("30").SourceOk("70"),
                 IaType.Find("09").SourceOk("70")));
             Expect("iv retry gl", All(IaVoucherSave.SystemRefused("x " + IaVoucherSave.SystemRejected + " y"), !IaVoucherSave.SystemRefused("科目不存在"),
@@ -175,7 +172,7 @@ namespace U8Co
             Refused("iv unbalanced", new List<IaLine>(new IaLine[] { Line("1405", 10, 0), Line("6401", 0, 9) }));
         }
 
-        // 单据闸门：已制单、调拨、差异、未算成本。
+        // 单据闸门：已制单、差异、未算成本（调拨等成对业务不在单张单据上拒绝）。
         static void CheckBill()
         {
             IaBill bill = new IaBill();
@@ -185,7 +182,9 @@ namespace U8Co
             bill.Rows.Add(Row("09", "", "", ""));
             Expect("iv bill ok", IaVoucherLoad.Problem(bill) == null);
             bill.Rows[0].Business = "调拨出库";
-            Expect("iv bill pair", IaVoucherLoad.Problem(bill) != null);
+            bill.Rows[0].Pair = "调拨";
+            Expect("iv bill pair", IaVoucherLoad.Problem(bill) == null);
+            bill.Rows[0].Pair = "";
             bill.Rows[0].Business = "其他出库";
             bill.Rows[0].NoCost = true;
             Expect("iv bill cost", IaVoucherLoad.Problem(bill) != null);
@@ -196,7 +195,7 @@ namespace U8Co
             Expect("iv bill partly done", All(IaVoucherLoad.Problem(bill) == null, bill.Rows.Count == 1));
             bill.Rows[0].Pz = "2026IA0000000000001";
             Expect("iv bill done", All(IaVoucherLoad.Problem(bill) != null, bill.Rows.Count == 0));
-            Expect("iv types", All(IaType.Find("32") == null, IaType.Find("3201").En, IaType.Find("01").MarkHead,
+            Expect("iv types", All(!IaType.Find("32").En, IaType.Find("3201").En, IaType.Find("01").MarkHead,
                 !IaType.Find("24").MarkHead, !IaType.Find("21").In, IaType.Find("20").Table == "just"));
             Expect("iv sql tables", All(IaVoucherLoad.Sql(IaType.Find("3201")).IndexOf("RdRecords32", StringComparison.Ordinal) > 0,
                 IaVoucherLoad.Sql(IaType.Find("21")).IndexOf("JustInVouchs", StringComparison.Ordinal) > 0));

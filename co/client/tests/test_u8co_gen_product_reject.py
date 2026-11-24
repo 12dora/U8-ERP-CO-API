@@ -47,5 +47,5 @@ class RejectSourceTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
                 _parser().parse_args(
-                    _argv("generate", "--type", "product_in", "--id", "9", "--file", "x", "--source-type", "qm_incoming_reject"),
+                    _argv("generate", "--type", "product_in", "--id", "9", "--file", "x", "--source-type", "bogus_source"),
                 )

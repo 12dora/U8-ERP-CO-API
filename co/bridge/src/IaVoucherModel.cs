@@ -8,6 +8,7 @@ namespace U8Co
     // 存货方向（入库借存货、出库贷存货）、对方科目取哪一列、来源单据表（表头主键、单号、补表头 cPZID）。
     // 对方：opp = 「对方科目」IA_OppHead.cOppHead；est = IA_OppHead.cEstHead（暂估）；
     // estFlag = 采购入库单：bFlag=1（暂估记账）取 cEstHead，否则 cOppHead；out = 「存货科目」IA_HeadSet.cOutHead（发出商品）。
+    // 销售出库单两种：选项「销售成本核算方式」为发出商品时是 3201，为销售出库单时是 32（普通出库，对方科目取 cOppHead）。
     internal sealed class IaType
     {
         public string Code;
@@ -16,7 +17,7 @@ namespace U8Co
         public string Opp;
         // 来源单据表的后缀：01 / 08 / 09 / 10 / 11 / 32 是 RdRecordNN，just 是出入库调整单 JustInVouch。
         public string Table;
-        // U8 制单后在来源单据表头写 cPZID（采购入库、其他入库 / 出库、产成品入库、材料出库）。
+        // U8 制单后在来源单据表头写 cPZID（采购入库、其他入库 / 出库、产成品入库、材料出库、销售出库 32）。
         public bool MarkHead;
         // 销售出库单（发出商品）另回写发出商品明细 IA_EnSubsidiary。
         public bool En;
@@ -32,12 +33,30 @@ namespace U8Co
             Of("21", "出库调整单", false, "opp", "just", false),
             Of("24", "红字回冲单", true, "est", "01", false),
             Of("30", "蓝字回冲单", true, "opp", "01", false),
+            Of("32", "销售出库单", false, "opp", "32", true),
             Of("3201", "销售出库单", false, "out", "32", false)
         };
 
-        // 调拨、形态转换、组装、拆卸（cBusType 前两个字，同 U8 制单取数按 Left(cBusType, 2) 排除）：U8 的分录是成对单据的存货科目
-        // 对冲或另有科目类型，没有普通的对方科目，桥不拼。
+        // 调拨、形态转换、组装、拆卸（cBusType 前两个字，同 U8 制单按 Left(cBusType, 2) 区分）：其他入库单 08 与其他出库单 09 成对，
+        // 按业务单号 cBusCode 一起制单，只有存货科目（08 借、09 贷），没有对方科目；缺省摘要是业务单据名（PairName 同序）。
         public static readonly string[] PairBusiness = new string[] { "调拨", "转换", "组装", "拆卸" };
+        static readonly string[] PairName = new string[] { "调拨单", "形态转换单", "组装单", "拆卸单" };
+
+        // 成对业务的前两个字；不是成对业务（或不是 08 / 09）返回空串。
+        public static string PairOf(string code, string business)
+        {
+            if ((code != "08" && code != "09") || business.Length < 2)
+            {
+                return "";
+            }
+            string prefix = business.Substring(0, 2);
+            return Array.IndexOf(PairBusiness, prefix) >= 0 ? prefix : "";
+        }
+
+        public static string PairDigest(string prefix)
+        {
+            return PairName[Array.IndexOf(PairBusiness, prefix)];
+        }
 
         // 回冲单（24 / 30）只收来源是采购入库单的（cSRcVoutype 空或 01）；VMI 等其他来源桥不拼。
         public bool SourceOk(string src)
@@ -95,6 +114,9 @@ namespace U8Co
         public int Month;
         public string BFlag = "";
         public string Business = "";
+        // 业务单号（IA_Subsidiary.cBusCode）；成对业务（Pair 非空）按它与另一边配对。
+        public string BusCode = "";
+        public string Pair = "";
         public string Pz = "";
         public decimal Amount;
         public decimal Qty;
@@ -128,6 +150,8 @@ namespace U8Co
         public string Code = "";
         public List<IaRow> Rows = new List<IaRow>();
         public string Skip = "";
+        // 制单单元：成对业务是「前两个字 + 业务单号」，同单元的 08、09 一起制单、一起跳过；其他单据空串（自成一个单元）。
+        public string Unit = "";
 
         public string Label()
         {
@@ -209,28 +233,30 @@ namespace U8Co
         // 按月份逐张制单时超过一次上限、留到下次的单据。
         public List<IaBill> Later = new List<IaBill>();
 
-        // 还没有制单的单据：第 Done 张起的计划里的单据，加上留到下次的。
+        // 还没有制单的单据：第 Done 张起的计划里的单据，加上留到下次的。每个制单单元列一张（成对业务列一边，重发时另一边自动补齐）。
         public List<object> Pending()
         {
             List<object> list = new List<object>();
             for (int i = Done; i < Plans.Count; i++)
             {
-                foreach (IaBill bill in Plans[i].Bills)
-                {
-                    list.Add(Ref(bill));
-                }
+                list.AddRange(Refs(Plans[i].Bills));
             }
             list.AddRange(Deferred());
             return list;
         }
 
-        // 留到下次的单据（按月份逐张制单超过一次上限的）。
+        // 留到下次的单据（按月份逐张制单超过一次上限的），每个制单单元一张。
         public List<object> Deferred()
         {
+            return Refs(Later);
+        }
+
+        static List<object> Refs(List<IaBill> bills)
+        {
             List<object> list = new List<object>();
-            foreach (IaBill bill in Later)
+            foreach (List<IaBill> unit in IaVoucherPair.Units(bills))
             {
-                list.Add(Ref(bill));
+                list.Add(Ref(unit[0]));
             }
             return list;
         }

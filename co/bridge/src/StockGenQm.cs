@@ -35,8 +35,21 @@ namespace U8Co
             return InsertQm(ctx, kind, checkId, head, job);
         }
 
-        // 登录前校验：表头同参照采购订单的白名单，必须有仓库；表体恰好 1 行，只收 source_line_id、quantity、cbatch、cbmemo、cposition。
+        // 登录前校验：表头见 CheckInHead；表体恰好 1 行，只收 source_line_id、quantity、cbatch、cbmemo、cposition。
         internal static void CheckQm(Dictionary<string, object> head, object[] lines)
+        {
+            CheckInHead(head);
+            if (lines == null || lines.Length != 1)
+            {
+                throw new BridgeException(400, "bad_request", "参照来料检验单只能有 1 行");
+            }
+            Dictionary<string, object> line = MfgReq.LineOf(lines[0], true);
+            MfgReq.LineId(line);
+            MfgReq.LineQty(line);
+        }
+
+        // 参照来料检验单、来料不良品处理单的采购入库表头：同参照采购订单的白名单，必须有仓库，单据日期 yyyy-MM-dd。
+        static void CheckInHead(Dictionary<string, object> head)
         {
             if (head == null)
             {
@@ -54,13 +67,6 @@ namespace U8Co
             {
                 throw new BridgeException(400, "bad_request", "单据日期必须是 yyyy-MM-dd");
             }
-            if (lines == null || lines.Length != 1)
-            {
-                throw new BridgeException(400, "bad_request", "参照来料检验单只能有 1 行");
-            }
-            Dictionary<string, object> line = MfgReq.LineOf(lines[0], true);
-            MfgReq.LineId(line);
-            MfgReq.LineQty(line);
         }
 
         // 采购单价公式，给参照采购入库生成采购发票用。src 需有 bTaxCost、iPerTaxRate、iTaxPrice、iUnitPrice。

@@ -23,6 +23,7 @@ namespace U8Co
             lines.Add("cleanOrphanTasks（终审后清孤儿任务行，写 UFSystem）: " + (cfg.CleanOrphanTasks ? "true" : "false"));
             lines.Add("serializeWrites（写闸门）: " + WriteGate.ModeLabel(cfg));
             lines.Add("loginReuse（登录复用）: " + Reuse(cfg));
+            lines.Add("permCacheSeconds（权限快照缓存秒，0 不缓存）: " + Num(cfg.PermCacheSeconds));
             string service = WedgedRestart.InstalledName;
             lines.AddRange(WedgedRules.Describe(cfg, service, WedgedRestart.FailureMode(service)));
             PolicyLicense lic = WritePolicy.LicenseOf(cfg);

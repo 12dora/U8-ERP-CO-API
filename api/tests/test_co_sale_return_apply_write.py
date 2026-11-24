@@ -61,7 +61,7 @@ def test_update_only_edits_existing_lines() -> None:
 
 
 def test_sale_return_generates_from_apply() -> None:
-    assert SOURCES["sale_return"] == ("dispatch", _KIND)
+    assert SOURCES["sale_return"] == ("dispatch", _KIND, "sale_order")
     body = CoGenerateIn.model_validate(
         _auth(type="sale_return", id=3, source_type=_KIND, lines=[{"source_line_id": 5, "quantity": 1}])
     )

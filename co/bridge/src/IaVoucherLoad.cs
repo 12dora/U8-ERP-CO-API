@@ -15,13 +15,13 @@ namespace U8Co
         const string RowSql = "select convert(varchar(20), s.AutoID) aid, convert(varchar(20), isnull(s.ID,0)) sid, "
             + "convert(varchar(20), h.{hid}) bid, isnull(s.cVouCode,N'') code, isnull(convert(varchar(10), s.dVouDate, 23),N'') vdate, "
             + "convert(varchar(6), s.iYear) y, convert(varchar(4), s.iMonth) m, convert(varchar(4), isnull(s.bFlag,0)) bflag, "
-            + "isnull(s.cBusType,N'') bt, isnull(s.cPZID,N'') pz, {amt} amt, {qty} qty, "
+            + "isnull(s.cBusType,N'') bt, isnull(s.cBusCode,N'') bc, isnull(s.cPZID,N'') pz, {amt} amt, {qty} qty, "
             + "case when s.{amtcol} is null then 1 else 0 end nocost, "
             + "case when isnull(s.iDebitDifCost,0)<>0 or isnull(s.iCreditDifCost,0)<>0 then 1 else 0 end dif, "
             + "isnull(s.cInvCode,N'') inv, isnull(i.cInvCCode,N'') invc, isnull(s.cWhCode,N'') wh, "
             + "isnull(isnull(s.cRdCode,h.cRdCode),N'') rd, isnull(isnull(s.cDepCode,h.cDepCode),N'') dept, "
             + "isnull(isnull(s.cPersonCode,h.cPersonCode),N'') person, isnull(isnull(s.cVenCode,h.{ven}),N'') ven, "
-            + "isnull(isnull(s.cCusCode,{cus}),N'') cus, isnull(s.cItem_class,N'') itc, isnull(s.cItemCode,N'') itm, "
+            + "{cus} cus, isnull(s.cItem_class,N'') itc, isnull(s.cItemCode,N'') itm, "
             + "isnull(s.cMemo,N'') memo, isnull(s.cSRcVoutype,N'') src, {en} en "
             + "from IA_Subsidiary s with (UPDLOCK, HOLDLOCK) left join Inventory i on i.cInvCode=s.cInvCode {join} "
             + "where s.cVouType=? and s.iYear=? and {filter} order by h.{hid}, s.AutoID";
@@ -31,30 +31,57 @@ namespace U8Co
         public static void Load(object conn, IaJob job)
         {
             List<IaRow> rows = job.Ask.Month > 0 ? ByMonth(conn, job) : ByIds(conn, job);
-            job.Bills = Group(rows);
+            job.Bills = Group(IaVoucherPair.Pull(conn, job.Year, rows));
             if (job.Ask.Month == 0)
             {
                 Order(job);
             }
-            Limit(job, Gate(job));
+            int eligible = Gate(job);
+            Limit(job, eligible - IaVoucherPair.Strays(conn, job));
             MonthsOpen(conn, job);
         }
 
-        // 逐张过闸门：按单据选时不合格 409，按月份选时记下跳过原因。返回合格的张数。
+        // 逐个制单单元（成对业务的 08、09 是一个单元）过闸门：按单据选时不合格 409，按月份选时记下跳过原因
+        // （单元里另一张单据的原因带上它的名字）。返回合格的单元数。
         static int Gate(IaJob job)
         {
             int eligible = 0;
-            foreach (IaBill bill in job.Bills)
+            foreach (List<IaBill> unit in IaVoucherPair.Units(job.Bills))
             {
-                string problem = Problem(bill);
+                IaBill culprit;
+                string problem = UnitProblem(unit, out culprit);
                 if (problem != null && job.Ask.Month == 0)
                 {
-                    throw Refuse("单据 " + bill.Label() + "：" + problem);
+                    throw Refuse("单据 " + culprit.Label() + "：" + problem);
                 }
-                bill.Skip = problem ?? "";
+                SkipUnit(unit, culprit, problem);
                 eligible += problem == null ? 1 : 0;
             }
             return eligible;
+        }
+
+        // 记下单元的跳过原因（null 清空）：出问题的单据记原因，单元里其他单据带上它的名字。
+        internal static void SkipUnit(List<IaBill> unit, IaBill culprit, string problem)
+        {
+            foreach (IaBill bill in unit)
+            {
+                bill.Skip = problem == null ? "" : (bill == culprit ? problem : "单据 " + culprit.Label() + "：" + problem);
+            }
+        }
+
+        static string UnitProblem(List<IaBill> unit, out IaBill culprit)
+        {
+            foreach (IaBill bill in unit)
+            {
+                culprit = bill;
+                string problem = Problem(bill);
+                if (problem != null)
+                {
+                    return problem;
+                }
+            }
+            culprit = unit[0];
+            return IaVoucherPair.Problem(unit);
         }
 
         static void Limit(IaJob job, int eligible)
@@ -74,20 +101,21 @@ namespace U8Co
             }
         }
 
-        // 按月份逐张制单：只做前 PerBillMax 张合格的单据，其余留到下次（响应的 pending）。
+        // 按月份逐张制单：只做前 PerBillMax 个合格的制单单元，其余留到下次（响应的 pending）；成对单据不拆开。
         static void Defer(IaJob job)
         {
             List<IaBill> keep = new List<IaBill>();
             int taken = 0;
-            foreach (IaBill bill in job.Bills)
+            foreach (List<IaBill> unit in IaVoucherPair.Units(job.Bills))
             {
-                if (bill.Skip.Length > 0 || taken < IaVoucherReq.PerBillMax)
+                bool skip = unit[0].Skip.Length > 0;
+                if (skip || taken < IaVoucherReq.PerBillMax)
                 {
-                    keep.Add(bill);
-                    taken += bill.Skip.Length > 0 ? 0 : 1;
+                    keep.AddRange(unit);
+                    taken += skip ? 0 : 1;
                     continue;
                 }
-                job.Later.Add(bill);
+                job.Later.AddRange(unit);
             }
             job.Bills = keep;
         }
@@ -149,7 +177,7 @@ namespace U8Co
             return type;
         }
 
-        static List<IaRow> Query(object conn, IaType type, string filter, object[] args, int before)
+        internal static List<IaRow> Query(object conn, IaType type, string filter, object[] args, int before)
         {
             string sql = Sql(type).Replace("{filter}", filter);
             List<object> all = new List<object>();
@@ -180,8 +208,18 @@ namespace U8Co
             string qty = type.In ? "iAInQuantity" : "iAOutQuantity";
             return RowSql.Replace("{hid}", HeadId(type)).Replace("{amt}", WriteoffSql.Dec("s." + amt, 2))
                 .Replace("{qty}", WriteoffSql.Dec("s." + qty, 6)).Replace("{amtcol}", amt)
-                .Replace("{ven}", just ? "cvencode" : "cVenCode").Replace("{cus}", just ? "null" : "h.cCusCode")
+                .Replace("{ven}", just ? "cvencode" : "cVenCode").Replace("{cus}", Customer(type))
                 .Replace("{en}", type.En ? EnSql : "'0'").Replace("{join}", join);
+        }
+
+        // 客户：明细行上为空时取来源单据表头的；销售出库单 32 同 U8 取表头开票单位，没有时发货客户。
+        static string Customer(IaType type)
+        {
+            if (type.Code == "32")
+            {
+                return "isnull(isnull(h.cInvoiceCompany,h.cCusCode),isnull(s.cCusCode,N''))";
+            }
+            return type.Table == "just" ? "isnull(s.cCusCode,N'')" : "isnull(isnull(s.cCusCode,h.cCusCode),N'')";
         }
 
         // 回冲单（24 / 30）只按来源是采购入库单的行连 RdRecords01（同 U8：cSRcVoutype 为 01，或为空时按 01）；
@@ -209,6 +247,8 @@ namespace U8Co
             r.Month = CoRows.AsId(CoRows.Col(raw, "m"));
             r.BFlag = CoRows.Col(raw, "bflag");
             r.Business = CoRows.Col(raw, "bt");
+            r.BusCode = CoRows.Col(raw, "bc");
+            r.Pair = IaType.PairOf(type.Code, r.Business);
             r.Pz = CoRows.Col(raw, "pz");
             r.Amount = WriteoffSql.Num(CoRows.Col(raw, "amt"));
             r.Qty = WriteoffSql.Num(CoRows.Col(raw, "qty"));
@@ -251,6 +291,7 @@ namespace U8Co
                     bill.Type = row.Type;
                     bill.Id = row.BillId;
                     bill.Code = row.Code;
+                    bill.Unit = IaVoucherPair.Key(row);
                     seen[key] = bill;
                     bills.Add(bill);
                 }
@@ -259,28 +300,35 @@ namespace U8Co
             return bills;
         }
 
-        // 按单据选：按请求顺序排，每张都要有行。
+        // 按单据选：按请求顺序排，每张都要有行；成对业务补进来的另一边紧跟在它后面。
         static void Order(IaJob job)
         {
             List<IaBill> ordered = new List<IaBill>();
+            HashSet<IaBill> added = new HashSet<IaBill>();
             foreach (IaBillRef r in job.Ask.Ids)
             {
-                IaBill hit = null;
+                IaBill hit = Find(job.Bills, r);
                 foreach (IaBill bill in job.Bills)
                 {
-                    if (bill.Type.Code == r.Type && bill.Id == r.Id)
+                    if ((bill == hit || (hit.Unit.Length > 0 && bill.Unit == hit.Unit)) && added.Add(bill))
                     {
-                        hit = bill;
-                        break;
+                        ordered.Add(bill);
                     }
                 }
-                if (hit == null)
-                {
-                    throw Refuse("单据 " + r.Type + " id " + Int(r.Id) + " 在登录年度的存货明细账里没有记录（未记账或类型、id 不符）");
-                }
-                ordered.Add(hit);
             }
             job.Bills = ordered;
+        }
+
+        static IaBill Find(List<IaBill> bills, IaBillRef r)
+        {
+            foreach (IaBill bill in bills)
+            {
+                if (bill.Type.Code == r.Type && bill.Id == r.Id)
+                {
+                    return bill;
+                }
+            }
+            throw Refuse("单据 " + r.Type + " id " + Int(r.Id) + " 在登录年度的存货明细账里没有记录（未记账或类型、id 不符）");
         }
 
         // 不合格的原因；合格返回 null。已制单的行先去掉（按单据选时一张单据可能部分已制单），全部已制单才拒绝。
@@ -301,10 +349,6 @@ namespace U8Co
             }
             foreach (IaRow row in bill.Rows)
             {
-                if (Pair(row.Business))
-                {
-                    return "调拨、形态转换、组装、拆卸业务（" + row.Business + "）的制单暂不支持，请在 U8 客户端制单";
-                }
                 if (row.Dif)
                 {
                     return "有差异额（计划价 / 售价核算），差异制单暂不支持";
@@ -325,11 +369,6 @@ namespace U8Co
             return bill.Rows.Count == 0 ? first : null;
         }
 
-        static bool Pair(string business)
-        {
-            return business.Length >= 2 && Array.IndexOf(IaType.PairBusiness, business.Substring(0, 2)) >= 0;
-        }
-
         // 单据所在月份存货核算未结账。
         static void MonthsOpen(object conn, IaJob job)
         {
@@ -342,14 +381,19 @@ namespace U8Co
                     {
                         continue;
                     }
-                    string flag = Rows.Scalar(conn, "select convert(varchar(4), isnull(bflag_IA,0)) from GL_mend where iyear=? and iperiod=?",
-                        new object[] { row.Year, row.Month });
-                    if (flag != null && flag.Trim() != "0")
+                    if (Closed(conn, row.Year, row.Month))
                     {
                         throw Refuse("存货核算 " + Int(row.Year) + " 年 " + Int(row.Month) + " 月已结账，不能制单");
                     }
                 }
             }
+        }
+
+        internal static bool Closed(object conn, int year, int month)
+        {
+            string flag = Rows.Scalar(conn, "select convert(varchar(4), isnull(bflag_IA,0)) from GL_mend where iyear=? and iperiod=?",
+                new object[] { year, month });
+            return flag != null && flag.Trim() != "0";
         }
 
         internal static string Int(int value)

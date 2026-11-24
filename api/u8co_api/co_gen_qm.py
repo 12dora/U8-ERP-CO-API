@@ -4,7 +4,7 @@
 检验单（QM03 / QM04）参照已审核的报检单，只能 1 行，表头必须有检验员 ccheckpersoncode，
 可带检验项目 items（覆盖检验方案的缺省项目）。
 不良品处理单（QM05 / QM06）参照已审核、有不良数量的检验单，每行一种处理方式，
-行的 source_line_id 就是检验单 ID。表头键不区分大小写，同名只能出现一次。
+各行 source_line_id 等于检验单 ID；合并检验的检验单由桥拒绝（409）。表头键不区分大小写，同名只能出现一次。
 """
 
 from __future__ import annotations
@@ -63,9 +63,11 @@ QM_GEN_HELP = "\n\n".join(
                 "来料不良品处理单（qm_incoming_reject）参照来料检验单，产品不良品处理单（qm_product_reject）参照产品检验单",
                 "id 是检验单 ID；检验单须已审核、有未处理的不良数量、未生成过不良品处理单",
                 "每行一种处理方式：source_line_id 等于 id，quantity 大于 0，各行之和必须等于检验单的不良数量",
+                "合并检验的检验单不能参照生单（409），请在 U8 中按合并明细生成",
                 "cScrapDisCode（不良品处理方式编码）、cReasonCode（不良原因编码）必填",
                 "处理流程为降级时必须有 cDimInvCode（降级存货）；可带 cbWhCode",
                 "表头可省略，只收 dDate、cDefine1–16、chDefine11–16（处理单没有备注列）",
+                "chDefine11–16 须是账套已有的扩展自定义项列，否则 400",
             ),
         ),
         section(
@@ -286,25 +288,20 @@ def _reject_head(head: dict) -> None:
             raise ValueError("不能设置字段 " + low)
 
 
-def _reject_line(raw: dict, source_id: int) -> None:
+def _reject_line(raw: dict, source_id: int | None) -> None:
     row = _lowered(raw)
     for key in row:
         if key not in _REJECT_LINE:
             raise ValueError("不能设置字段 " + key)
     _source_id(row, set())
-    if source_id and row["source_line_id"] != source_id:
-        raise ValueError("不良品处理单的 source_line_id 必须等于 id（检验单 ID）")
     _number("quantity", row.get("quantity"), True)
     for key in _REJECT_NEED:
         _text(key, row.get(key), True)
     for key in _REJECT_CODES:
         if key in row:
             _text(key, row[key], True)
-
-
-def _reject_lines(lines: list[dict], source_id: int) -> None:
-    for raw in lines:
-        _reject_line(raw, source_id)
+    if source_id is not None and row["source_line_id"] != source_id:
+        raise ValueError("source_line_id 必须等于检验单 ID")
 
 
 _OTHER_HEAD = frozenset({"ddate", "cinspectdepcode"})
@@ -342,17 +339,16 @@ def check_qm_other_create(kind: str, head: dict | None, lines: list[dict] | None
         _other_line(raw)
 
 
-def check_qm_gen(kind: str, head: dict | None, lines: list[dict] | None, source_id: int = 0) -> None:
-    """报检单、检验单、不良品处理单生单的表头和明细校验。head 的值可能含 items 列表，其余值不能嵌套。
-
-    source_id 是请求的 id；不良品处理单的每行 source_line_id 都必须等于它。
-    """
+def check_qm_gen(kind: str, head: dict | None, lines: list[dict] | None, source_id: int | None = None) -> None:
+    """报检单、检验单、不良品处理单生单的表头和明细校验（不良品处理单的 source_line_id 须等于检验单 ID source_id）。
+    head 的值可能含 items 列表，其余值不能嵌套。"""
     if not lines:
         raise ValueError("必须指定明细")
     found = _lowered(head or {})
     if kind in REJECT_KINDS:
         _reject_head(found)
-        _reject_lines(lines, source_id)
+        for raw in lines:
+            _reject_line(raw, source_id)
         return
     if kind in INSPECT_KINDS:
         _inspect_head(found)

@@ -322,6 +322,11 @@ namespace U8Co
             {
                 return QmEdit.Run(ctx, kind, id, head, lines);
             }
+            // 不良品处理单：VO 的 UpdateVoucher，可增删改处理行，不包 CoTrans（QmRejEdit）。
+            if (QmRejOps.Handles(kind))
+            {
+                return QmRejOps.Update(ctx, kind, id, head, lines);
+            }
             throw new BridgeException(400, "bad_request", "该单据类型不支持修改");
         }
 

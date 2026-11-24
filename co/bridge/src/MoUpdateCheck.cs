@@ -5,7 +5,8 @@ namespace U8Co
 {
     // 生产订单修改后的回读核对（新连接上的 MoSnap 对 MoPlan）：
     // 行数不变；每行存货不变、数量 / 开工 / 完工 / 备注 / 自定义项等于目标；每行子件数不变，
-    // 每个子件（按 MoAllocRow.Key 对应）数量、件数等于目标（没改数量的行即原值），MoUpdateCols 名单里的列和替代料行数不变。
+    // 每个子件（按 MoAllocRow.Key 对应）数量、件数等于目标（没改数量的行即原值），MoUpdateCols 名单里的列不变，替代料行数等于目标
+    // （调用方给了替代料的子件回读带替代料时再比全部列）。
     // 列出全部不符项；调用方据此报 504 outcome_unknown，不能让用料悄悄丢掉。
     internal static class MoUpdateCheck
     {
@@ -97,12 +98,23 @@ namespace U8Co
                     bad.Add(at + "子件 " + a.InvCode + " 的 UpperMoQty " + a.UpperMoQty + "，应为 " + want[i].Upper);
                 }
                 List<string> cols = MoUpdateCols.Changed(want[i].Row.Keep, a.Keep);
-                if (cols.Count > 0 || a.Subs != want[i].Row.Subs)
+                bool subs = !SubsSame(want[i], a);
+                if (cols.Count > 0 || subs)
                 {
                     bad.Add(at + "子件 " + a.InvCode + " 的 " + string.Join("、", cols.ToArray())
-                        + (a.Subs != want[i].Row.Subs ? "（替代料行数）" : "") + " 变了");
+                        + (subs ? "（替代料）" : "") + " 与目标不符");
                 }
             }
+        }
+
+        // 替代料：行数等于目标；调用方给了的、回读带了替代料时全部列等于目标。
+        static bool SubsSame(MoAllocTarget want, MoAllocRow got)
+        {
+            if (got.Subs != MoUpdateSubs.CountOf(want))
+            {
+                return false;
+            }
+            return !want.Given || got.SubRows == null || MoSubs.SameSet(got.SubRows, MoUpdateSubs.WantOf(want));
         }
 
         // 件数：目标为 -1 表示应保持原值（原文比，null 为空串），否则按数比。
@@ -150,7 +162,8 @@ namespace U8Co
         }
 
         // 响应：与生产订单新增相同的 ok、type、id、code、state、lines、allocates、details（每行 line_id、sort_seq、inv_code、
-        // qty、status、allocates），另给 changed（本次改动的行数）。
+        // qty、status、allocates），另给 changed（本次改动的行数，含只改了替代料的行）；改了替代料时另给 allocations
+        // （这些子件回读的替代料，MoUpdateSubsWrite.Output）。
         public static ApiResult Result(VoucherKind kind, int id, MoSnap after, MoPlan plan)
         {
             List<object> details = new List<object>();
@@ -179,6 +192,11 @@ namespace U8Co
             body["allocates"] = allocates;
             body["details"] = details;
             body["changed"] = Changed(plan);
+            List<object> subs = MoUpdateSubsWrite.Output(plan, after);
+            if (subs != null)
+            {
+                body["allocations"] = subs;
+            }
             return ApiResult.Ok(body);
         }
 
@@ -198,17 +216,30 @@ namespace U8Co
             return state;
         }
 
+        // 改了字段或改了子件替代料的行数。
         static int Changed(MoPlan plan)
         {
             int n = 0;
             for (int i = 0; i < plan.Lines.Count; i++)
             {
-                if (plan.Lines[i].Touched)
+                if (plan.Lines[i].Touched || SubsTouched(plan.Allocs[plan.Lines[i].Row.MoDId]))
                 {
                     n++;
                 }
             }
             return n;
+        }
+
+        static bool SubsTouched(List<MoAllocTarget> allocs)
+        {
+            for (int i = 0; i < allocs.Count; i++)
+            {
+                if (allocs[i].Given && allocs[i].SubsChanged)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }

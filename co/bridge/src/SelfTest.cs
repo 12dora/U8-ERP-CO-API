@@ -81,6 +81,8 @@ namespace U8Co
             QmSelfTest.Run();
             // 不良品处理单（QmRejSelfTest）。
             QmRejSelfTest.Run();
+            // 采购入库参照来料不良品处理单（StockGenRejSelfTest）。
+            StockGenRejSelfTest.Run();
             ArcPartnerSelfTest.Run();
             // 原因码档案（ArcReasonSelfTest）。
             ArcReasonSelfTest.Run();
@@ -106,6 +108,8 @@ namespace U8Co
             SaleInvSourcesSelfTest.Run();
             // 发货单参照订单的表体扩展自定义项 cbdefineN（DispatchLists_extradefine，SaleDispPinsSelfTest）。
             SaleDispPinsSelfTest.Run();
+            // 退货单参照销售订单、无来源退货单（SaleReturnSoSelfTest）。
+            SaleReturnSoSelfTest.Run();
             // 写闸门与写入策略（RunWritePolicy）。
             RunWritePolicy();
         }
@@ -195,6 +199,8 @@ namespace U8Co
             ArcCusAddrSelfTest.Run();
             // 客户收货地址新增、删除 archives/customer_address_add / customer_address_delete（ArcCusAddrRowsSelfTest）。
             ArcCusAddrRowsSelfTest.Run();
+            // 客户开票单位新增、删除、设默认 archives/customer_invoice_company_add / _delete / customer_invoice_company（ArcCusInvoiceSelfTest）。
+            ArcCusInvoiceSelfTest.Run();
             // 历史发货单表头修正 vouchers/head_fix（VoucherHeadFixSelfTest）。
             VoucherHeadFixSelfTest.Run();
             // 销售订单表头自定义项写入 vouchers/so_defines（VoucherSoDefinesSelfTest）。

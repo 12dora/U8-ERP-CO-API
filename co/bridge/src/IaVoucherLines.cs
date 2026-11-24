@@ -18,7 +18,7 @@ namespace U8Co
     }
 
     // 拼一张凭证的分录（同 U8 frmMakePz 写 GL_accvouch 的 Select … Group By）：每行明细两边——存货科目（入库借、出库贷）、
-    // 对方科目（反方向），金额是记账金额（入库 iAInPrice、出库 iAOutPrice，红字为负数、方向不变）。
+    // 对方科目（反方向；调拨等成对业务没有这一边），金额是记账金额（入库 iAInPrice、出库 iAOutPrice，红字为负数、方向不变）。
     // 按（方向、科目、科目要求的辅助项；核算个人 / 客户 / 供应商的科目另按业务员；存货方与其他方分开）合并、金额为 0 的行去掉；
     // 借方在前，再按科目、部门、个人、供应商、客户、项目大类、项目排，相同时按首次出现的先后（同 U8 的 inid）。
     // 辅助项只按科目要求填（部门：核算部门或个人；个人；客户；供应商；项目——存货大类取存货编码），值取明细行（空时取单据表头），缺了 409。
@@ -69,7 +69,10 @@ namespace U8Co
                 foreach (IaRow row in bill.Rows)
                 {
                     Add(set, bill, row, true);
-                    Add(set, bill, row, false);
+                    if (row.Pair.Length == 0)
+                    {
+                        Add(set, bill, row, false);
+                    }
                 }
             }
             List<IaLine> kept = new List<IaLine>();
@@ -109,7 +112,7 @@ namespace U8Co
             line.Qty += row.Qty;
             line.Line.Digest = IaText.MaxText(line.Line.Digest, row.Digest);
             line.Src.BillType = IaText.MaxCode(line.Src.BillType, row.Type.Code);
-            line.Src.BillCode = IaText.MaxCode(line.Src.BillCode, row.Code);
+            line.Src.BillCode = IaText.MaxCode(line.Src.BillCode, IaVoucherPair.OutId(row));
             line.Src.BillDate = IaText.MaxCode(line.Src.BillDate, row.VDate);
             if (person.Length > 0)
             {

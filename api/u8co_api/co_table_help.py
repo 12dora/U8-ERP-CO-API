@@ -134,6 +134,7 @@ GENERATE_HELP = (
     "| 销售出库 | 发货单 | 不能带表头；不带 lines 整张生成，带 lines 按行部分生成 |\n"
     "| 采购入库 | 采购订单 | — |\n"
     "| 采购入库 | 来料检验单（source_type=qm_incoming_check） | 只能 1 行，表头必须有 cWhCode |\n"
+    "| 采购入库 | 来料不良品处理单（source_type=qm_incoming_reject） | quantity 须等于处理后数量，表头须有 cWhCode |\n"
     "| 红字采购入库 | 采购退货单（source_type=purchase_return） | 表头必须有 cWhCode |\n"
     "| 销售发票 | 发货单 | — |\n"
     "| 采购发票 | 采购入库单 | 表头 cPBVCode 必填；红字入库单生成红字发票 |\n"

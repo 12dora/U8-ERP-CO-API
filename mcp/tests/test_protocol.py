@@ -218,7 +218,7 @@ class PackageDataTests(unittest.TestCase):
     def test_routes_contain_archives_customer_fields_and_address_as_write(self):
         routes = {r["route"]: r for r in load_routes()}
         self.assertEqual(routes["archives/customer_fields"]["access"], "write")
-        self.assertEqual(routes["archives/customer_fields"]["summary"], "修改客户名称、简称、税号、地区分类、停用日期、销售默认收付款协议")
+        self.assertEqual(routes["archives/customer_fields"]["summary"], "按白名单修改客户档案列（名称、简称、联系方式、银行、结算、协议、分类、自定义项、比率等）")
         self.assertEqual(routes["archives/customer_address"]["access"], "write")
         self.assertEqual(routes["archives/customer_address"]["summary"], "修改客户收货地址")
         for route in ("archives/customer_fields", "archives/customer_address"):
@@ -231,6 +231,17 @@ class PackageDataTests(unittest.TestCase):
         self.assertEqual(routes["archives/customer_address_delete"]["access"], "write")
         self.assertEqual(routes["archives/customer_address_delete"]["summary"], "删除客户收货地址")
         for route in ("archives/customer_address_add", "archives/customer_address_delete"):
+            self.assertIn(route, route_names("write"))
+
+    def test_routes_contain_customer_invoice_company_ops_as_write(self):
+        routes = {r["route"]: r for r in load_routes()}
+        for route, summary in (
+            ("archives/customer_invoice_company_add", "新增客户开票单位"),
+            ("archives/customer_invoice_company_delete", "删除客户开票单位"),
+            ("archives/customer_invoice_company", "设置客户默认开票单位"),
+        ):
+            self.assertEqual(routes[route]["access"], "write")
+            self.assertEqual(routes[route]["summary"], summary)
             self.assertIn(route, route_names("write"))
 
     def test_routes_contain_vouchers_head_fix_as_write(self):

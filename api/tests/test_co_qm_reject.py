@@ -89,6 +89,7 @@ _BAD = (
     _rej(source_type="qm_product_check"),
     _rej(source_type="qm_incoming_inspect"),
     _rej(lines=_line(source_line_id=8)),
+    _rej(lines=_line() + _line(source_line_id=8, cScrapDisCode="Sys03")),
     _rej(lines=_line(source_line_id=0)),
     _rej(lines=_line(quantity=0)),
     _rej(lines=_line(quantity=-1)),
@@ -160,10 +161,11 @@ def test_qm_reject_bridge_conflict_passes_through() -> None:
     assert made.json()["error"]["code"] == "state_mismatch"
 
 
-def test_check_qm_gen_without_id_skips_the_source_match() -> None:
-    check_qm_gen("qm_incoming_reject", None, _line(source_line_id=99))
-    with pytest.raises(ValueError, match="source_line_id"):
-        check_qm_gen("qm_incoming_reject", None, _line(source_line_id=99), 7)
+def test_reject_source_line_must_be_the_check_id() -> None:
+    check_qm_gen("qm_product_reject", None, _line(source_line_id=99), 99)
+    for lines in (_line(source_line_id=98), _line(source_line_id=99) + _line(source_line_id=98)):
+        with pytest.raises(ValueError, match="source_line_id"):
+            check_qm_gen("qm_product_reject", None, lines, 99)
 
 
 def test_qm_reject_kinds_are_in_the_openapi_enums() -> None:

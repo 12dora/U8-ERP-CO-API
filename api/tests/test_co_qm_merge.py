@@ -25,7 +25,7 @@ _ACCEPTS = (
     _merge(head=dict(_HEAD, items=[{"cChkItemCode": "I01", "cChkGuideCode": "G01"}])),
     _merge(lines=[{"quantity": 3, "fDisQuantity": 1}, {"source_line_id": 12, "fConQuantiy": 0.5}]),
     _merge(lines=[{}, {"quantity": 2, "fRegQuantity": 2}]),
-    _merge(merge_rules=["0", 1, "8"]),
+    _merge(merge_rules=[8]),
 )
 
 _REJECTS = (
@@ -48,6 +48,7 @@ _REJECTS = (
     _merge(merge_rules=["3"]),
     _merge(merge_rules=["9"]),
     _merge(merge_rules=["0", 0]),
+    _merge(merge_rules=["0", 1]),
     _merge(merge_rules=[]),
     _auth(type="qm_product_check", id=7, head=_HEAD, lines=[{"source_line_id": 1, "quantity": 1}], merge_rules=["0"]),
 )

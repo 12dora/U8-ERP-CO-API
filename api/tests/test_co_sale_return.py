@@ -1,4 +1,4 @@
-"""退货单（sale_return，红字发货单）的读取、列表、审核、删除与参照蓝字发货单生单。"""
+"""退货单（sale_return，红字发货单）的读取、列表、审核、删除与参照蓝字发货单、销售订单生单。"""
 
 from __future__ import annotations
 
@@ -42,6 +42,7 @@ _ACCEPTS = (
     _ret(),
     _ret(_HEAD),
     _ret({}, source_type="dispatch"),
+    _ret({"invoiced": False}, source_type="sale_order"),
     _ret({"invoiced": True}),
     _ret({"Invoiced": False, "cMemo": "x"}),
     _ret(lines=[{"source_line_id": 3, "quantity": 1, "cMemo": "坏件", "cDefine22": "a", "cdefine37": "b"}]),
@@ -50,8 +51,9 @@ _ACCEPTS = (
 _REJECTS = (
     _ret(lines=[]),
     _auth(type="sale_return", id=7),
-    _ret(source_type="sale_order"),
     _ret(source_type="arrival"),
+    _ret(source_type="sale_invoice"),
+    _ret({"cWhCode": "01"}, source_type="sale_order"),
     _ret({"cDLCode": "FH1"}),
     _ret({"DLID": 1}),
     _ret({"cCusCode": "C1"}),
@@ -128,7 +130,17 @@ def test_sale_return_load_list_and_delete_are_allowed() -> None:
     assert fake.calls[-1][1]["type"] == "sale_return"
 
 
-def test_sale_return_cannot_be_created_or_closed() -> None:
+def test_sale_return_from_sale_order_forwards_source_type() -> None:
+    fake = FakeBridge()
+    made = _client(fake).post(_GEN, json=_ret(_HEAD, source_type="sale_order"))
+    assert made.status_code == 200, made.text
+    sent = fake.calls[-1][1]
+    assert sent["source_type"] == "sale_order"
+    assert sent["lines"] == _LINES
+    assert made.json()["source_type"] == "sale_order"
+
+
+def test_sale_return_create_needs_customer_and_cannot_be_closed() -> None:
     fake = FakeBridge()
     client = _client(fake)
     for path, extra in (

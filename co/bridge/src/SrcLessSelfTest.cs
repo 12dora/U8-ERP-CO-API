@@ -19,6 +19,63 @@ namespace U8Co
             // 无来源销售出库单（走 StockDom / StockCo.Create，不在 SrcLessReq 名单里）。
             StockSaleOutSelfTest.Run();
             CheckPurInHavePo();
+            CheckRedShapes();
+        }
+
+        // 无来源采购退货单（红字到货单）：落库核对的行形态，红字发票修改的符号与累计开票数量方向。
+        static void CheckRedShapes()
+        {
+            Dictionary<string, object> blue = Map("BillType", "0", "Neg", "0", "CorId", "0", "PoLine", "0", "Qty", "2");
+            Dictionary<string, object> red = Map("BillType", "1", "Neg", "1", "CorId", "0", "PoLine", "0", "Qty", "-2");
+            PuArr.RequireRow(blue, false);
+            PuArr.RequireRow(red, true);
+            RowRefused("red flag on blue", blue, true);
+            RowRefused("blue flag on red", red, false);
+            RowRefused("positive red qty", Map("BillType", "1", "Neg", "1", "CorId", "0", "PoLine", "0", "Qty", "2"), true);
+            RowRefused("red with source", Map("BillType", "1", "Neg", "1", "CorId", "5", "PoLine", "0", "Qty", "-2"), true);
+            RowRefused("red with gsp", Map("BillType", "1", "Neg", "1", "CorId", "0", "PoLine", "0", "Qty", "-2", "Gsp", "1"), true);
+            RowRefused("red with po", Map("BillType", "1", "Neg", "1", "CorId", "0", "PoLine", "7", "Qty", "-2"), true);
+            Expect("blue sign", PuInv.PickSign(false, 1m, 5m) == 1);
+            Expect("red sign", PuInv.PickSign(true, -5m, -1m) == -1);
+            Expect("red sign zero", PuInv.PickSign(true, -5m, 0m) == -1);
+            MixedRefused("blue with negative", false, -1m, 3m);
+            MixedRefused("red with positive", true, -3m, 1m);
+            Dictionary<int, decimal> drops = new Dictionary<int, decimal>();
+            drops[10] = 2m;
+            List<Dictionary<string, object>> lines = new List<Dictionary<string, object>>();
+            lines.Add(Map("Id", "10", "RdsId", "99"));
+            lines.Add(Map("Id", "11", "RdsId", "0"));
+            Expect("blue billed moves down", PuEditMore.BySource(lines, "Id", "RdsId", drops, -1)[99] == -2m);
+            Expect("red billed moves to zero", PuEditMore.BySource(lines, "Id", "RdsId", drops, 1)[99] == 2m);
+            Expect("po only line skipped", PuEditMore.BySource(lines, "Id", "RdsId", drops, 1).Count == 1);
+        }
+
+        static void RowRefused(string name, Dictionary<string, object> row, bool red)
+        {
+            try
+            {
+                PuArr.RequireRow(row, red);
+            }
+            catch (BridgeException ex)
+            {
+                Expect(name, ex.Status == 409 && ex.Code == "u8_rejected");
+                return;
+            }
+            throw new InvalidOperationException("srcless " + name);
+        }
+
+        static void MixedRefused(string name, bool red, decimal lo, decimal hi)
+        {
+            try
+            {
+                PuInv.PickSign(red, lo, hi);
+            }
+            catch (BridgeException ex)
+            {
+                Expect(name, ex.Status == 409);
+                return;
+            }
+            throw new InvalidOperationException("srcless " + name);
         }
 
         // 「普通业务必有订单」只拦无来源蓝字采购入库，红字退库放行（同 U8 客户端）；选项值 1 / True 不分大小写。
@@ -29,6 +86,11 @@ namespace U8Co
             Expect("havepo blue off", !StockPurInPos.HavePoRefuses("False", false) && !StockPurInPos.HavePoRefuses(null, false));
             Expect("havepo red on", !StockPurInPos.HavePoRefuses("1", true) && !StockPurInPos.HavePoRefuses("true", true));
             Expect("red head", StockCo.RedHead(Map("red", true)) && !StockCo.RedHead(Map("cwhcode", "01")));
+            // 选项全开时：蓝字到货单被拦，红字的采购退货单和退货单放行。
+            Func<string, string, bool> allOn = delegate(string sys, string name) { return true; };
+            Expect("arrival refused", SrcLess.OptionWhy("arrival", allOn) != null);
+            Expect("purchase_return not refused", SrcLess.OptionWhy("purchase_return", allOn) == null);
+            Expect("sale_return not refused", SrcLess.OptionWhy("sale_return", allOn) == null);
         }
 
         // 先开票发票表头固定 csource=销售（U8 读单、复核取数都按它过滤），idisp=0；发货单不写 csource。
@@ -100,7 +162,7 @@ namespace U8Co
 
         static void CheckKinds()
         {
-            string[] names = new string[] { "dispatch", "sale_invoice", "arrival", "material_out" };
+            string[] names = new string[] { "dispatch", "sale_invoice", "arrival", "purchase_return", "material_out" };
             for (int i = 0; i < names.Length; i++)
             {
                 VoucherKind kind = Kinds.Find(names[i]);
@@ -114,6 +176,8 @@ namespace U8Co
             string[] invoice = SrcLess.CreateLocks("sale_invoice");
             Expect("invoice locks", invoice.Length == 2 && invoice[1] == "new:dispatch");
             Expect("arrival locks", SrcLess.CreateLocks("arrival")[1] == "new:purchase_return");
+            string[] ret = SrcLess.CreateLocks("purchase_return");
+            Expect("return locks", ret.Length == 2 && ret[0] == "new:arrival" && ret[1] == "new:purchase_return");
             Expect("plain locks", SrcLess.CreateLocks("dispatch").Length == 1);
         }
 
@@ -126,6 +190,10 @@ namespace U8Co
             Expect("invoice type", SrcLessReq.HeadAllowed(invoice, "cvouchtype") && !SrcLessReq.HeadAllowed(dispatch, "cvouchtype"));
             Expect("no cdefine01", !SrcLessReq.HeadAllowed(dispatch, "cdefine01"));
             Expect("pu no poid", !SrcLessReq.LineAllowed(Kinds.Find("arrival"), "iposid"));
+            VoucherKind ret = Kinds.Find("purchase_return");
+            Expect("return same list", SrcLessReq.HeadAllowed(ret, "cvencode") && SrcLessReq.LineAllowed(ret, "ioritaxcost")
+                && !SrcLessReq.LineAllowed(ret, "iposid") && !SrcLessReq.LineAllowed(ret, "icorid")
+                && SrcLessReq.RequiredHead(ret)[0] == "cvencode");
             Expect("st no mpoids", !SrcLessReq.LineAllowed(Kinds.Find("material_out"), "impoids"));
             Expect("st cposition", SrcLessReq.LineAllowed(Kinds.Find("material_out"), "cposition"));
             Expect("mfg cposition", MfgReq.LineOf(Map("source_line_id", 1, "cPosition", "01"), true).Count == 2);

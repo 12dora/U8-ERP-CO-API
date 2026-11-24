@@ -13,10 +13,10 @@ namespace U8Co
         public string[] Cols;
     }
 
-    // 请求的 merge_rules：U8 合并规则编码的数组，缺省 ["0"]（自由项，U8 合并检验参照的缺省勾选）。
+    // 请求的 merge_rules：一个 U8 合并规则编码的数组，缺省 ["0"]（自由项，U8 合并检验参照的缺省勾选）。
     // 支持 0 自由项（报检行 CFREE1–10）、1 生产部门（报检单 CDEPCODE）、2 仓库、4 合同号、5 生产订单号、6 客户（报检单 CCUSCODE）、
     // 7 生产批号、8 项目大类 + 项目（以上除注明外都取报检单行）。3 需求跟踪（U8 按需求跟踪方式、订单号、行号比较，报检行上对应的列未核实）
-    // 和其他编码 400。表头 MERGECHECKRULE 写编码升序、逗号分隔（多选时 U8 的分隔符未实测）。
+    // 和其他编码 400。只收一个编码：表头 MERGECHECKRULE 写成逗号分隔的多个编码时，U8 保存成功后回读报「获取单据失败」，多选的存法未明。
     internal static class QmMergeRules
     {
         internal const string Field = "merge_rules";
@@ -41,7 +41,7 @@ namespace U8Co
             return rule;
         }
 
-        // 缺省 ["0"]；给了必须是 1 到 9 个不重复的编码（整数或数字串）。
+        // 缺省 ["0"]；给了必须恰好一个编码（整数或数字串）。
         internal static List<QmMergeRule> Parse(object raw)
         {
             List<QmMergeRule> rules = new List<QmMergeRule>();
@@ -51,9 +51,9 @@ namespace U8Co
                 return rules;
             }
             IList list = raw as IList;
-            if (list == null || list.Count < 1 || list.Count > 9)
+            if (list == null || list.Count != 1)
             {
-                throw BridgeException.BadField(Field, "merge_rules 必须是 1 到 9 个 U8 合并规则编码");
+                throw BridgeException.BadField(Field, "merge_rules 只能给一个 U8 合并规则编码");
             }
             for (int i = 0; i < list.Count; i++)
             {

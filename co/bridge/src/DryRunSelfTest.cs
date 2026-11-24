@@ -38,7 +38,7 @@ namespace U8Co
             Mode("new kind refuse", "refuse", "vouchers/create", "future_kind", "create", "");
             Mode("reject delete", "validate", "vouchers/delete", "qm_product_reject", "delete", "");
             Mode("reject generate", "validate", "vouchers/generate", "qm_incoming_reject", "generate", "qm_incoming_check");
-            Mode("reject update refuse", "refuse", "vouchers/update", "qm_product_reject", "update", "");
+            Mode("reject update", "validate", "vouchers/update", "qm_product_reject", "update", "");
             Mode("bom create", "validate", "vouchers/create", "bom", "create", "");
         }
 
@@ -95,6 +95,9 @@ namespace U8Co
             Mode("arc customer_address", "validate", "archives/customer_address", "", "archive_customer_address", "");
             Mode("arc customer_address_add", "validate", "archives/customer_address_add", "", "archive_customer_address_add", "");
             Mode("arc customer_address_delete", "validate", "archives/customer_address_delete", "", "archive_customer_address_delete", "");
+            Mode("arc invoice add", "validate", "archives/customer_invoice_company_add", "", "archive_customer_invoice_company_add", "");
+            Mode("arc invoice delete", "validate", "archives/customer_invoice_company_delete", "", "archive_customer_invoice_company_delete", "");
+            Mode("arc invoice default", "validate", "archives/customer_invoice_company", "", "archive_customer_invoice_company", "");
             Mode("voucher head_fix", "validate", "vouchers/head_fix", "dispatch", "head_fix", "");
             Mode("voucher head_fix return", "refuse", "vouchers/head_fix", "sale_return", "head_fix", "");
             Mode("voucher so_defines", "validate", "vouchers/so_defines", "sale_order", "so_defines", "");
@@ -245,6 +248,9 @@ namespace U8Co
         {
             Expect("meta address rows", (string)routes["archives/customer_address_add"] == "validate"
                 && (string)routes["archives/customer_address_delete"] == "validate");
+            Expect("meta invoice company", (string)routes["archives/customer_invoice_company_add"] == "validate"
+                && (string)routes["archives/customer_invoice_company_delete"] == "validate"
+                && (string)routes["archives/customer_invoice_company"] == "validate");
             Dictionary<string, object> fix = routes["vouchers/head_fix"] as Dictionary<string, object>;
             Expect("meta head_fix", fix != null && (string)fix["dispatch"] == "validate" && (string)fix["*"] == "refuse");
         }

@@ -125,13 +125,13 @@ namespace U8Co
             return new BridgeException(409, "state_mismatch", message).WithDetail(detail);
         }
 
-        // 回读与写入不一致、pubufts 已变：别人在中间改了，409。
+        // 回读与写入不一致、pubufts 没变：按 pubufts 的 UPDATE 没命中（别人改过），409。
         public static BridgeException Concurrent(string code)
         {
             return new BridgeException(409, "state_mismatch", "客户 " + code + " 已被他人修改");
         }
 
-        // 回读与写入不一致、pubufts 没变：结果未知，504。
+        // 回读与写入不一致、pubufts 已变：写入落下了但回读不符，结果未知，504。
         public static BridgeException Unknown(string code, string what)
         {
             return new BridgeException(504, "outcome_unknown",

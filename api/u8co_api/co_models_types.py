@@ -235,10 +235,12 @@ CreateType = Literal[
     "shape_change",
     "transfer_request",
     "stock_check",
-    # 无来源发货单、先开票销售发票、无来源到货单、无来源材料出库单（co_srcless）
+    # 无来源发货单、无来源退货单、先开票销售发票、无来源到货单、无来源采购退货单、无来源材料出库单（co_srcless）
     "dispatch",
+    "sale_return",
     "sale_invoice",
     "arrival",
+    "purchase_return",
     "material_out",
     # 期初结存单（日期由桥固定为库存启用日前一天）
     "stock_opening",

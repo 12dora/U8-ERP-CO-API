@@ -347,6 +347,7 @@ namespace U8Co
         {
             public WorkContext Ctx;
             public VoucherKind Kind;
+            public bool Red;
             public int PoId;
             public string Code;
             public string Wh;

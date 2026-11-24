@@ -4,13 +4,16 @@ using System.Collections.Generic;
 namespace U8Co
 {
     // 客户档案的受控 SQL 专用路由 archives/<op>：customer_person（ArcPerson）、customer_fields（ArcCusFields）、
-    // customer_address（ArcCusAddr）、customer_address_add / customer_address_delete（ArcCusAddrRows）。op 即路径末段、写入分类的 op、规则键的最后一段。
+    // customer_address（ArcCusAddr）、customer_address_add / customer_address_delete（ArcCusAddrRows）、
+    // customer_invoice_company_add / customer_invoice_company_delete / customer_invoice_company（ArcCusInvoice）。
+    // op 即路径末段、写入分类的 op、规则键的最后一段。
     // 新增一条：加进 Ops，并在 Check、Run 各补一个分支；写闸门、写入分类、预演模式、锁键、只读例外都从 Ops 派生。
     internal static class ArcCustomerOps
     {
         internal static readonly string[] Ops = new string[]
         {
-            ArcPerson.Op, ArcCusFields.Op, ArcCusAddr.Op, ArcCusAddrRows.AddOp, ArcCusAddrRows.DeleteOp
+            ArcPerson.Op, ArcCusFields.Op, ArcCusAddr.Op, ArcCusAddrRows.AddOp, ArcCusAddrRows.DeleteOp,
+            ArcCusInvoice.AddOp, ArcCusInvoice.DeleteOp, ArcCusInvoice.DefaultOp
         };
 
         // archives/<op> 的全部 op：通用的 get、list、create、update、delete 加专用路由（Dispatch 的路由表用）。
@@ -19,6 +22,12 @@ namespace U8Co
             List<string> all = new List<string>(new string[] { "get", "list", "create", "update", "delete" });
             all.AddRange(Ops);
             return all.ToArray();
+        }
+
+        // 锁键里的客户编码：开票单位路由的 code 是 "<客户>:<开票单位>"，取第一段；其余客户路由的 code 本身就是客户。
+        public static string LockCode(string code)
+        {
+            return ArcCusInvoice.LockCode(code);
         }
 
         public static bool Is(string op)
@@ -52,6 +61,10 @@ namespace U8Co
             {
                 ArcCusAddrRows.Check(op, body);
             }
+            else if (ArcCusInvoice.Is(op))
+            {
+                ArcCusInvoice.Check(op, body);
+            }
             else
             {
                 throw Unknown(op);
@@ -75,6 +88,10 @@ namespace U8Co
             if (ArcCusAddrRows.Is(op))
             {
                 return ArcCusAddrRows.Run(ctx, op);
+            }
+            if (ArcCusInvoice.Is(op))
+            {
+                return ArcCusInvoice.Run(ctx, op);
             }
             throw Unknown(op);
         }

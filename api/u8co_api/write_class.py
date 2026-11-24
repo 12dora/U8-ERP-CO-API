@@ -57,6 +57,9 @@ RULES: dict[str, tuple[str | None, str | dict[str, str]]] = {
     "archives/customer_address": ("archives", "customer_address"),
     "archives/customer_address_add": ("archives", "customer_address_add"),
     "archives/customer_address_delete": ("archives", "customer_address_delete"),
+    "archives/customer_invoice_company_add": ("archives", "customer_invoice_company_add"),
+    "archives/customer_invoice_company_delete": ("archives", "customer_invoice_company_delete"),
+    "archives/customer_invoice_company": ("archives", "customer_invoice_company"),
     # 应收 / 应付：核销、自动核销 writeoff；制单、处理制单 voucher；
     # 并账、转账、红票对冲、汇兑损益、坏账 process；取消类 other。
     "arap/writeoff": ("arap", "writeoff"),

@@ -8,7 +8,8 @@ namespace U8Co
     // 存货核算制单后的回写（同 U8 frmMakePz 的 IA_PZWriteBackIAsub，生产数据核对）和取消制单的清除（同 U8 删除凭证的 SQL），
     // 都由调用方包在 CoTrans 里。表名、列名都是常量；值只进参数；日期参数一律 cast(convert(date, ?, 23) as datetime)。
     // 写：存货明细账 IA_Subsidiary 的 cPZID / iPZDate / cPZtype / cPZdigest / cInvHead / cOppHead；销售出库单（发出商品）的
-    // 发出商品明细 IA_EnSubsidiary（cOutHead = 发出商品科目、cOppHead = 存货科目）；采购入库、其他入库 / 出库、产成品入库、材料出库单表头 cPZID。
+    // 发出商品明细 IA_EnSubsidiary（cOutHead = 发出商品科目、cOppHead = 存货科目）；采购入库、其他入库 / 出库（成对业务两边都写）、
+    // 产成品入库、材料出库、销售出库单（32）表头 cPZID。成对业务没有对方科目，cOppHead 留空（同 U8）。
     // 「凭证号参照」IA_PZNo 是视图（IA_Subsidiary 连 GL_accvouch），不用写。
     internal static class IaVoucherBack
     {
@@ -61,7 +62,7 @@ namespace U8Co
                 }
             }
             object[] mark = new object[] { plan.PzId, plan.Date, plan.Key.Sign };
-            Groups(conn, "update IA_Subsidiary set cPZID=?, iPZDate=" + Day + ", cPZtype=?, cPZdigest=?, cInvHead=?, cOppHead=? "
+            Groups(conn, "update IA_Subsidiary set cPZID=?, iPZDate=" + Day + ", cPZtype=?, cPZdigest=?, cInvHead=?, cOppHead=nullif(?,N'') "
                 + "where cPZID is null and AutoID in ", mark, subs);
             // 发出商品明细：cOutHead 是发出商品科目（存货明细账的对方科目），cOppHead 是存货科目。
             Groups(conn, "update IA_EnSubsidiary set cPZID=?, iPZDate=" + Day + ", cPZtype=?, cPZdigest=?, cOppHead=?, cOutHead=? "
@@ -144,16 +145,18 @@ namespace U8Co
             return plan.Clash ? "外部业务号 " + plan.PzId + " 已被别的凭证或单据占用（U8 客户端可能同时在制单）" : null;
         }
 
-        // 防重复制单：总账里已有本单的存货核算凭证（coutbillsign = 单据类型、coutid = 单号），其外部业务号却没有存货明细账、
-        // 发出商品明细引用——上次制单结果不明（504）或恢复记账后留下的。拒绝并点名该凭证。
+        // 防重复制单：总账里已有本单的存货核算凭证（coutbillsign = 单据类型、coutid = 单号，成对业务是业务单号；也查单据号，
+        // 兼容按单据号写的旧凭证），其外部业务号却没有存货明细账、发出商品明细引用——上次制单结果不明（504）或恢复记账后留下的。
+        // 拒绝并点名该凭证。
         public static void NoOrphan(object conn, IaBill bill)
         {
             const string Sql = "select top 1 isnull(g.coutno_id,N'') pz, convert(varchar(6), g.iyear) y, convert(varchar(4), g.iperiod) p, "
                 + "g.csign s, convert(varchar(12), g.ino_id) n from GL_accvouch g "
-                + "where (g.coutsysname=N'IA' or g.coutno_id like N'[0-9][0-9][0-9][0-9]IA%') and g.coutbillsign=? and g.coutid=? "
+                + "where (g.coutsysname=N'IA' or g.coutno_id like N'[0-9][0-9][0-9][0-9]IA%') and g.coutbillsign=? and g.coutid in (?,?) "
                 + "and not exists (select 1 from IA_Subsidiary s where s.cPZID=g.coutno_id) "
                 + "and not exists (select 1 from IA_EnSubsidiary e where e.cPZID=g.coutno_id)";
-            Dictionary<string, object> row = Rows.One(conn, Sql, new object[] { bill.Type.Code, bill.Code });
+            string outId = bill.Rows.Count > 0 ? IaVoucherPair.OutId(bill.Rows[0]) : bill.Code;
+            Dictionary<string, object> row = Rows.One(conn, Sql, new object[] { bill.Type.Code, outId, bill.Code });
             if (row == null)
             {
                 return;

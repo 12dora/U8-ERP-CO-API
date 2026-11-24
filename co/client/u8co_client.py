@@ -71,6 +71,7 @@ from co.client.u8co_idem import key_fields, with_key  # 幂等键
 from co.client.u8co_qm import qm_head  # 检验单表头的 items
 from co.client.u8co_gl_arc import U8CoGlArcMixin
 from co.client.u8co_arc_cus import U8CoArcCusMixin  # 客户主数据专用写入：专管业务员、字段、收货地址（改、增、删）
+from co.client.u8co_arc_invoice import U8CoArcInvoiceMixin  # 客户开票单位新增、删除、设默认
 from co.client.u8co_head_fix import U8CoHeadFixMixin  # 历史发货单表头修正
 from co.client.u8co_so_defines import U8CoSoDefinesMixin  # 销售订单表头自定义项写入
 from co.client.u8co_invoice import U8CoInvoiceMixin  # 销售发票参照多张发货单（sources）
@@ -238,6 +239,7 @@ class U8CoClient(
     U8CoAssistMixin, U8CoLookupMixin, U8CoArapProcMixin, U8CoGlDigestMixin, U8CoNotesReadMixin,
     U8CoArapProcListMixin, U8CoNotesRegMixin, U8CoNotesProcMixin, U8CoArapBadMixin, U8CoGlUnpostMixin,
     U8CoGlReverseMixin, U8CoMgmtGlMixin, U8CoMgmtSaMixin, U8CoGlTransferMixin, U8CoArcCusMixin,
+    U8CoArcInvoiceMixin,
     U8CoHeadFixMixin, U8CoSoDefinesMixin, U8CoInvoiceMixin, U8CoQmMergeMixin, U8CoIaVoucherMixin,
 ):
     def __init__(self, base_url: str, secret_hex: str, timeout: float = 90, long_timeout: float = 1000) -> None:
@@ -302,7 +304,7 @@ class U8CoClient(
     def update_voucher(self, call: U8Call, draft: VoucherEdit) -> dict[str, Any]:
         fields = _typed(call, draft.kind, _UPDATABLE)
         head = qm_head(draft.kind, draft.head, _present_row)  # 检验单修改的 head 可带 items
-        lines = _present_lines(draft.lines, draft.kind)  # 物料清单行可带 substitutes、locators 数组
+        lines = _present_lines(draft.lines, draft.kind)  # 物料清单行的 substitutes、locators，生产订单行的 allocations
         if head is None and lines is None:
             raise ValueError("没有要修改的内容")
         if head is not None:

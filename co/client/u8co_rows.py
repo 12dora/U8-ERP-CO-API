@@ -1,6 +1,7 @@
 """单据表头、表体行的校验（只收字符串键、标量值，表体 1 到 200 行，采购手工结算 400 行）。从 u8co_client 拆出，供 U8CoClient 用。
 
-例外：物料清单（bom）行的 substitutes、locators 是对象数组，每项同样只收标量。
+例外：物料清单（bom）行的 substitutes、locators 是对象数组，每项只收标量；生产订单修改行的 allocations 是对象数组，
+每项里的 substitutes 再是对象数组、defines 是对象（嵌套最多三层，叶子只收标量）。
 """
 
 from __future__ import annotations
@@ -11,25 +12,34 @@ from co.client.u8co_kinds import whole_generate
 
 
 # 值可以是对象数组的字段，按单据类型登记（与桥 NestedFields、API co_models_nested 一致）：
-# 检验单表头的 items（u8co_qm.qm_head 细查），物料清单明细行的 substitutes、locators（每项只收标量）。
+# 检验单表头的 items（u8co_qm.qm_head 细查），物料清单明细行的 substitutes、locators（每项只收标量），
+# 生产订单修改行的 allocations（每项可再嵌对象数组、对象）。
 NESTED_HEAD = {kind: ("items",) for kind in ("qm_incoming_check", "qm_product_check", "qm_other_check")}
-NESTED_LINES = {"bom": ("substitutes", "locators")}
+NESTED_LINES = {"bom": ("substitutes", "locators"), "production_order": ("allocations",)}
+# 数组项里还能再嵌的层数（allocations → substitutes → defines）；其余登记字段的项只收标量。
+_DEEP = {"allocations": 2}
 
 
-def _row(row: object, nested: tuple[str, ...] = ()) -> dict[str, Any]:
+def _row(row: object, nested: tuple[str, ...] = (), depth: int = 0) -> dict[str, Any]:
     if not isinstance(row, dict):
         raise ValueError("head 和 lines 的每一行必须是对象")
     clean: dict[str, Any] = {}
     for key, value in row.items():
         if type(key) is not str or key == "":
             raise ValueError("字段名必须是非空字符串")
-        if type(value) in (list, tuple) and key.lower() in nested:
-            clean[key] = [_row(item) for item in value]
-            continue
-        if type(value) not in (str, int, float, bool):
-            raise ValueError("字段值只能是字符串、数字或布尔")
-        clean[key] = value
+        clean[key] = _cell(key, value, nested, depth)
     return clean
+
+
+def _cell(key: str, value: object, nested: tuple[str, ...], depth: int) -> Any:
+    if type(value) in (list, tuple) and (key.lower() in nested or depth > 0):
+        deep = _DEEP.get(key.lower(), 0) if depth == 0 else depth - 1
+        return [_row(item, (), deep) for item in value]
+    if type(value) is dict and depth > 0:
+        return _row(value, (), depth - 1)
+    if type(value) not in (str, int, float, bool):
+        raise ValueError("字段值只能是字符串、数字或布尔")
+    return value
 
 
 def _rows(lines: object, most: int = 200, kind: str = "") -> list[dict[str, Any]]:

@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from u8co_api.co_edit_dispatch_add import check_dispatch_adds
 from u8co_api.co_edit_qm import check_qm_update
 from u8co_api.co_gen_source import (
+    QM_IN_LINES,
     SourceType,
     check_arrival,
     check_arrival_in,
@@ -87,6 +88,8 @@ UpdateType = Literal[
     "shape_change", "transfer_request", "position_adjust", "sale_return_apply",
     # 检验单、其他报检单（QmEdit，只收 head）
     "qm_incoming_check", "qm_product_check", "qm_other_check", "qm_other_inspect",
+    # 不良品处理单（QmRejEdit：表头日期与自定义项，处理行可增删改）
+    "qm_incoming_reject", "qm_product_reject",
 ]
 CloseType = Literal[
     "sale_order", "purchase_order", "purchase_requisition", "production_order",
@@ -269,7 +272,7 @@ class CoUpdateIn(CoAuth):
         if not self.head and not self.lines:
             raise ValueError("没有要修改的内容")
         nested_cells(self.type, self.head, self.lines)  # 检验单 head.items、物料清单行的替代料 / 定位符可以是列表
-        if check_qm_update(self.type, self.head, self.lines):  # 质量单据只收 head
+        if check_qm_update(self.type, self.head, self.lines):  # 质量单据（不良品处理单另收处理行）
             return self
         if self.type == "bom":
             check_bom_update(self.head, self.lines)
@@ -351,7 +354,7 @@ class CoGenerateIn(CoAuth):
     )
     sources: list[CoInvSource] | None = Field(None, min_length=1, max_length=200, description=SOURCES_HELP)
     source_ids: list[int] | None = Field(None, min_length=2, max_length=20, description=SOURCE_IDS_HELP)
-    merge_rules: list[str | int] | None = Field(None, min_length=1, max_length=9, description=MERGE_RULES_HELP)
+    merge_rules: list[str | int] | None = Field(None, min_length=1, max_length=1, description=MERGE_RULES_HELP)
     dry_run: DryRunFlag = False
 
     @field_validator("sources", mode="before")
@@ -429,8 +432,8 @@ def _check_special(kind: str, source: str, head: dict[str, Cell] | None, lines: 
         check_invoice(head, lines)
     if kind in ("arrival", "purchase_return"):
         check_arrival(head, lines)
-    if source == "qm_incoming_check":
-        check_qm_in(head, lines)
+    if source in QM_IN_LINES:
+        check_qm_in(head, lines, source)
     if lines_optional(kind, source):
         check_arrival_in(head, lines)
     if kind == "sale_return":

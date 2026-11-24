@@ -9,6 +9,7 @@ namespace U8Co
     // 行上可改 qty、due_date、remark、文本型自定义项 define22–25、define28–33；inv_code 只能送当前值（不能换存货）。
     // start_date 一律 400：U8 改开工日期时会按工作日历 + 偏置期重算子件需求日期，MOrderUpdate 重建子件却沿用 Load 带出的旧日期（实测）。
     // U8 对空串不写（IsValidString），所以 remark 和自定义项不能清空。
+    // 行上可带 allocations（子件的替代料，MoUpdateSubsReq）；只带 allocations 的行也算修改。
     internal static class MoUpdateReq
     {
         internal static readonly string[] Defines = new string[]
@@ -33,6 +34,7 @@ namespace U8Co
         {
             List<string> all = new List<string>(FieldKeys);
             all.AddRange(Defines);
+            all.Add(MoUpdateSubsReq.Key);
             return all.ToArray();
         }
 
@@ -105,6 +107,11 @@ namespace U8Co
             MoEdit edit = new MoEdit();
             edit.LineId = LineId(MfgReq.Raw(row, "line_id"));
             Fields(row, edit);
+            object allocs = MfgReq.Raw(row, MoUpdateSubsReq.Key);
+            if (allocs != null)
+            {
+                edit.Allocs = MoUpdateSubsReq.Parse(allocs);
+            }
             return edit;
         }
 
@@ -209,6 +216,24 @@ namespace U8Co
         // 表头 remark：null 表示没给。
         public string HeadRemark;
         public List<MoEdit> Edits = new List<MoEdit>();
+        // 调用方给的替代料：快照子件的 AllocateId → 目标替代料（MoUpdateSubsReq.Resolve 登录后填）。
+        public Dictionary<int, List<MoSubRow>> Subs = new Dictionary<int, List<MoSubRow>>();
+
+        // 有行带了 allocations（第二级写入）。
+        public bool HasAllocs
+        {
+            get
+            {
+                for (int i = 0; i < Edits.Count; i++)
+                {
+                    if (Edits[i].Allocs != null)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
     }
 
     internal sealed class MoEdit
@@ -221,5 +246,7 @@ namespace U8Co
         public string Remark;
         public string InvCode;
         public Dictionary<string, string> Defines = new Dictionary<string, string>(StringComparer.Ordinal);
+        // 子件的替代料；null 表示这次没给（全部子件保留现有替代料）。
+        public List<MoAllocEdit> Allocs;
     }
 }

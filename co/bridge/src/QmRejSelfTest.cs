@@ -13,6 +13,7 @@ namespace U8Co
             CheckRefuse();
             CheckRules();
             CheckFields();
+            QmRejEditSelfTest.Run();
         }
 
         static void CheckSpec()
@@ -28,6 +29,19 @@ namespace U8Co
             Expect("rej auth pro", "QM02020303 QM02020304 QM02020305 QM02020307",
                 p.AddAuth + " " + p.DeleteAuth + " " + p.VerifyAuth + " " + p.UnverifyAuth);
             Expect("rej rule key", "write:qm_product_reject:unverify", p.RuleKey("unverify"));
+            CheckRef(p);
+        }
+
+        // 交给 U8 参照生单的来源记录集：检验单在参照视图里的行（未关闭），参数检验单 ID 与类型。
+        static void CheckRef(QmRejSpec p)
+        {
+            QmRejJob job = new QmRejJob();
+            job.Spec = p;
+            job.Ask = QmRejReq.Parse(p, 5, null, new object[] { Line(5, 1, "Sys01") });
+            object[] args;
+            string sql = QmRejSrc.RefSql(job, out args);
+            True("rej ref check", sql.Contains(" from QM_QPROCHECKB ") && sql.Contains("PU_CBCLOSER") && args.Length == 2);
+            True("rej check merged flag", QmRejSrc.CheckSql(p).Contains(" as Merged,"));
         }
 
         static void CheckParse()
@@ -66,8 +80,8 @@ namespace U8Co
 
         static void CheckRules()
         {
-            QmRejSrc.RequireTotal(3.5m, 3.5m);
-            Field("rej total", "lines", delegate { QmRejSrc.RequireTotal(3m, 3.5m); });
+            QmRejSrc.RequireTotal(3.5m, 3.5m, "检验单的不良品数量");
+            Field("rej total", "lines", delegate { QmRejSrc.RequireTotal(3m, 3.5m, "检验单的不良品数量"); });
             QmRejLine dim = new QmRejLine();
             dim.Flow = QmRejSrc.DimFlow;
             Field("rej dim missing", "cdiminvcode", delegate { QmRejSrc.RequireDim(dim); });
@@ -219,6 +233,14 @@ namespace U8Co
                 throw new InvalidOperationException(name + " " + ex.Field);
             }
             throw new InvalidOperationException(name);
+        }
+
+        static void True(string name, bool ok)
+        {
+            if (!ok)
+            {
+                throw new InvalidOperationException(name);
+            }
         }
 
         static void ExpectDec(string name, decimal want, decimal got)

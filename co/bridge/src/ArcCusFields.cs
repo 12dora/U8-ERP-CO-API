@@ -1,31 +1,21 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 
 namespace U8Co
 {
-    // 客户档案字段修改（archives/customer_fields）：受控 SQL 只改 Customer 的简称 cCusAbbName、地区分类 cDCCode、
-    // 停用日期 dEndDate、销售默认收付款协议 cCusSAProtocol、名称 cCusName、税号 cCusRegCode 六列（ArcCusFieldsSql）。
-    // 不走 EAI：客户 diffedit 会清银行账号、改最近收款日、补助记码，并拒无所属行业的客户。fields 里只写要改的键，expect 核对当前值（空串表示当前为空）。
+    // 客户档案字段修改（archives/customer_fields）：受控 SQL 只改 Customer 上白名单里的列（声明表 ArcCusCols：
+    // 简称、名称、税号、联系方式、银行、结算与协议、分类与行业、总公司、发展 / 停用日期、自定义项、对应供应商、标志位、扣率税率等），
+    // 不走 EAI：客户 diffedit 会清银行账号、改最近收款日、补助记码，并拒无所属行业的客户。
+    // fields 里只写要改的键，expect 核对当前值（空串表示当前为空）；响应的 before / after 与 409 的 detail.current 只含请求的键。
     internal static class ArcCusFields
     {
         public const string Op = "customer_fields";
         public const string Path = Requests.ArcRoot + Op;
         internal const string RuleKey = "write:archive:customer:customer_fields";
         internal const string Abbr = "abbrname";
-        internal const string District = "district";
-        internal const string EndDate = "end_date";
-        internal const string SaProtocol = "sa_protocol";
         internal const string Name = "name";
-        internal const string TaxNo = "tax_no";
-        // 固定顺序：校验、SQL、响应都按它。
-        internal static readonly string[] Keys = new string[] { Abbr, District, EndDate, SaProtocol, Name, TaxNo };
-        const int AbbrMax = 60;
-        const int DistrictMax = 12;
-        const int ProtocolMax = 20;  // Customer.cCusSAProtocol 列宽
-        const int NameMax = 98;  // Customer.cCusName 列宽
-        const int TaxMax = 50;  // Customer.cCusRegCode 列宽
-        const string DateFormat = "yyyy-MM-dd";
+        internal const string EndDate = "end_date";
+        internal const string SeedDate = "seed_date";
 
         public static ArcCusFieldsAsk Parse(Dictionary<string, object> body)
         {
@@ -83,124 +73,26 @@ namespace U8Co
             return map;
         }
 
-        // 逐键校验并规整值：键必须在 Keys 里，值必须是字符串。expect 的值不满足写入规则时同样 400（永远对不上）。
+        // 逐键校验并规整值：键必须在声明表里，值必须是字符串。expect 的值不满足写入规则时同样 400（永远对不上）。
         static Dictionary<string, string> Values(Dictionary<string, object> map, string at, bool expect)
         {
             Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (KeyValuePair<string, object> pair in map)
             {
                 string path = FieldPath.Join(at, pair.Key);
-                if (Array.IndexOf(Keys, pair.Key) < 0)
+                ArcCusCol col = ArcCusCols.Of(pair.Key);
+                if (col == null)
                 {
-                    throw ArcReq.Bad("未知字段 " + pair.Key + "；可用的键：" + string.Join(", ", Keys), path);
+                    throw ArcReq.Bad("未知字段 " + pair.Key + "；可用的键：" + string.Join(", ", ArcCusCols.Keys), path);
                 }
                 string text = pair.Value as string;
                 if (text == null)
                 {
                     throw ArcReq.Bad(path + " 必须是字符串", path);
                 }
-                result[pair.Key] = Value(pair.Key, text, path, expect);
+                result[pair.Key] = ArcCusValue.Parse(col, text, path, expect);
             }
             return result;
-        }
-
-        static string Value(string key, string text, string path, bool expect)
-        {
-            if (HasControl(text))
-            {
-                throw ArcReq.Bad(path + " 含有控制字符", path);
-            }
-            if (key == EndDate)
-            {
-                return Date(text, path);
-            }
-            if (key == District)
-            {
-                return PlainCode(text, path, DistrictMax);
-            }
-            if (key == SaProtocol)
-            {
-                return PlainCode(text, path, ProtocolMax);
-            }
-            return Trimmed(text, path, TextMax(key), key != TaxNo && !expect);
-        }
-
-        // 文本列（简称、名称、税号）的上限。
-        static int TextMax(string key)
-        {
-            if (key == Abbr)
-            {
-                return AbbrMax;
-            }
-            if (key == Name)
-            {
-                return NameMax;
-            }
-            if (key == TaxNo)
-            {
-                return TaxMax;
-            }
-            throw new BridgeException(500, "internal", "客户字段没有校验规则：" + key);
-        }
-
-        // 简称、名称、税号：前后空格去掉后不超过上限。required 为真（写入简称、名称）时不能为空：简称库列 NOT NULL，
-        // 名称实际总有值；税号写空串清为 NULL。expect 允许空串（对不上而已）。
-        static string Trimmed(string text, string path, int max, bool required)
-        {
-            string trimmed = text.Trim();
-            if (trimmed.Length == 0 && required)
-            {
-                throw ArcReq.Bad(path + " 不能为空", path);
-            }
-            if (trimmed.Length > max)
-            {
-                throw ArcReq.Bad(path + " 长度不能超过 " + max.ToString(CultureInfo.InvariantCulture), path);
-            }
-            return trimmed;
-        }
-
-        // 地区分类编码（是否存在、是否末级在事务里查）、收付款协议编码（AA_Agreement.cCode，是否存在、是否停用在事务里查）：
-        // 空串清空；非空不超过上限、前后没有空格。
-        static string PlainCode(string text, string path, int max)
-        {
-            if (text.Length > max)
-            {
-                throw ArcReq.Bad(path + " 长度不能超过 " + max.ToString(CultureInfo.InvariantCulture), path);
-            }
-            if (text.Trim().Length != text.Length)
-            {
-                throw ArcReq.Bad(path + " 前后不能有空格", path);
-            }
-            return text;
-        }
-
-        // 停用日期：空串清空；否则严格 yyyy-MM-dd，且不早于 1900-01-01（datetime 列的合理下限）。
-        static string Date(string text, string path)
-        {
-            if (text.Length == 0)
-            {
-                return text;
-            }
-            DateTime day;
-            if (!DateTime.TryParseExact(text, DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out day)
-                || day.Year < 1900)
-            {
-                throw ArcReq.Bad(path + " 必须是 yyyy-MM-dd 日期或空串", path);
-            }
-            return text;
-        }
-
-        static bool HasControl(string text)
-        {
-            for (int i = 0; i < text.Length; i++)
-            {
-                char c = text[i];
-                if (c < ' ' || c == '\x7f')
-                {
-                    return true;
-                }
-            }
-            return false;
         }
 
         // 把 cur 里被 fields 覆盖的键换成目标值（没给的键保持当前值）。
@@ -227,27 +119,23 @@ namespace U8Co
             return false;
         }
 
-        // 409 state_mismatch 的 detail.current：请求 fields 里各键的当前值（按 Keys 顺序，空值是空串）。
+        // 409 state_mismatch 的 detail.current：请求 fields 里各键的当前值（按声明表顺序，空值是空串）。
         internal static Dictionary<string, object> CurrentOf(Dictionary<string, string> cur, Dictionary<string, string> fields)
         {
-            Dictionary<string, object> view = new Dictionary<string, object>();
-            for (int i = 0; i < Keys.Length; i++)
-            {
-                if (fields.ContainsKey(Keys[i]))
-                {
-                    view[Keys[i]] = cur[Keys[i]];
-                }
-            }
-            return view;
+            return View(cur, fields);
         }
 
-        // 响应里的全键对象（固定顺序，空值是空串）。
-        internal static Dictionary<string, object> View(Dictionary<string, string> values)
+        // 响应里的对象：只含请求的键（固定顺序，空值是空串）。
+        internal static Dictionary<string, object> View(Dictionary<string, string> values, Dictionary<string, string> fields)
         {
             Dictionary<string, object> view = new Dictionary<string, object>();
-            for (int i = 0; i < Keys.Length; i++)
+            for (int i = 0; i < ArcCusCols.All.Length; i++)
             {
-                view[Keys[i]] = values[Keys[i]];
+                string key = ArcCusCols.All[i].Key;
+                if (fields.ContainsKey(key))
+                {
+                    view[key] = values[key];
+                }
             }
             return view;
         }
@@ -259,8 +147,8 @@ namespace U8Co
             body["ok"] = true;
             body["code"] = ask.Code;
             body["changed"] = wrote;
-            body["before"] = View(before);
-            body["after"] = View(wrote ? Merged(before, ask.Fields) : before);
+            body["before"] = View(before, ask.Fields);
+            body["after"] = View(wrote ? Merged(before, ask.Fields) : before, ask.Fields);
             return body;
         }
 
@@ -273,8 +161,8 @@ namespace U8Co
             body["mode"] = DryRunModes.Validate;
             body["code"] = ask.Code;
             body["changed"] = Differs(before, ask.Fields);
-            body["before"] = View(before);
-            body["after"] = View(Merged(before, ask.Fields));
+            body["before"] = View(before, ask.Fields);
+            body["after"] = View(Merged(before, ask.Fields), ask.Fields);
             return body;
         }
     }
@@ -282,9 +170,13 @@ namespace U8Co
     internal sealed class ArcCusFieldsAsk
     {
         public string Code;
-        // 要改的键 → 目标值（空串表示清空）。
+        // 要改的键 → 目标值（空串表示清空）；写库前由 ArcCusCheck 换成库里存的写法。
         public Dictionary<string, string> Fields;
         // 没有 expect 时为 null；键是 Fields 键的子集。
         public Dictionary<string, string> Expect;
+        // 库里存的客户编码（锁行时读出；总公司留空即指向它）。
+        public string Self;
+        // 联动列要写的值：请求键 → 值（所属行业带出的行业名称）。
+        public Dictionary<string, string> Pairs = new Dictionary<string, string>(StringComparer.Ordinal);
     }
 }

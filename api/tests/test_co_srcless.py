@@ -1,4 +1,4 @@
-"""无来源新增（发货单、先开票销售发票、到货单、材料出库单）与产成品入库参照生产订单。桥是本地假桥。"""
+"""无来源新增（发货单、退货单、先开票销售发票、到货单、采购退货单、材料出库单）与产成品入库参照生产订单。桥是本地假桥。"""
 
 from __future__ import annotations
 
@@ -12,8 +12,10 @@ _SA_HEAD = {"cCusCode": "C001", "cSTCode": "01", "dDate": "2026-09-28"}
 _SA_LINE = {"cWhCode": "01", "cInvCode": "A001", "iQuantity": 2, "iTaxUnitPrice": 11.3}
 _BODIES = {
     "dispatch": (_SA_HEAD, _SA_LINE),
+    "sale_return": (dict(_SA_HEAD, cMemo="退货"), _SA_LINE),
     "sale_invoice": (dict(_SA_HEAD, cVouchType="27"), _SA_LINE),
     "arrival": ({"cVenCode": "V001", "cMemo": "m"}, {"cInvCode": "A001", "iQuantity": 1, "iOriTaxCost": 5}),
+    "purchase_return": ({"cVenCode": "V001", "cMemo": "m"}, {"cInvCode": "A001", "iQuantity": 1, "iOriTaxCost": 5}),
     "material_out": (
         {"cWhCode": "01", "cRdCode": "103"},
         {"cInvCode": "A001", "iQuantity": 1, "cBatch": "B1", "cPosition": "01"},
@@ -56,10 +58,17 @@ def test_invoice_create_returns_generated_dispatch() -> None:
         ("dispatch", _SA_HEAD, {"cInvCode": "A001", "iQuantity": 1}),
         ("dispatch", dict(_SA_HEAD, iSOsID=1), _SA_LINE),
         ("dispatch", _SA_HEAD, dict(_SA_LINE, iQuantity=0)),
+        ("sale_return", _SA_HEAD, dict(_SA_LINE, iSOsID=3)),
+        ("sale_return", _SA_HEAD, dict(_SA_LINE, iCorID=3)),
+        ("sale_return", dict(_SA_HEAD, bReturnFlag=1), _SA_LINE),
+        ("sale_return", _SA_HEAD, dict(_SA_LINE, iQuantity=-2)),
         ("sale_invoice", dict(_SA_HEAD, cVouchType="28"), _SA_LINE),
         ("sale_invoice", _SA_HEAD, dict(_SA_LINE, iDLsID=5)),
         ("arrival", {"cMemo": "m"}, {"cInvCode": "A001", "iQuantity": 1}),
         ("arrival", {"cVenCode": "V001"}, {"cInvCode": "A001", "iQuantity": 1, "iPOsID": 3}),
+        ("purchase_return", {"cMemo": "m"}, {"cInvCode": "A001", "iQuantity": 1}),
+        ("purchase_return", {"cVenCode": "V001"}, {"cInvCode": "A001", "iQuantity": -1}),
+        ("purchase_return", {"cVenCode": "V001"}, {"cInvCode": "A001", "iQuantity": 1, "iCorID": 3}),
         ("material_out", {"cRdCode": "103"}, {"cInvCode": "A001", "iQuantity": 1}),
         ("material_out", {"cWhCode": "01", "dDate": "2026/09/28"}, {"cInvCode": "A001", "iQuantity": 1}),
         ("material_out", {"cWhCode": "01"}, {"cInvCode": "A001", "iQuantity": 1, "iMPoIds": 9}),

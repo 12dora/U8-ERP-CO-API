@@ -41,11 +41,15 @@ namespace U8Co
         // 处理后存货的计量单位与换算率（流程 2 且存货有换算时，QmRejUnits.Dim）。
         public string DimUnit = "";
         public decimal DimRate;
+        // 修改（QmRejEdit）：已有行的 AUTOID（新增行为 0）、处理后数量（0 表示同处理数量，生单总是同处理数量）。
+        public int AutoId;
+        public decimal DimQty;
     }
 
     // 不良品处理单生单请求：登录前和处理函数里各校验一次，字段名不分大小写。
     // 表头 ddate、cdefine1–16、chdefine11–16（扩展自定义项，同检验单；QMREJECTVOUCHER 没有备注列）；表体 1 到 200 行
-    // {source_line_id（= 检验单 ID，一张检验单就是一个来源行，可重复）, quantity, cscrapdiscode, creasoncode, cdiminvcode?, cbwhcode?}。
+    // {source_line_id（必须等于检验单 ID）, quantity, cscrapdiscode, creasoncode,
+    // cdiminvcode?, cbwhcode?}。
     internal static class QmRejReq
     {
         public const int LinesMax = 200;
@@ -54,8 +58,9 @@ namespace U8Co
         {
             "source_line_id", "quantity", "cscrapdiscode", "creasoncode", "cdiminvcode", "cbwhcode"
         };
+        const string ExtraColumnSql = "select case when COL_LENGTH(?, ?) is null then N'0' else N'1' end";
 
-        // QmReq.Check 的钩子：不良品处理单的生单、审核、删除用 QM 登录，生单在登录前校验。其他类型返回 false。
+        // QmReq.Check 的钩子：不良品处理单的生单、修改、审核、删除用 QM 登录，生单、修改在登录前校验。其他类型返回 false。
         public static bool Check(WorkItem item, string path)
         {
             QmRejSpec spec = item == null ? null : QmRejSpec.Of(item.Type);
@@ -66,6 +71,10 @@ namespace U8Co
             if (path == "/u8co/v1/vouchers/generate")
             {
                 Parse(spec, item.Id, item.Head, item.Lines);
+            }
+            else if (path == QmRejEditReq.UpdatePath)
+            {
+                QmRejEditReq.Parse(spec, item.Head, item.Lines);
             }
             else if (path != "/u8co/v1/vouchers/delete" && path != "/u8co/v1/vouchers/verify")
             {
@@ -92,7 +101,7 @@ namespace U8Co
             return ask;
         }
 
-        static void ParseHead(QmRejAsk ask, Dictionary<string, object> head)
+        internal static void ParseHead(QmRejAsk ask, Dictionary<string, object> head)
         {
             foreach (KeyValuePair<string, object> kv in head)
             {
@@ -123,7 +132,12 @@ namespace U8Co
             {
                 try
                 {
-                    ask.Lines.Add(ParseLine(ask.CheckId, lines[i]));
+                    QmRejLine line = ParseLine(lines[i]);
+                    if (line.SourceLineId != ask.CheckId)
+                    {
+                        throw BridgeException.BadField("source_line_id", "source_line_id 必须等于检验单 ID");
+                    }
+                    ask.Lines.Add(line);
                 }
                 catch (BridgeException ex)
                 {
@@ -132,7 +146,7 @@ namespace U8Co
             }
         }
 
-        static QmRejLine ParseLine(int checkId, object raw)
+        static QmRejLine ParseLine(object raw)
         {
             Dictionary<string, object> row = raw as Dictionary<string, object>;
             if (row == null)
@@ -148,11 +162,6 @@ namespace U8Co
             }
             QmRejLine line = new QmRejLine();
             line.SourceLineId = MfgReq.LineId(row);
-            // 检验单只有一个来源行（检验单本身），source_line_id 必须是请求的检验单 ID。
-            if (checkId > 0 && line.SourceLineId != checkId)
-            {
-                throw BridgeException.BadField("source_line_id", "source_line_id 必须等于检验单 ID");
-            }
             line.Qty = MfgReq.LineQty(row);
             line.Dispose = Need(row, "cscrapdiscode", "必须指定处理方式 cscrapdiscode");
             line.Reason = Need(row, "creasoncode", "必须指定不良原因 creasoncode");
@@ -169,6 +178,20 @@ namespace U8Co
                 throw BridgeException.BadField(name, message);
             }
             return text;
+        }
+
+        // 扩展自定义项 chdefine11–16 须是本账套 QMREJECTVOUCHER_extradefine 已有的列（没建扩展表时一律没有）：U8 保存会丢掉
+        // 不认识的字段却照样提交，只能在调用前拦（400）。生单、修改共用。
+        internal static void RequireExtraColumns(object conn, QmRejAsk ask)
+        {
+            for (int n = 11; n <= 16; n++)
+            {
+                string key = "chdefine" + n.ToString(CultureInfo.InvariantCulture);
+                if (ask.Head.ContainsKey(key) && QmSql.Scalar(conn, ExtraColumnSql, "QMREJECTVOUCHER_extradefine", key) != "1")
+                {
+                    throw BridgeException.BadField("head." + key, "账套没有扩展自定义项 " + key + "（表 QMREJECTVOUCHER_extradefine）");
+                }
+            }
         }
 
         internal static bool HeadKey(string low)

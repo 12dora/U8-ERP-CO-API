@@ -50,13 +50,19 @@ namespace U8Co
         // 扩展自定义项行（<表头表>_extradefine，没有行为 null）。账套没有建扩展自定义项表时（空账套）同样为 null。
         public static Dictionary<string, object> Extra(object conn, QmEditJob job)
         {
-            string table = job.HeadTable + "_extradefine";
+            return Extra(conn, job.HeadTable, job.Id);
+        }
+
+        // headTable 只来自常量（QmEditJob.HeadTable、不良品处理单 QMREJECTVOUCHER）。
+        public static Dictionary<string, object> Extra(object conn, string headTable, int id)
+        {
+            string table = headTable + "_extradefine";
             if (QmSql.Scalar(conn, ExtraExistsSql, table) != "1")
             {
                 return null;
             }
-            string sql = string.Format(CultureInfo.InvariantCulture, ExtraSql, CoRows.Ident(job.HeadTable));
-            return QmSql.One(conn, sql, job.Id);
+            string sql = string.Format(CultureInfo.InvariantCulture, ExtraSql, CoRows.Ident(headTable));
+            return QmSql.One(conn, sql, id);
         }
 
         // 报检单行的累计检验数量|检验标记（BFLAG）；修改不应改动它们，保存后在新连接上再读一次核对。

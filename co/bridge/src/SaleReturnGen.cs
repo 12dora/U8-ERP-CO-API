@@ -7,6 +7,7 @@ namespace U8Co
     // 退货单 ← 蓝字发货单（参照发货单退货）。实测：VT 10 的 GetNegaVouchData("05", 头, 体, 蓝字 DLID, err, true)
     // 由 U8 自己做出整张红字 DOM（负数量、负金额，表体不挂订单行）；桥只留请求的行、改成新增、按数量比例缩放后
     // BodyCheck 重算金额（SaleReturnLine.cs），卡片 03 重取模板，取号保存。API 的 quantity 仍是正数。
+    // 参照销售订单（只挂订单行）走发货单生单的 DOM 构造，见 SaleReturnSo.cs。
     internal static partial class SaleGen
     {
         // 原发货行的可退数量要素（SaleReturnRoom）与订单关联。
@@ -59,6 +60,10 @@ namespace U8Co
                 head = new Dictionary<string, object>();
             }
             CheckReturn(head, lines);
+            if (FromOrder(ctx.Item))
+            {
+                return ReturnFromSo(ctx, kind, sourceId, head, lines);
+            }
             RetJob job = new RetJob();
             job.Ctx = ctx;
             job.Kind = kind;
@@ -99,7 +104,13 @@ namespace U8Co
 
         static List<RetLine> PlanReturn(object conn, int sourceId, object[] lines)
         {
-            Dictionary<int, Dictionary<string, object>> body = IndexBy(conn, RetLineSql, sourceId, "iDLsID");
+            return PlanReturn(conn, sourceId, lines, false);
+        }
+
+        // fromSo：来源是销售订单，source_line_id 是订单行 iSOsID，可退数量按订单行（SoRoom）。
+        static List<RetLine> PlanReturn(object conn, int sourceId, object[] lines, bool fromSo)
+        {
+            Dictionary<int, Dictionary<string, object>> body = RetBody(conn, sourceId, fromSo);
             Dictionary<int, bool> seen = new Dictionary<int, bool>();
             List<RetLine> plan = new List<RetLine>();
             for (int i = 0; i < lines.Length; i++)
@@ -123,11 +134,11 @@ namespace U8Co
                 RetLine line = new RetLine();
                 line.LineId = lineId;
                 line.Qty = QtyOf(RawKey(map, "quantity"));
+                line.SoOnly = fromSo;
                 line.SoLine = CoRows.AsId(CoRows.Col(src, "iSOsID"));
                 line.SoCode = CoRows.Col(src, "SoCode");
                 line.SoRow = CoRows.Col(src, "SoRow");
-                line.RoomU = Room(src, false);
-                line.RoomI = Room(src, true);
+                SetRooms(line, src);
                 line.Fields = map;
                 plan.Add(line);
             }
@@ -181,14 +192,9 @@ namespace U8Co
             {
                 DomRows.Set(doms[0], row, "csocode", job.Lines[0].SoCode, schema);
             }
-            // GetNegaVouchData 给的是蓝字模板 iVTid，按卡片 03 重取。
+            // GetNegaVouchData 给的是蓝字模板 iVTid，按卡片 03 重取（没给时 Stamp 用 SaleReturn.RedVtidFallback）。
             DomRows.Set(doms[0], row, "ivtid", null, schema);
             SoSave.Stamp(ctx, sys, doms[0], SaleReturn.RedCard);
-            if (SoDom.Attr(doms[0], "iVTid").Length == 0)
-            {
-                CoRows.Note(ctx.Item, "getDefaltVTID 没给卡片 03 模板，用缺省 " + RedVtidFallback);
-                SoDom.SetAttr(doms[0], "iVTid", RedVtidFallback);
-            }
         }
 
         sealed class RetJob
@@ -213,6 +219,8 @@ namespace U8Co
             internal int LineId;
             internal decimal Qty;
             internal int SoLine;
+            // 参照销售订单：LineId 与 SoLine 都是订单行 iSOsID，没有原发货行（不挂 icorid，不核对原行回写）。
+            internal bool SoOnly;
             internal Dictionary<string, object> Fields;
             // 事务里保存前读到的原发货行累计退货数量。
             internal decimal RetBefore;

@@ -385,6 +385,10 @@ namespace U8Co
             return text;
         }
 
+        // datetime 列的最早日期（SQL Server datetime 范围下限）；更早的日期写库会转换溢出。
+        internal static readonly DateTime MinDatetime = new DateTime(1753, 1, 1);
+
+        // 写入 datetime 列的日期：yyyy-MM-dd，不早于 MinDatetime。
         internal static string Date(Dictionary<string, object> map, string key)
         {
             string text = Str(map, key, 10, true);
@@ -393,7 +397,16 @@ namespace U8Co
             {
                 throw BridgeException.BadField(key, key + " 必须是 yyyy-MM-dd");
             }
+            NotBeforeMin(parsed, key);
             return text;
+        }
+
+        internal static void NotBeforeMin(DateTime value, string key)
+        {
+            if (value < MinDatetime)
+            {
+                throw BridgeException.BadField(key, key + " 不能早于 1753-01-01");
+            }
         }
 
         // JSON 整数（不收布尔、字符串、小数）。

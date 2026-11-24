@@ -11,6 +11,7 @@
   "readWorkers": 4,
   "queueCap": 32,
   "authCacheSeconds": 600,
+  "permCacheSeconds": 60,
   "templateCache": true,
   "mobilePush": false,
   "licenseRetries": 2,

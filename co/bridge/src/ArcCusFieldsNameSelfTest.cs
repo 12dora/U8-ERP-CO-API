@@ -55,8 +55,9 @@ namespace U8Co
             Expect("set tax", ArcCusFieldsSql.SetOf("tax_no", "EXAMPLE-TAX-NO-001", args) == "cCusRegCode=?" && args.Count == 1);
             args.Clear();
             Expect("set tax clear", ArcCusFieldsSql.SetOf("tax_no", "", args) == "cCusRegCode=NULL" && args.Count == 0);
-            Expect("lock name", ArcCusFieldsSql.LockSql.IndexOf("LTRIM(RTRIM(ISNULL(cCusName,''))) AS name,", StringComparison.Ordinal) > 0
-                && ArcCusFieldsSql.LockSql.IndexOf("LTRIM(RTRIM(ISNULL(cCusRegCode,''))) AS tax_no,", StringComparison.Ordinal) > 0);
+            string lockSql = ArcCusFieldsSql.LockSqlOf(ArcCusCols.Loaded(new string[] { "name", "tax_no" }));
+            Expect("lock name", lockSql.IndexOf("LTRIM(RTRIM(ISNULL(cCusName,''))) AS name,", StringComparison.Ordinal) > 0
+                && lockSql.IndexOf("LTRIM(RTRIM(ISNULL(cCusRegCode,''))) AS tax_no,", StringComparison.Ordinal) > 0);
         }
 
         // detail.current 只含请求 fields 的键（按 Keys 顺序），值是当前值，空为空串；消息照旧列出不符的键。

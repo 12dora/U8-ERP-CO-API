@@ -32,13 +32,13 @@ GENERATABLE_KINDS = (
 )
 # 生单可选 source_type：目标类型 → 允许的来源类型。不给时桥用默认来源。
 GENERATE_SOURCES = {
-    "purchase_in": ("purchase_order", "qm_incoming_check"),
+    "purchase_in": ("purchase_order", "qm_incoming_check", "qm_incoming_reject"),
     "purchase_invoice": ("purchase_in",),
     "arrival": ("purchase_order",),
     # 产成品入库参照产品检验单（缺省）或产品不良品处理单。
     "product_in": ("qm_product_check", "qm_product_reject"),
 }
-SOURCE_TYPES = ("purchase_order", "qm_incoming_check", "purchase_in")
+SOURCE_TYPES = ("purchase_order", "qm_incoming_check", "qm_incoming_reject", "purchase_in")
 SOURCE_TYPES += ("qm_product_check", "qm_product_reject")  # 产成品入库的两种来源
 # 可直接审核的读取类型。采购发票的审核是采购复核。
 VERIFIABLE_KINDS = (
@@ -115,9 +115,10 @@ DELETABLE_KINDS += STOCK_MISC_KINDS
 UPDATABLE_KINDS += ("shape_change", "transfer_request")
 # 盘点单审核暂不支持（U8 生成盘盈盘亏单时报类型不匹配），请到 U8 客户端审核。
 VERIFIABLE_KINDS = VERIFIABLE_KINDS[: -len(ARAP_KINDS)] + ("shape_change", "transfer_request") + ARAP_KINDS
-# 无来源新增——发货单、先开票销售发票（U8 另生成发货单）、到货单、材料出库单（账套打开「必有订单」一类选项时桥 409）；
+# 无来源新增——发货单、退货单（红字发货单，数量传正数）、先开票销售发票（U8 另生成发货单）、到货单、采购退货单（红字到货单，不受「普通业务必有订单」限制）、
+# 材料出库单（账套打开「必有订单」一类选项时桥 409）；
 # 产成品入库另可参照生产订单（id 是 MoId，source_line_id 是 MoDId）。
-SRCLESS_CREATE_KINDS = ("dispatch", "sale_invoice", "arrival", "material_out")
+SRCLESS_CREATE_KINDS = ("dispatch", "sale_return", "sale_invoice", "arrival", "purchase_return", "material_out")
 CREATABLE_KINDS += SRCLESS_CREATE_KINDS
 GENERATE_SOURCES["product_in"] = GENERATE_SOURCES["product_in"] + ("production_order",)
 # 调拨单参照已审核的调拨申请单生单（申请单行要有核准数量 iTvChkQuantity）。
@@ -137,8 +138,9 @@ KIND_NAMES = KIND_NAMES[: -len(ARAP_KINDS)] + ("stock_opening",) + ARAP_KINDS  #
 CREATABLE_KINDS += ("stock_opening",)
 DELETABLE_KINDS += ("stock_opening",)
 VERIFIABLE_KINDS = VERIFIABLE_KINDS[: -len(ARAP_KINDS)] + ("stock_opening",) + ARAP_KINDS
-# 来料 / 产品不良品处理单（QM05 / QM06）参照已审核的来料 / 产品检验单生单（每行一种处理方式，
-# source_line_id 等于检验单 ID），可删除（未审核、无下游）；未受审批流控制时可直接审核、弃审，受控时仍走 workflow/*。
+# 来料 / 产品不良品处理单（QM05 / QM06）参照已审核的来料 / 产品检验单生单（每行一种处理方式，source_line_id
+# 等于检验单 ID；合并检验的检验单不能参照），可删除（未审核、无下游）；
+# 未受审批流控制时可直接审核、弃审，受控时仍走 workflow/*。
 REJECT_KINDS = ("qm_incoming_reject", "qm_product_reject")
 DELETABLE_KINDS += REJECT_KINDS
 GENERATABLE_KINDS += REJECT_KINDS
@@ -159,6 +161,8 @@ VERIFIABLE_KINDS = tuple(name for name in KIND_NAMES if name in VERIFIABLE_KINDS
 # 来料 / 产品检验单、其他检验单、其他报检单可修改（只收 head，检验单的检验项目在 head.items；不收 lines）。
 QM_UPDATE_KINDS = ("qm_incoming_check", "qm_product_check") + OTHER_QM_KINDS
 UPDATABLE_KINDS += QM_UPDATE_KINDS
+# 不良品处理单可修改：表头 dDate、cDefine1–16、chDefine11–16，lines 按 op 增删改处理行（line_id 是表体 AUTOID）。
+UPDATABLE_KINDS += REJECT_KINDS
 # 产品报检单 vouchers/verify 只收 unverify（不能修改、不能审核）。
 VERIFIABLE_KINDS = tuple(name for name in KIND_NAMES if name in VERIFIABLE_KINDS + ("qm_product_inspect",))
 # 采购结算单（卡片 99）：没有审核；读取、列表、查找，事件服务按 psufts / psdufts 轮询新增、修改、删除。
@@ -212,6 +216,8 @@ UPDATABLE_KINDS += RETURN_APPLY_KINDS
 VERIFIABLE_KINDS = tuple(name for name in KIND_NAMES if name in VERIFIABLE_KINDS + RETURN_APPLY_KINDS)
 GENERATE_SOURCES["sale_return"] += ("sale_return_apply",)
 SOURCE_TYPES += ("sale_return_apply",)
+# 退货单另可只挂订单行参照销售订单（id 是 SO_SOMain.ID，source_line_id 是 iSOsID）。
+GENERATE_SOURCES["sale_return"] += ("sale_order",)
 
 _ALL_KINDS = frozenset(KIND_NAMES)
 # 应收 / 应付票据（AP_Note）只是列表类型：vouchers/list 收，vouchers/load 和写路由都不收（单张读取走 notes/get）。

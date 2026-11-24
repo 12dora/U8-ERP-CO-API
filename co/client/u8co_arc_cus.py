@@ -1,11 +1,11 @@
-"""客户主数据的专用写入（受控 SQL，不走客户 EAI）：专管业务员、名称 / 简称 / 税号 / 地区分类 / 停用日期 / 销售默认收付款协议、
-收货地址（改、增、删）。混入 U8CoClient。
+"""客户主数据的专用写入（受控 SQL，不走客户 EAI）：专管业务员、按白名单改客户列（名称、简称、联系方式、银行、结算、协议、
+分类、自定义项、比率等，键表见 u8co_arc_cus_keys）、收货地址（改、增、删）。混入 U8CoClient。
 
 EAI 的客户修改会清空开户银行与银行账号、改写最后收款日期，U8 也没有收货地址组件，所以三个操作都只改
 请求里列出的列。fields 与 expect 的写法同 API（docs/api-reference.md「客户主数据专用写入」）；
-这里只做本地预检，细的校验（地区分类是否末级、停用日期不早于建档日期、收付款协议是否存在且未停用、简称是否与其他客户重复、
-地址编码引用）在桥。expect 不符时抛 U8CoStateMismatch，其 current 是桥给的当前值（customer_fields 为 fields 各键，
-customer_person 为 {"person": ...}）。
+这里只做本地预检（键、类型、长度、区间、日期次序），引用档案是否存在 / 末级 / 未停用、简称与名称是否重复、
+地址编码引用等细的校验在桥。expect 不符时抛 U8CoStateMismatch，其 current 是桥给的当前值（customer_fields 为 fields 里
+各键，customer_person 为 {"person": ...}）。
 """
 
 from __future__ import annotations
@@ -13,19 +13,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from co.client.u8co_gl_arc import _arc_code, _common, _text, _ymd
+from co.client.u8co_arc_cus_keys import CUSTOMER_FIELD_KEYS, check_customer_values
+from co.client.u8co_gl_arc import _arc_code, _common, _text
 from co.client.u8co_idem import with_key
 
 if TYPE_CHECKING:
     from co.client.u8co_client import U8Call
 
-# 客户字段：键 → 最大长度（Customer.cCusAbbName 60、cDCCode 12、dEndDate 写成 yyyy-MM-dd、cCusSAProtocol 20、
-# cCusName 98、cCusRegCode 50）。
-CUSTOMER_FIELD_LIMIT = {"abbrname": 60, "district": 12, "end_date": 10, "sa_protocol": 20, "name": 98, "tax_no": 50}
-# 写入时首尾不能有空白的键。
-_CUSTOMER_TRIMMED = ("district", "sa_protocol")
-# 写入时去掉首尾空白后不能为空的键（税号写空串清空）。
-_CUSTOMER_REQUIRED = ("abbrname", "name")
 # 收货地址：code → cAddCode（30），name → cDeliverAdd、unit → cDeliverUnit（255），default → bDefault。
 ADDRESS_FIELD_LIMIT = {"code": 30, "name": 255, "unit": 255}
 ADDRESS_KEYS = (*ADDRESS_FIELD_LIMIT, "default")
@@ -92,9 +86,9 @@ class U8CoArcCusMixin:
     ) -> dict[str, Any]:
         body = _common(call)
         body["code"] = _arc_code("customer", code, "档案编码 code")
-        body["fields"] = _customer_values(fields, "fields", tuple(CUSTOMER_FIELD_LIMIT), True)
+        body["fields"] = check_customer_values(fields, "fields", tuple(CUSTOMER_FIELD_KEYS), True)
         if expect is not None:
-            body["expect"] = _customer_values(expect, "expect", tuple(body["fields"]), False)
+            body["expect"] = check_customer_values(expect, "expect", tuple(body["fields"]), False)
         return self.call("/v1/archives/customer_fields", with_key(body, idempotency_key))
 
     def arc_customer_address(
@@ -157,31 +151,6 @@ def _plain(value: object, label: str, limit: int) -> str:
     if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
         raise ValueError(f"{label} 不能含控制字符")
     return value
-
-
-def _customer_values(values: object, label: str, allowed: tuple[str, ...], writing: bool) -> dict[str, str]:
-    found = _object(values, label, allowed, nonempty=writing)
-    for key, value in found.items():
-        where = f"{label}.{key}"
-        if key == "end_date":
-            if value != "":
-                _ymd(value, where)
-        elif writing:
-            _customer_text(key, _plain(value, where, CUSTOMER_FIELD_LIMIT[key]), where)
-        elif key in _CUSTOMER_TRIMMED:
-            # 编码类的键与桥一致：expect 的控制字符、首尾空白同样 400（永远对不上）。
-            _customer_text(key, _plain(value, where, CUSTOMER_FIELD_LIMIT[key]), where)
-        elif type(value) is not str or len(value) > CUSTOMER_FIELD_LIMIT[key]:
-            # expect 只核对当前值，不要求写法合规。
-            raise ValueError(f"{where} 必须是不超过 {CUSTOMER_FIELD_LIMIT[key]} 个字符的字符串")
-    return found
-
-
-def _customer_text(key: str, text: str, where: str) -> None:
-    if key in _CUSTOMER_REQUIRED and text.strip() == "":
-        raise ValueError(f"{where} 不能为空")
-    if key in _CUSTOMER_TRIMMED and text != text.strip():
-        raise ValueError(f"{where} 首尾不能有空白")
 
 
 def _new_address(value: object) -> str:

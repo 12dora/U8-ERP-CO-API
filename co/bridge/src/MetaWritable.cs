@@ -70,6 +70,13 @@ namespace U8Co
                 qm["required"] = Required(new string[0], new string[0]);
                 return qm;
             }
+            // 不良品处理单修改：表头同生单，处理行按 op / line_id 增删改，至多 200 项（QmRejEditReq）。
+            if (QmRejSpec.Handles(k))
+            {
+                Dictionary<string, object> rej = Spec(QmRejReq.HeadKey, QmRejEditReq.LineKey, 0, QmRejReq.LinesMax, UpdateControl);
+                rej["required"] = Required(new string[0], new string[0]);
+                return rej;
+            }
             Func<string, bool>[] rule = EditMore.Handles(k) ? UpdateRule(k) : Rule(k);
             if (rule == null)
             {

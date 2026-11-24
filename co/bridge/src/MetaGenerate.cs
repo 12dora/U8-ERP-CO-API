@@ -113,13 +113,17 @@ namespace U8Co
             return null;
         }
 
-        // 采购入库：参照来料检验单表体 1 行（另收货位）；参照到货单字段同参照采购订单，lines 可省（整单按剩余），
+        // 采购入库：参照来料检验单表体 1 行、参照来料不良品处理单 1 到 200 行（另收货位）；参照到货单字段同参照采购订单，lines 可省（整单按剩余），
         // 仓库取表头或各行一致的 cwhcode（StockGenArr）；参照采购退货单的红字入库（StockGenRed）与参照采购订单同一套字段。
         static Dictionary<string, object> PurchaseIn(string source, Func<string, bool> posLine)
         {
             if (source == "qm_incoming_check")
             {
                 return Make(StockGen.MetaHeadKey, posLine, 1, Warehouse());
+            }
+            if (source == RejSrc.Incoming.Source)
+            {
+                return Make(StockGen.MetaHeadKey, posLine, 200, Warehouse());
             }
             if (source == StockGen.ArrSourceName)
             {

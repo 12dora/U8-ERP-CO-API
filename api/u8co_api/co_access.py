@@ -102,6 +102,9 @@ ACCESS = {
     "co:archives/customer_address": WRITE,
     "co:archives/customer_address_add": WRITE,
     "co:archives/customer_address_delete": WRITE,
+    "co:archives/customer_invoice_company_add": WRITE,
+    "co:archives/customer_invoice_company_delete": WRITE,
+    "co:archives/customer_invoice_company": WRITE,
     # 只读报表。
     "co:reports/close_status": READ,
     "co:reports/gl_balance": READ,

@@ -43,6 +43,8 @@ namespace U8Co
         public int ReadWorkers = 4;
         public int QueueCap = 32;
         public int AuthCacheSeconds = 600;
+        // 权限快照缓存（PermCache）秒数，0 不缓存。
+        public int PermCacheSeconds = 60;
         // 空白模板缓存（TplCache）。缺省开启，false 时每次现取。
         public bool TemplateCache = true;
         // 移动审批（友空间）推送。缺省关闭：审批引擎的 YonYou.U8.MA.* 程序集不加载，经本服务审批不推手机。
@@ -83,7 +85,7 @@ namespace U8Co
         {
             "listenPrefix", "u8Server", "allowedAccounts", "allowedClients", "auditLog",
             "auditLogRetentionDays", "auditLogCompressAfterDays", "u8Home",
-            "staWorkers", "readWorkers", "queueCap", "authCacheSeconds",
+            "staWorkers", "readWorkers", "queueCap", "authCacheSeconds", "permCacheSeconds",
             // 空白模板缓存
             "templateCache",
             // 移动审批推送
@@ -209,12 +211,13 @@ namespace U8Co
             return false;
         }
 
-        static void LoadPools(BridgeConfig cfg, Dictionary<string, object> map)
+        internal static void LoadPools(BridgeConfig cfg, Dictionary<string, object> map)
         {
             cfg.StaWorkers = OptionalInt(map, "staWorkers", 4, 1, 8);
             cfg.ReadWorkers = OptionalInt(map, "readWorkers", 4, 1, 16);
             cfg.QueueCap = OptionalInt(map, "queueCap", 32, 1, 256);
             cfg.AuthCacheSeconds = OptionalInt(map, "authCacheSeconds", 600, 0, 3600);
+            cfg.PermCacheSeconds = OptionalInt(map, "permCacheSeconds", 60, 0, 3600);
             cfg.IaCommandSeconds = OptionalInt(map, "iaCommandSeconds", 900, 300, 7200);
         }
 

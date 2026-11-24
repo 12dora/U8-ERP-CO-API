@@ -53,7 +53,7 @@ namespace U8Co
             "cfree1", "cfree2", "cfree3", "cfree4", "cfree5", "cfree6", "cfree7", "cfree8", "cfree9", "cfree10"
         };
 
-        // 采购入库生单按来源分派（从 Dispatch.GeneratePu 移来，圈复杂度上限）：来料检验单（StockGenQm）、
+        // 采购入库生单按来源分派（从 Dispatch.GeneratePu 移来，圈复杂度上限）：来料检验单（StockGenQm）、来料不良品处理单（StockGenRej）、
         // 采购退货单生成红字（StockGenRed）、到货单（本文件），其余参照采购订单（StockGen）。
         internal static ApiResult PurchaseInFrom(WorkContext ctx, VoucherKind kind, int sourceId,
             Dictionary<string, object> head, object[] lines)
@@ -62,6 +62,10 @@ namespace U8Co
             if (source == "qm_incoming_check")
             {
                 return PurchaseInQm(ctx, kind, sourceId, head, lines);
+            }
+            if (source == RejSrc.Incoming.Source)
+            {
+                return PurchaseInRej(ctx, kind, sourceId, head, lines);
             }
             if (source == "purchase_return")
             {
@@ -74,13 +78,17 @@ namespace U8Co
             return PurchaseIn(ctx, kind, sourceId, head, lines);
         }
 
-        // 登录前校验采购入库生单：参照来料检验单（CheckQm）、参照到货单（CheckArr）；其余来源在登录后校验。
+        // 登录前校验采购入库生单：参照来料检验单（CheckQm）、来料不良品处理单（CheckRej）、参照到货单（CheckArr）；其余来源在登录后校验。
         internal static void CheckGenerateIn(WorkItem item)
         {
             string source = item.Source == null ? "" : item.Source.Name ?? "";
             if (source == "qm_incoming_check")
             {
                 CheckQm(item.Head, item.Lines);
+            }
+            else if (source == RejSrc.Incoming.Source)
+            {
+                CheckRej(item.Head, item.Lines);
             }
             else if (source == ArrSourceName)
             {

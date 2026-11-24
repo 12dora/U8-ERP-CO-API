@@ -37,12 +37,7 @@ namespace U8Co
             }
             if (CoRows.Col(after.Head, "UFTS") == job.Ufts)
             {
-                if (outcome.Error.Length > 0)
-                {
-                    throw new BridgeException(409, "u8_rejected", outcome.Error);
-                }
-                throw new BridgeException(504, "outcome_unknown", (outcome.Lost != null ? "U8 修改调用异常：" + text
-                    : "U8 返回成功但单据没有变化（ufts 未变）") + "，结果未知");
+                throw Unchanged(outcome);
             }
             List<string> diff = Diff(job, after);
             if (diff.Count > 0)
@@ -55,6 +50,17 @@ namespace U8Co
                 throw new BridgeException(504, "outcome_unknown", "U8 报错但" + job.Title + "已被修改，需在 U8 中核对：" + text);
             }
             return ApiResult.Ok(Body(job, after));
+        }
+
+        // UFTS 没变（什么也没写）：U8 原文 409 u8_rejected；没有原文时 504（调用异常，或返回成功却没改）。
+        internal static BridgeException Unchanged(QmOutcome outcome)
+        {
+            if (outcome.Error.Length > 0)
+            {
+                return new BridgeException(409, "u8_rejected", outcome.Error);
+            }
+            return new BridgeException(504, "outcome_unknown", (outcome.Lost != null ? "U8 修改调用异常：" + QmGen.Text(outcome)
+                : "U8 返回成功但单据没有变化（ufts 未变）") + "，结果未知");
         }
 
         static After Read(QmEditJob job)

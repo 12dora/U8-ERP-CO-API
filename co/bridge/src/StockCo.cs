@@ -167,19 +167,7 @@ namespace U8Co
                 int[] refs;
                 object[] args = StockCall.VerifyArgs(kind, id, ctx.Conn, ufts, msg, out refs);
                 StockAt at = StockCall.AtFor("Delete", args, refs, ufts);
-                if (kind.StType == "01" && StockMsg.Col(before, "cSource") == "来料检验单")
-                {
-                    StockGen.GuardQmUndo(at, id);
-                }
-                else if (kind.StType == "01" && StockMsg.Col(before, "cSource") == "采购到货单")
-                {
-                    StockGen.GuardArrUndo(at, id);
-                }
-                else if (kind.StType == "12")
-                {
-                    // 参照调拨申请单生成的调拨单：核对申请单行累计调拨数量退回（没有 iTRIds 的行不查）。
-                    StockGen.GuardTrUndo(at, id);
-                }
+                GuardUndo(at, kind, before, id);
                 // 有货位记录时事务里先 ClearPosition 再以 bList=true 删除（u8-notes §8）。
                 StockPosGuard.ClearOnDelete(ctx, co, at, kind, id);
                 StockCall.RunAt(ctx, co, at);
@@ -453,8 +441,8 @@ namespace U8Co
         static void RefuseBuy(object conn, VoucherKind kind, int id, Dictionary<string, object> before)
         {
             // 来源采购到货单的（参照到货单生成的蓝字、参照采购退货单生成的红字）删除时核对到货行 fValidInQuan 退回（GuardArrUndo）。
-            ExpectSource(before, "只能删除来源为采购订单、来料检验单、采购到货单或库存的单据",
-                "采购订单", "来料检验单", "采购到货单", "库存");
+            ExpectSource(before, "只能删除来源为采购订单、来料检验单、来料不良品处理单、采购到货单或库存的单据",
+                "采购订单", "来料检验单", RejSrc.Incoming.Title, "采购到货单", "库存");
             StockPurIn.RefuseDeleteState(conn, id, before);
             if (Down(conn, InvoiceSql(kind), id) || Down(conn, SettleSql(kind), id))
             {

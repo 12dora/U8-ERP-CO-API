@@ -151,7 +151,10 @@ namespace U8Co
             return args.ToArray();
         }
 
-        // 比较用的键：优先级、替代存货、各列原文（NULL 也算一种值）。
+        // 删除一个子件的全部替代料（调用方整组替换、清空时）。
+        internal const string DeleteSql = "delete from mom_moallocatesub where AllocateId=?";
+
+        // 比较用的键：优先级、替代存货、各列原文（NULL 也算一种值）。数值列按值比（系数的小数位、float 的写法不同不算不同）。
         internal static string KeyOf(MoSubRow sub)
         {
             StringBuilder sb = new StringBuilder();
@@ -159,9 +162,31 @@ namespace U8Co
                 .Append(sub.PartId.ToString(CultureInfo.InvariantCulture));
             for (int i = 0; i < Cols.Length; i++)
             {
-                sb.Append('|').Append(sub.Cell(Cols[i][0]));
+                sb.Append('|').Append(Canon(sub.Cell(Cols[i][0]), Cols[i][1]));
             }
             return sb.ToString();
+        }
+
+        // n：decimal 去掉末尾的 0；f：double 的 64 位原样（十六进制）。解析不了的保持原文。
+        internal static string Canon(string cell, string type)
+        {
+            if (type == "n")
+            {
+                decimal d;
+                if (decimal.TryParse(cell, NumberStyles.Number, CultureInfo.InvariantCulture, out d))
+                {
+                    return (d / 1.000000000000000000000000000000000m).ToString(CultureInfo.InvariantCulture);
+                }
+            }
+            if (type == "f")
+            {
+                double f;
+                if (double.TryParse(cell, NumberStyles.Float, CultureInfo.InvariantCulture, out f))
+                {
+                    return BitConverter.DoubleToInt64Bits(f).ToString("X16", CultureInfo.InvariantCulture);
+                }
+            }
+            return cell;
         }
 
         // 一组替代料的键，排好序（多重集合比较用）。

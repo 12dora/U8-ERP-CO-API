@@ -5,7 +5,7 @@ namespace U8Co
 {
     // --selftest 的客户字段修改部分（archives/customer_fields）：请求解析与校验、expect 核对、SET 子句、
     // 无变化 / 预演 / 完成响应、共用 SQL 与客户专管业务员原语句一致、权限与写入分类、锁键、预演模式。不连库。
-    // 名称、税号、detail.current、简称重复见 ArcCusFieldsNameSelfTest。
+    // 名称、税号、detail.current、简称重复见 ArcCusFieldsNameSelfTest，声明表（各取值种类、联动列、日期次序）见 ArcCusColsSelfTest。
     internal static class ArcCusFieldsSelfTest
     {
         public static void Run()
@@ -21,6 +21,7 @@ namespace U8Co
             CheckRoute();
             CheckLocks();
             ArcCusFieldsNameSelfTest.Run();
+            ArcCusColsSelfTest.Run();
         }
 
         static void CheckParse()
@@ -145,9 +146,9 @@ namespace U8Co
                 && args.Count == 1 && (string)args[0] == "A001");
             args.Clear();
             Expect("set protocol clear", ArcCusFieldsSql.SetOf("sa_protocol", "", args) == "cCusSAProtocol=NULL" && args.Count == 0);
-            for (int i = 0; i < ArcCusFields.Keys.Length; i++)
+            for (int i = 0; i < ArcCusCols.Keys.Length; i++)
             {
-                string key = ArcCusFields.Keys[i];
+                string key = ArcCusCols.Keys[i];
                 string set = ArcCusFieldsSql.SetOf(key, "", args);
                 Expect("set mapped " + key, set.EndsWith("=NULL", StringComparison.Ordinal)
                     && (key == "end_date") == set.StartsWith("dEndDate", StringComparison.Ordinal));
@@ -171,13 +172,14 @@ namespace U8Co
         // 协议停用：dEDate 非空且不晚于登录日期；登录日期未知或无停用日期不拦。
         static void CheckStopped()
         {
-            Expect("stopped same day", ArcCusFieldsSql.Stopped("2026-10-20", "2026-10-20"));
-            Expect("stopped before", ArcCusFieldsSql.Stopped("2026-10-19", "2026-10-20"));
-            Expect("stopped later", !ArcCusFieldsSql.Stopped("2026-10-21", "2026-10-20"));
-            Expect("stopped none", !ArcCusFieldsSql.Stopped("", "2026-10-20"));
-            Expect("stopped no date", !ArcCusFieldsSql.Stopped("2026-10-19", "") && !ArcCusFieldsSql.Stopped("2026-10-19", null));
-            Expect("protocol sql", ArcCusFieldsSql.ProtocolSql.IndexOf("FROM AA_Agreement WHERE cCode=?", StringComparison.Ordinal) > 0
-                && ArcCusFieldsSql.ProtocolSql.IndexOf("dEDate", StringComparison.Ordinal) > 0);
+            Expect("stopped same day", ArcCusRefs.Stopped("2026-10-20", "2026-10-20"));
+            Expect("stopped before", ArcCusRefs.Stopped("2026-10-19", "2026-10-20"));
+            Expect("stopped later", !ArcCusRefs.Stopped("2026-10-21", "2026-10-20"));
+            Expect("stopped none", !ArcCusRefs.Stopped("", "2026-10-20"));
+            Expect("stopped no date", !ArcCusRefs.Stopped("2026-10-19", "") && !ArcCusRefs.Stopped("2026-10-19", null));
+            string sql = ArcCusRefs.RefSql(ArcCusCols.Of("sa_protocol"), "(iLZYJ=0 OR iLZYJ=1)");
+            Expect("protocol sql", sql.IndexOf("FROM AA_Agreement WHERE cCode=? AND (iLZYJ=0 OR iLZYJ=1)", StringComparison.Ordinal) > 0
+                && sql.IndexOf("dEDate", StringComparison.Ordinal) > 0);
         }
 
         static void CheckBodies()
@@ -196,13 +198,12 @@ namespace U8Co
             Dictionary<string, object> after = View(body, "after");
             Dictionary<string, object> before = View(body, "before");
             Expect("ok changed", (bool)body["changed"] && (string)body["code"] == "C900001");
-            Expect("ok after", (string)after["district"] == "33" && (string)after["abbrname"] == "示例简称" && after.Count == ArcCusFields.Keys.Length
-                && (string)after["sa_protocol"] == "");
-            Expect("ok before", (string)before["district"] == "" && before.Count == ArcCusFields.Keys.Length && before.ContainsKey("sa_protocol"));
+            Expect("ok after", (string)after["district"] == "33" && after.Count == 1);
+            Expect("ok before", (string)before["district"] == "" && before.Count == 1 && !before.ContainsKey("sa_protocol"));
             CheckOkProtocol();
             body = ArcCusFields.OkBody(ask, Cur("示例简称", "33", ""), false);
             Expect("ok unchanged", !(bool)body["changed"] && (string)View(body, "after")["district"] == "33"
-                && (string)View(body, "after")["end_date"] == "");
+                && View(body, "after").Count == 1 && !View(body, "after").ContainsKey("end_date"));
         }
 
         static void CheckOkProtocol()
@@ -210,7 +211,7 @@ namespace U8Co
             Dictionary<string, object> body = ArcCusFields.OkBody(ArcCusFields.Parse(Body("C900001", Fields("sa_protocol", ""), null)),
                 Cur("示例简称", "", "", "A001"), true);
             Expect("ok protocol cleared", (string)View(body, "after")["sa_protocol"] == ""
-                && (string)View(body, "before")["sa_protocol"] == "A001" && View(body, "after").Count == ArcCusFields.Keys.Length);
+                && (string)View(body, "before")["sa_protocol"] == "A001" && View(body, "after").Count == 1);
         }
 
         static void CheckDry(ArcCusFieldsAsk ask, Dictionary<string, string> cur)
@@ -240,14 +241,17 @@ namespace U8Co
                 == "UPDATE Customer SET cCusPPerson=?, cCusDepart=?, cModifyPerson=?,"
                 + " dModifyDate=CONVERT(datetime, CONVERT(date, ?, 23))"
                 + " WHERE cCusCode=? AND pubufts=CONVERT(binary(8), CONVERT(bigint, ?))");
-            for (int i = 0; i < ArcCusFields.Keys.Length; i++)
+            // 锁行读取只含请求的键和校验要用的键；别名就是请求键（缺别名时当前值会被悄悄当成空）。
+            string lockSql = ArcCusFieldsSql.LockSqlOf(ArcCusCols.Loaded(ArcCusCols.Keys));
+            for (int i = 0; i < ArcCusCols.Keys.Length; i++)
             {
-                Expect("lock alias " + ArcCusFields.Keys[i],
-                    ArcCusFieldsSql.LockSql.IndexOf(" AS " + ArcCusFields.Keys[i] + ",", StringComparison.Ordinal) > 0);
+                Expect("lock alias " + ArcCusCols.Keys[i],
+                    lockSql.IndexOf(" AS " + ArcCusCols.Keys[i] + ",", StringComparison.Ordinal) > 0);
             }
-            Expect("lock alias sa_protocol column", ArcCusFieldsSql.LockSql.IndexOf(
+            string one = ArcCusFieldsSql.LockSqlOf(ArcCusCols.Loaded(new string[] { "sa_protocol" }));
+            Expect("lock alias sa_protocol column", one.IndexOf(
                 "LTRIM(RTRIM(ISNULL(cCusSAProtocol,''))) AS sa_protocol,", StringComparison.Ordinal) > 0
-                && ArcCusFields.Keys.Length == 6);
+                && one.IndexOf("cCusName", StringComparison.Ordinal) < 0);
             Expect("same", ArcCustomerRow.Same(" A ", "a") && !ArcCustomerRow.Same("a", "b"));
             Expect("concurrent", ArcCustomerRow.Concurrent("C900001").Status == 409);
             Expect("unknown", ArcCustomerRow.Unknown("C900001", "字段").Status == 504);

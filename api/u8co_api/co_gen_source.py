@@ -12,6 +12,8 @@ SourceType = Literal[
     "dispatch",
     "purchase_order",
     "qm_incoming_check",
+    # 采购入库参照来料不良品处理单（QM05，处理流程为入库的行）。
+    "qm_incoming_reject",
     "purchase_in",
     "production_order",
     "qm_product_check",
@@ -43,7 +45,7 @@ SOURCES = {
     "sale_out": ("dispatch",),
     "arrival": ("purchase_order",),
     # 红字采购入库参照采购退货单（purchase_return）；蓝字采购入库参照到货单（arrival，lines 可省）。
-    "purchase_in": ("purchase_order", "qm_incoming_check", "purchase_return", "arrival"),
+    "purchase_in": ("purchase_order", "qm_incoming_check", "qm_incoming_reject", "purchase_return", "arrival"),
     # 红字销售发票参照退货单（sale_return）；红冲蓝字销售发票（sale_invoice）。
     "sale_invoice": ("dispatch", "sale_return", "sale_invoice"),
     "material_out": ("production_order",),
@@ -52,8 +54,8 @@ SOURCES = {
     "purchase_invoice": ("purchase_in",),
     # 采购退货单参照原蓝字到货单（缺省）或采购订单。
     "purchase_return": ("arrival", "purchase_order"),
-    # 退货单（红字发货单）参照原蓝字发货单；另可参照已审核的退货申请单。
-    "sale_return": ("dispatch", "sale_return_apply"),
+    # 退货单（红字发货单）参照原蓝字发货单；另可参照已审核的退货申请单，或只挂订单行参照销售订单（SO_SOMain.ID）。
+    "sale_return": ("dispatch", "sale_return_apply", "sale_order"),
     # 调拨单参照调拨申请单。
     "transfer": ("transfer_request",),
     # 采购结算单参照采购发票（co_gen_pu_settle）。
@@ -69,6 +71,8 @@ _PLAIN_LINE = frozenset({"source_line_id", "quantity"})
 _QM_LINE = frozenset({"source_line_id", "quantity", "cbatch", "cbmemo", "cposition"})
 # 采购入库参照到货单：行上另可带 cWhCode（表头没给时各行须一致，与桥 StockGenArr.ArrWarehouse 一致）。
 _ARR_IN_LINE = _QM_LINE | {"cwhcode"}
+# 采购入库参照的质量单据：来源类型 → （中文名，最多行数）。与桥 StockGen.CheckQm / CheckRej 一致。
+QM_IN_LINES = {"qm_incoming_check": ("来料检验单", 1), "qm_incoming_reject": ("来料不良品处理单", 200)}
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 # 产成品入库参照产品检验单的最多行数（合并检验一个来源一行；非合并检验只能 1 行，由桥按检验单判断）。
 # 与桥 MfgReq.CheckLinesMax 一致。
@@ -143,13 +147,15 @@ def check_product_in(source: str, lines: list[dict]) -> None:
         raise ValueError("产成品入库只能有 1 行")
 
 
-def check_qm_in(head: dict | None, lines: list[dict]) -> None:
-    """采购入库参照来料检验单：表头要有 cWhCode，明细只能 1 行。"""
+def check_qm_in(head: dict | None, lines: list[dict], source: str = "qm_incoming_check") -> None:
+    """采购入库参照来料检验单（1 行）或来料不良品处理单（1 到 200 行）：表头要有 cWhCode。"""
+    title, most = QM_IN_LINES[source]
     if not any(key.lower() == "cwhcode" for key in head or {}):
-        raise ValueError("参照来料检验单时表头必须有 cWhCode")
-    if len(lines) != 1:
-        raise ValueError("参照来料检验单只能有 1 行")
-    _only(lines[0], _QM_LINE)
+        raise ValueError(f"参照{title}时表头必须有 cWhCode")
+    if not 1 <= len(lines) <= most:
+        raise ValueError(f"参照{title}只能有 1 行" if most == 1 else f"参照{title}的表体须为 1 到 {most} 行")
+    for row in lines:
+        _only(row, _QM_LINE)
 
 
 def lines_optional(kind: str, source: str) -> bool:

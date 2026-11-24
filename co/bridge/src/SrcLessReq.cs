@@ -4,7 +4,7 @@ using System.Globalization;
 
 namespace U8Co
 {
-    // 无来源新增（vouchers/create）：发货单、先开票销售发票、到货单、材料出库单的字段名单和登录后、调用 U8 之前的校验。
+    // 无来源新增（vouchers/create）：发货单、退货单、先开票销售发票、到货单、采购退货单、材料出库单的字段名单和登录后、调用 U8 之前的校验。
     // 名单同时给 meta（MetaWritable 的钩子）。字段名不分大小写；值只能是字符串、数字或布尔。
     internal static class SrcLessReq
     {
@@ -18,21 +18,34 @@ namespace U8Co
         const string PuLine = "cwhcode,cinvcode,iquantity,ioricost,ioritaxcost,itaxrate";
         const string StLine = "cinvcode,iquantity,cbatch,cposition,cbmemo";
 
-        static readonly string[] Kinds4 = new string[] { "dispatch", "sale_invoice", "arrival", "material_out" };
+        static readonly string[] FreeKinds = new string[] { "dispatch", "sale_return", "sale_invoice", "arrival", "purchase_return",
+            "material_out" };
 
         public static bool Handles(VoucherKind kind)
         {
-            return kind != null && Array.IndexOf(Kinds4, kind.Name) >= 0;
+            return kind != null && Array.IndexOf(FreeKinds, kind.Name) >= 0;
+        }
+
+        // 发货单、退货单（红字发货单）与先开票销售发票共用销售名单。
+        static bool IsSa(string name)
+        {
+            return name == "dispatch" || name == SaleReturn.KindName || name == "sale_invoice";
+        }
+
+        // 到货单（蓝字）与采购退货单（红字到货单）共用同一份无来源名单。
+        static bool IsPu(string name)
+        {
+            return name == "arrival" || name == "purchase_return";
         }
 
         public static bool HeadAllowed(VoucherKind kind, string low)
         {
             string name = kind == null ? "" : kind.Name;
-            if (name == "dispatch" || name == "sale_invoice")
+            if (IsSa(name))
             {
                 return Listed(low, SaHead) || Span(low, "cdefine", 1, 16) || (name == "sale_invoice" && low == "cvouchtype");
             }
-            if (name == "arrival")
+            if (IsPu(name))
             {
                 return Listed(low, PuHead);
             }
@@ -42,26 +55,26 @@ namespace U8Co
         public static bool LineAllowed(VoucherKind kind, string low)
         {
             string name = kind == null ? "" : kind.Name;
-            if (name == "dispatch" || name == "sale_invoice")
+            if (IsSa(name))
             {
                 return Listed(low, SaLine) || Span(low, "cfree", 1, 10) || Span(low, "cdefine", 22, 37);
             }
-            if (name == "arrival")
+            if (IsPu(name))
             {
                 return Listed(low, PuLine);
             }
             return name == "material_out" && Listed(low, StLine);
         }
 
-        // 必填：销售要客户、销售类型，行要仓库；到货单要供应商；材料出库要仓库和收发类别（缺收发类别先由 Check 报「必须指定收发类别」）。行一律要存货和数量。
+        // 必填：销售要客户、销售类型，行要仓库；到货单、采购退货单要供应商；材料出库要仓库和收发类别（缺收发类别先由 Check 报「必须指定收发类别」）。行一律要存货和数量。
         public static string[] RequiredHead(VoucherKind kind)
         {
             string name = kind == null ? "" : kind.Name;
-            if (name == "dispatch" || name == "sale_invoice")
+            if (IsSa(name))
             {
                 return new string[] { "ccuscode", "cstcode" };
             }
-            if (name == "arrival")
+            if (IsPu(name))
             {
                 return new string[] { "cvencode" };
             }
@@ -74,7 +87,7 @@ namespace U8Co
             {
                 return null;
             }
-            if (kind.Name == "dispatch" || kind.Name == "sale_invoice")
+            if (IsSa(kind.Name))
             {
                 return new string[] { "cwhcode", "cinvcode", "iquantity" };
             }

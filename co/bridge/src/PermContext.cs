@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace U8Co
 {
     // 一个操作员在一个账套、一个年度下的 U8 权限快照（功能权限 + 记录级数据权限 + 字段权限）。
-    // 由 PermLoad 在登录（或登录缓存命中）之后用 ctx.Conn 读出，PermCache 按 60 秒缓存。
+    // 由 PermLoad 在登录（或登录缓存命中）之后用 ctx.Conn 读出，PermCache 按 permCacheSeconds 缓存。
     // 只读：建好之后不再改，多个线程可以同时用同一个实例。
     internal sealed class PermContext
     {

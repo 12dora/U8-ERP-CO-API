@@ -133,3 +133,94 @@ def test_openapi_lists_production_order_update() -> None:
     assert {"allocates", "details", "changed"} <= set(schemas["CoUpdateOut"]["properties"])
     assert "changed" not in schemas["CoGenerateOut"]["properties"]
     assert {"allocates", "details", "warnings"} <= set(schemas["CoGenerateOut"]["properties"])
+
+
+_SUB = {"inv_code": "DEMO-002", "sequence": 2, "factor": 1.5, "eff_begin": "2026-01-01"}
+_SUB["defines"] = {"define22": "文本A"}
+
+
+def _allocs(*subs: dict, seq: int = 10, inv: str = "DEMO-001", line_id: int = 7) -> dict:
+    alloc = {"sort_seq": seq, "inv_code": inv, "substitutes": list(subs)}
+    return {"op": "update", "line_id": line_id, "allocations": [alloc]}
+
+
+class _SubsBridge(_MoBridge):
+    def call(self, path: str, payload: dict) -> dict:
+        body = super().call(path, payload)
+        sub = dict(_SUB, replace_flag=False, eff_end=None)
+        body["allocations"] = [
+            {"line_id": 7, "allocate_id": 900, "sort_seq": 10, "inv_code": "DEMO-001", "substitutes": [sub]}
+        ]
+        return body
+
+
+def test_mo_update_forwards_allocations_and_returns_them() -> None:
+    fake = _SubsBridge()
+    lines = [_allocs(_SUB), dict(_allocs(seq=20, line_id=8), qty=2)]
+    done = _client(fake).post(_UPDATE, json=_body(lines=lines))
+    assert done.status_code == 200, done.text
+    assert fake.calls[-1][1]["lines"] == lines
+    changed = done.json()["allocations"][0]
+    assert (changed["allocate_id"], changed["substitutes"][0]["inv_code"]) == (900, "DEMO-002")
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        {"op": "update", "line_id": 7, "allocations": []},
+        {"op": "update", "line_id": 7, "allocations": {"sort_seq": 10}},
+        {"op": "update", "line_id": 7, "allocations": [{"sort_seq": 10, "inv_code": "DEMO-001"}]},
+        {"op": "update", "line_id": 7, "allocations": [{"sort_seq": "10", "inv_code": "A", "substitutes": []}]},
+        {"op": "update", "line_id": 7, "allocations": [dict(_allocs()["allocations"][0], allocate_id=1)]},
+        {"op": "update", "line_id": 7, "substitutes": []},
+        _allocs(_SUB, dict(_SUB)),
+        _allocs(dict(_SUB, factor=0)),
+        _allocs(dict(_SUB, sequence=10001)),
+        _allocs(dict(_SUB, eff_begin="2026-02-01", eff_end="2026-01-01")),
+        _allocs(dict(_SUB, defines={"define21": "x"})),
+        _allocs(dict(_SUB, defines={"define34": 1.5})),
+        _allocs(dict(_SUB, defines={"define36": "2026/01/01"})),
+        _allocs(dict(_SUB, defines={"define22": "X" * 61})),
+        _allocs(*[dict(_SUB, inv_code=f"S{n}") for n in range(51)]),
+        {"op": "update", "line_id": 7, "allocations": [_allocs()["allocations"][0]] * 2},
+    ],
+)
+def test_mo_update_rejects_bad_allocations(line: dict) -> None:
+    fake = _MoBridge()
+    denied = _client(fake).post(_UPDATE, json=_body(lines=[line]))
+    assert denied.status_code in (400, 422), denied.text
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize(
+    ("sub", "key"),
+    [
+        (dict(_SUB, eff_begin="1752-12-31"), "eff_begin"),
+        (dict(_SUB, defines={"define36": "1700-01-01 00:00:00"}), "define36"),
+    ],
+)
+def test_mo_update_rejects_dates_before_datetime_min(sub: dict, key: str) -> None:
+    fake = _MoBridge()
+    denied = _client(fake).post(_UPDATE, json=_body(lines=[_allocs(sub)]))
+    assert denied.status_code in (400, 422), denied.text
+    assert key in denied.text and "1753-01-01" in denied.text
+    assert fake.calls == []
+    edge = _client(fake).post(_UPDATE, json=_body(lines=[_allocs(dict(_SUB, eff_begin="1753-01-01"))]))
+    assert edge.status_code == 200, edge.text
+
+
+def test_mo_update_accepts_clear_and_typed_defines() -> None:
+    fake = _MoBridge()
+    defines = {"define26": 1.5, "define34": 3, "define36": "2026-01-02 08:30:00", "define28": "X" * 120}
+    lines = [_allocs(), {"op": "update", "line_id": 8, "allocations": [{"sort_seq": 0, "inv_code": "C", "substitutes": [
+        dict(_SUB, defines=defines)]}]}]
+    done = _client(fake).post(_UPDATE, json=_body(lines=lines))
+    assert done.status_code == 200, done.text
+    assert fake.calls[-1][1]["lines"] == lines
+
+
+def test_openapi_lists_changed_allocations() -> None:
+    schemas = make_client().get("/v1/openapi.json").json()["components"]["schemas"]
+    assert "allocations" in schemas["CoUpdateOut"]["properties"]
+    keys = {"line_id", "allocate_id", "sort_seq", "inv_code", "substitutes"}
+    assert keys <= set(schemas["CoMoSubsChanged"]["properties"])

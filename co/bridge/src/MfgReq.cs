@@ -50,7 +50,7 @@ namespace U8Co
             return rd;
         }
 
-        static void CheckLines(object[] lines, int max)
+        internal static void CheckLines(object[] lines, int max)
         {
             if (lines == null || lines.Length < 1 || lines.Length > max)
             {

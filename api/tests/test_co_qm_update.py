@@ -71,12 +71,11 @@ _REJECTS = (
     _upd("qm_other_inspect", {"cReasonCode": "03"}),
     _upd("qm_other_inspect", {"cInspectDepCode": ""}),
     _upd("qm_other_inspect", {"cDefine10": "x"}, lines=[{"op": "update", "line_id": 7, "quantity": 2}]),
-    # 报检单、不良品处理单仍不能修改
+    # 报检单仍不能修改（不良品处理单见 test_co_qm_reject_update）
     _upd("qm_incoming_inspect", {"dDate": "2026-09-30"}),
     # 产品报检单也不能修改（U8 的修改不可用），只开放弃审
     _upd("qm_product_inspect", {"dDate": "2026-09-30"}),
     _upd("qm_product_inspect", None, lines=[{"op": "update", "line_id": 7, "quantity": 2}]),
-    _upd("qm_product_reject", {"dDate": "2026-09-30"}),
     # 别的类型的表头仍不能嵌套
     _upd("other_in", {"items": _ITEMS}),
 )

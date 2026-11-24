@@ -56,6 +56,7 @@ def _sub_line(*subs: object) -> dict:
         _body(lines=[_sub_line({"inv_code": "S001", "sequence": 10001})]),
         _body(lines=[_sub_line({"inv_code": "S001", "replace_flag": 1})]),
         _body(lines=[_sub_line({"inv_code": "S001", "eff_begin": "2026-9-1"})]),
+        _body(lines=[_sub_line({"inv_code": "S001", "eff_begin": "1752-12-31"})]),
         _body(lines=[_sub_line({"inv_code": "S001", "qty": 1})]),
         _body(lines=[_sub_line(*({"inv_code": f"S{i:03d}"} for i in range(51)))]),
         _body(lines=[dict(_LINE, locators=[{"loc": "R1"}, {"loc": "R1"}])]),

@@ -49,10 +49,10 @@ class MergedCheckTests(unittest.TestCase):
         self.assertEqual(sent["lines"], _LINES)
 
     def test_lines_optional_and_idempotency_key(self) -> None:
-        draft = MergedCheck([11, 12], {"cCheckPersonCode": "P900001"}, None, ["0", 1])
+        draft = MergedCheck([11, 12], {"cCheckPersonCode": "P900001"}, None, [1])
         _path, sent = self._send(lambda client: client.generate_merged_check(_call(), draft, idempotency_key="qm-1"))
         self.assertNotIn("lines", sent)
-        self.assertEqual(sent["merge_rules"], ["0", 1])
+        self.assertEqual(sent["merge_rules"], [1])
         self.assertEqual(sent["idempotency_key"], "qm-1")
 
     def test_local_checks(self) -> None:

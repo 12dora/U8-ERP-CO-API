@@ -7,7 +7,8 @@ namespace U8Co
 {
     // config.json 的 readOnlyExceptions：只读账套上允许穿过闸门的精确写入。账套必须同时在
     // readOnlyAccounts 里；type 是 archives 或 vouchers。archives 的 op 是客户专用路由（ArcCustomerOps.Ops：customer_person、
-    // customer_fields、customer_address、customer_address_add、customer_address_delete）或 create、delete。
+    // customer_fields、customer_address、customer_address_add、customer_address_delete、customer_invoice_company_add、
+    // customer_invoice_company_delete、customer_invoice_company）或 create、delete。
     // op=create / delete 必须另写 archives（非空列表，每项须在该 op 的可开放集合里：create 是 EligibleArchives
     // ＝ district_class、customer，delete 是 EligibleDelete ＝ district_class；delete 用于回滚刚新增的地区分类，
     // 客户不能删，新增错的客户用 customer_fields 写停用日期）；其余 op 不能写 archives。archives/update 不能开放

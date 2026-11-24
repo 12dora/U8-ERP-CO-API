@@ -3,11 +3,13 @@
 与桥 BomSubReq 一致：替代料每项 inv_code 必填，sequence（1 到 10000，缺省 1）、factor（大于 0，缺省 1）、
 replace_flag（布尔，缺省 false）、eff_begin / eff_end（yyyy-MM-dd，缺省取子件行的起止日期）可省，同一行里存货不重复；
 定位符每项 loc 必填（最长 255），同一行里不重复；各最多 50 项，空数组表示清空。
+替代料每项的校验（check_subs）与生产订单子件的替代料共用（co_models_mo_subs，另收 defines）。
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from decimal import Decimal, InvalidOperation
 
 from u8co_api.co_models_mo import _date, _get, _only, _text
@@ -21,9 +23,7 @@ def check_nested(row: dict) -> None:
     """明细行上带了 substitutes / locators 时校验形状（null 视同没带）。"""
     subs = _get(row, "substitutes")
     if subs is not None:
-        seen: set[str] = set()
-        for item in _items(subs, "substitutes"):
-            _sub(item, seen)
+        check_subs(subs)
     locs = _get(row, "locators")
     if locs is not None:
         names: set[str] = set()
@@ -38,6 +38,13 @@ def check_nested(row: dict) -> None:
             names.add(loc.strip())
 
 
+def check_subs(value: object, defines: Callable[[object], None] | None = None) -> None:
+    """一组替代料（最多 50 项，存货不重复）；defines 给出时每项另收 defines 并用它细查。"""
+    seen: set[str] = set()
+    for item in _items(value, "substitutes"):
+        _sub(item, seen, defines)
+
+
 def _items(value: object, key: str) -> list[dict]:
     if not isinstance(value, list):
         raise ValueError(key + " 必须是数组")
@@ -48,8 +55,10 @@ def _items(value: object, key: str) -> list[dict]:
     return value
 
 
-def _sub(item: dict, seen: set[str]) -> None:
-    _only(item, dict.fromkeys(_SUB_KEYS))
+def _sub(item: dict, seen: set[str], defines: Callable[[object], None] | None) -> None:
+    _only(item, dict.fromkeys(_SUB_KEYS + (("defines",) if defines else ())))
+    if defines is not None and _get(item, "defines") is not None:
+        defines(_get(item, "defines"))
     _text(item, "inv_code", 60, required=True)
     code = _get(item, "inv_code")
     if not isinstance(code, str) or not code.strip():
@@ -66,6 +75,9 @@ def _sub(item: dict, seen: set[str]) -> None:
     for key in ("eff_begin", "eff_end"):
         if _get(item, key) is not None:
             _date(_get(item, key), key)
+    begin, end = _get(item, "eff_begin"), _get(item, "eff_end")
+    if begin is not None and end is not None and _date(begin, "eff_begin") > _date(end, "eff_end"):
+        raise ValueError("eff_begin 不能晚于 eff_end")
 
 
 def check_int(value: object, key: str, top: int) -> int:

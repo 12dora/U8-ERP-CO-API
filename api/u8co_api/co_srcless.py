@@ -1,7 +1,10 @@
-"""无来源新增（/v1/co/vouchers/create）：发货单、先开票销售发票、到货单、材料出库单。与桥 SrcLessReq 一致。
+"""无来源新增（/v1/co/vouchers/create）：发货单、退货单、先开票销售发票、到货单、采购退货单、材料出库单。
+与桥 SrcLessReq 一致。
 
 账套打开「普通销售必有订单」（SA.bMustSO_ptxs）、「普通业务必有订单」（PU.bPTHavePO）或「领料必有订单」
-（ST.ballowAddnewVouch）时，桥在登录后返回 409 state_mismatch，这里只做字段名单、必填和数量的校验。
+（ST.ballowAddnewVouch）时，桥在登录后返回 409 state_mismatch（退货单不受 SA.bMustSO_ptxs 约束），
+这里只做字段名单、必填和数量的校验。
+采购退货单（红字到货单）不受 PU.bPTHavePO 约束，名单同到货单，数量传正数（桥写负数）。
 """
 
 from __future__ import annotations
@@ -10,14 +13,18 @@ import math
 import re
 from decimal import Decimal
 
-SRCLESS_CREATE = ("dispatch", "sale_invoice", "arrival", "material_out")
+SRCLESS_CREATE = ("dispatch", "sale_return", "sale_invoice", "arrival", "purchase_return", "material_out")
+# 销售名单：发货单、退货单（红字发货单，数量传正数，桥写成负数）、先开票销售发票。
+_SA_KINDS = ("dispatch", "sale_return", "sale_invoice")
 # 新增单据类型说明（co_models_types.CREATE_TYPE_HELP）里的「无来源新增」小节。
 SRCLESS_HELP = (
     "无来源新增",
     (
         "发货单（不挂销售订单）、到货单（不挂采购订单）、材料出库单（来源库存）",
+        "退货单（sale_return，红字发货单，不挂订单和发货单）：数量传正数，同发货单名单",
+        "采购退货单（purchase_return，红字到货单，不挂到货单和订单）：数量传正数，名单同到货单，不受「普通业务必有订单」限制",
         "销售发票（先开票）：U8 另生成发货单，响应另给 dispatch_id",
-        "账套打开对应的「必有订单」选项时 409",
+        "账套打开对应的「必有订单」选项时 409（红字的退货单、采购退货单除外）",
         "销售出库单（sale_out，来源库存）：表头必填 cwhcode、ccuscode、cdepcode",
         "无来源销售出库单：账套已启用销售管理或库存选项设为由销售系统生成时 409，须参照发货单生成",
     ),
@@ -28,6 +35,7 @@ _SA_HEAD = frozenset(
 _SA_LINE = frozenset(
     "cwhcode cinvcode iquantity inum cunitid iquotedprice iunitprice itaxunitprice itaxrate kl kl2 cbatch cmemo".split()
 )
+_PU_KINDS = ("arrival", "purchase_return")
 _PU_HEAD = frozenset("cvencode cdepcode cpersoncode cptcode ddate cmemo".split())
 _PU_LINE = frozenset("cwhcode cinvcode iquantity ioricost ioritaxcost itaxrate".split())
 _ST_HEAD = frozenset("cwhcode crdcode ddate cmemo cdepcode cpersoncode".split())
@@ -35,8 +43,10 @@ _ST_HEAD = frozenset("cwhcode crdcode ddate cmemo cdepcode cpersoncode".split())
 _ST_LINE = frozenset("cinvcode iquantity cbatch cposition cbmemo".split())
 _REQUIRED_HEAD = {
     "dispatch": ("ccuscode", "cstcode"),
+    "sale_return": ("ccuscode", "cstcode"),
     "sale_invoice": ("ccuscode", "cstcode"),
     "arrival": ("cvencode",),
+    "purchase_return": ("cvencode",),
     "material_out": ("cwhcode",),
 }
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -51,17 +61,17 @@ def _span(key: str, prefix: str, low: int, high: int) -> bool:
 
 
 def head_allowed(kind: str, key: str) -> bool:
-    if kind in ("dispatch", "sale_invoice"):
+    if kind in _SA_KINDS:
         return key in _SA_HEAD or _span(key, "cdefine", 1, 16) or (kind == "sale_invoice" and key == "cvouchtype")
-    if kind == "arrival":
+    if kind in _PU_KINDS:
         return key in _PU_HEAD
     return key in _ST_HEAD or _span(key, "cdefine", 1, 16)
 
 
 def line_allowed(kind: str, key: str) -> bool:
-    if kind in ("dispatch", "sale_invoice"):
+    if kind in _SA_KINDS:
         return key in _SA_LINE or _span(key, "cfree", 1, 10) or _span(key, "cdefine", 22, 37)
-    if kind == "arrival":
+    if kind in _PU_KINDS:
         return key in _PU_LINE
     return key in _ST_LINE
 
@@ -99,7 +109,7 @@ def _quantity(row: dict) -> None:
 
 
 def _required_line(kind: str) -> tuple[str, ...]:
-    if kind in ("dispatch", "sale_invoice"):
+    if kind in _SA_KINDS:
         return ("cwhcode", "cinvcode", "iquantity")
     return ("cinvcode", "iquantity")
 

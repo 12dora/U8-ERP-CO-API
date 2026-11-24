@@ -53,7 +53,7 @@ namespace U8Co
         }
 
         // 一行表体要写的字段：数量与件数、部门、处理流程与处理方式、不良原因（U8 必输项核对 CREASONNAME）、存货（同表头）、
-        // 降级时的处理后存货、数量（= 处理数量）、单位、换算率、件数，仓库。计量与部门的取法见 QmRejUnits。
+        // 降级时的处理后存货、处理后数量（DimQty，没有时 = 处理数量）、单位、换算率、件数，仓库。计量与部门的取法见 QmRejUnits。
         internal static List<string[]> LineFields(QmRejLine line, QmRejUnit unit)
         {
             List<string[]> f = new List<string[]>();
@@ -70,8 +70,9 @@ namespace U8Co
             if (line.Flow == QmRejSrc.DimFlow)
             {
                 f.Add(Pair("CDIMINVCODE", line.DimInv));
-                f.Add(Pair("FDIMQUANTITY", QmSql.Num(line.Qty)));
-                string pieces = QmRejUnits.Pieces(line.Qty, line.DimUnit, line.DimRate, unit.NumDigits);
+                decimal dimQty = line.DimQty > 0m ? line.DimQty : line.Qty;
+                f.Add(Pair("FDIMQUANTITY", QmSql.Num(dimQty)));
+                string pieces = QmRejUnits.Pieces(dimQty, line.DimUnit, line.DimRate, unit.NumDigits);
                 if (pieces.Length > 0)
                 {
                     f.Add(Pair("CDIMUNITID", line.DimUnit));
@@ -129,7 +130,7 @@ namespace U8Co
         }
 
         // 复制 U8 留下的那一行（在写任何字段之前），并去掉行主键、行号、条码这类每行各自的列；件数等由 LineFields 每行重算。
-        static object CloneAfter(object dom, object row)
+        internal static object CloneAfter(object dom, object row)
         {
             object parent = ComUtil.Get(row, "parentNode");
             try
@@ -148,7 +149,7 @@ namespace U8Co
             }
         }
 
-        static void Write(object row, List<string[]> fields)
+        internal static void Write(object row, List<string[]> fields)
         {
             for (int i = 0; i < fields.Count; i++)
             {

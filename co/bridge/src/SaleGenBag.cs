@@ -21,6 +21,7 @@ namespace U8Co
             fill.Co = co;
             fill.Head = head;
             fill.SoCode = soCode;
+            fill.Sign = 1m;
             return fill;
         }
 
@@ -59,6 +60,8 @@ namespace U8Co
             internal string SoCode;
             internal string Card;
             internal SalePins Pins;
+            // 退货单参照销售订单时非空（表头 breturnflag=1、bneedbill 按 Invoiced）。
+            internal RetJob Red;
         }
 
         sealed class LineFill
@@ -66,6 +69,8 @@ namespace U8Co
             internal object Co;
             internal Dictionary<string, object> Head;
             internal string SoCode;
+            // 1 发货单，-1 退货单（数量、金额取负）。
+            internal decimal Sign;
         }
 
         sealed class SaveEcho

@@ -33,6 +33,12 @@ namespace U8Co
             new string[] { "/u8co/v1/vouchers/create", StockOpening.TestOnlyText, "\"type\":\"stock_opening\"" },
             new string[] { "/u8co/v1/vouchers/delete", StockOpening.TestOnlyText, "\"type\":\"stock_opening\",\"id\":1" },
             new string[] { "/u8co/v1/vouchers/verify", StockOpening.TestOnlyText, "\"type\":\"stock_opening\",\"id\":1,\"action\":\"verify\"" },
+            new string[]
+            {
+                "/u8co/v1/vouchers/update", MoUpdateSubsReq.TestOnly,
+                "\"type\":\"production_order\",\"id\":1,\"lines\":[{\"op\":\"update\",\"line_id\":11,"
+                + "\"allocations\":[{\"sort_seq\":10,\"inv_code\":\"C001\",\"substitutes\":[]}]}]"
+            },
             new string[] { ArapBadReq.Path, ArapBadReq.TestOnly, "\"action\":\"provision\"" },
             new string[] { ArapExGainReq.Path, ArapExGainReq.TestOnly, "\"flag\":\"AR\",\"currency\":\"美元\"" },
             new string[] { ArapExGainReq.CancelPath, ArapExGainReq.TestOnly, "\"flag\":\"AR\"" },

@@ -127,29 +127,40 @@ namespace U8Co
             }
             object[] args = new object[] { ctx.Conn, card, user, false, "" };
             object ret;
+            // 制单人由桥写成登录操作员的姓名（调用方不能自带）；U8 Save 不填会报「制单人不能为空」。
+            SoDom.SetAttr(dom, "cMaker", user);
+            string vtid = "";
             try
             {
                 ret = ComUtil.CallRef(sys, "getDefaltVTID", args, new int[] { 0, 1, 2, 3, 4 });
+                vtid = Values.Text(ret).Trim();
+                if (vtid.Length == 0)
+                {
+                    vtid = Values.Text(args[4]).Trim();
+                }
             }
             catch (Exception ex)
             {
                 CoRows.Note(ctx.Item, "getDefaltVTID " + ex.Message);
-                CoRows.ReleaseIfNew(ctx.Conn, args[0]);
-                return;
             }
             CoRows.ReleaseIfNew(ctx.Conn, args[0]);
-            string vtid = Values.Text(ret).Trim();
-            if (vtid.Length == 0)
-            {
-                vtid = Values.Text(args[4]).Trim();
-            }
-            // 制单人由桥写成登录操作员的姓名（调用方不能自带）；U8 Save 不填会报「制单人不能为空」。
-            SoDom.SetAttr(dom, "cMaker", user);
+            vtid = OrRedVtid(ctx.Item, dom, card, vtid);
             CoRows.Note(ctx.Item, "ivtid=" + vtid);
             if (vtid.Length > 0)
             {
                 SoDom.SetAttr(dom, "iVTid", vtid);
             }
+        }
+
+        // 卡片 03（退货单）getDefaltVTID 没给模板、DOM 上也没有 iVTid 时用 SaleReturn.RedVtidFallback，所有卡片 03 的单据共用。
+        static string OrRedVtid(WorkItem item, object dom, string card, string vtid)
+        {
+            if (vtid.Length > 0 || card != SaleReturn.RedCard || SoDom.Attr(dom, "iVTid").Length > 0)
+            {
+                return vtid;
+            }
+            CoRows.Note(item, "getDefaltVTID 没给卡片 03 模板，用缺省 " + SaleReturn.RedVtidFallback);
+            return SaleReturn.RedVtidFallback;
         }
 
         public static string RunDelete(object conn, object co, object[] doms, int id, WorkItem item)
@@ -233,6 +244,16 @@ namespace U8Co
             return SaveFresh(conn, co, doms, item, spec, out savedCode);
         }
 
+        // 无来源新增：发货单与退货单同表同编号，按 kindName 登记（DocMark）。after 可为 null（见 FreshSpec.After）。
+        public static int SaveFreeDispatch(WorkContext ctx, object co, object[] doms, string kindName, FreshCheck after,
+            out string savedCode)
+        {
+            string empty = kindName == SaleReturn.KindName ? "没有生成退货单号" : "没有生成发货单号";
+            FreshSpec spec = Fresh("cDLCode", "DLID", empty, false, kindName);
+            spec.After = after;
+            return SaveFresh(ctx.Conn, co, doms, ctx.Item, spec, out savedCode);
+        }
+
         // 销售发票同样 GetVoucherNO(head, no, err) → cSBVCode，Save 第三参 (short)0。表头必须带空的 sbvid。
         public static int SaveInvoice(object conn, object co, object[] doms, WorkItem item, out string savedCode)
         {
@@ -289,6 +310,7 @@ namespace U8Co
                     open = false;
                     throw new BridgeException(409, "u8_rejected", msg);
                 }
+                AfterSave(conn, item, spec, no);
                 int id = CoRows.AsId(args[3]);
                 if (id <= 0 && spec.IdAttr.Length > 0)
                 {
@@ -304,6 +326,16 @@ namespace U8Co
             {
                 CoRows.CatchTran(conn, item, open);
                 throw;
+            }
+        }
+
+        // 提交前的保存核对（同 StockCall.AfterCheck：事务还在时抛出即回滚，U8 已自行提交时 504）。
+        static void AfterSave(object conn, WorkItem item, FreshSpec spec, string no)
+        {
+            FreshCheck after = spec.After;
+            if (after != null)
+            {
+                StockCall.AfterCheck(conn, item, delegate(object c) { after(c, no); }, "单据 " + no);
             }
         }
 
@@ -414,8 +446,13 @@ namespace U8Co
             internal bool PinSbvid;
             internal string KindName;
             internal SalePins Pins;
+            // 可选：Save 成功后、提交前在同一事务里核对保存结果（按新单号）；不符时抛出，事务回滚。
+            internal FreshCheck After;
         }
     }
+
+    // SoSave 提交前的保存核对：conn 是保存所在的连接（事务未提交），code 是新单号。
+    internal delegate void FreshCheck(object conn, string code);
 
     internal sealed class SoDeleteOpt
     {

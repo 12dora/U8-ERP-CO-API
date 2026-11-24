@@ -15,6 +15,8 @@ namespace U8Co
         public int Replace;
         public string EffBeg = "";
         public string EffEnd = "";
+        // 表体自定义项：列号（"22"…"37"）→ 写库的文本（SubstituteReq）。物料清单不收，为 null。
+        public Dictionary<string, string> Defines;
 
         public bool SameAs(BomSub want)
         {
@@ -149,7 +151,7 @@ namespace U8Co
                     BomSub sub = rows[i].Subs[k];
                     sub.EffBeg = sub.EffBeg.Length > 0 ? sub.EffBeg : rows[i].EffBeg;
                     sub.EffEnd = sub.EffEnd.Length > 0 ? sub.EffEnd : rows[i].EffEnd;
-                    if (string.CompareOrdinal(sub.EffBeg, sub.EffEnd) > 0)
+                    if (SubstituteReq.Reversed(sub))
                     {
                         throw BomSql.Bad("第 " + BomReq.Num(rows[i].Seq) + " 行替代料 " + sub.InvCode + "：eff_begin 不能晚于 eff_end");
                     }
@@ -158,8 +160,8 @@ namespace U8Co
         }
 
         // 要查的替代料：新增行的，以及修改时带了 substitutes 的行的（原样保留的现有替代料不再查）。
-        // 存货存在、允许做 BOM 子件、未停用、有不带自由项的物料（同子件规则，400）；不能是该行子件本身（U8 1011014）、
-        // 不能是母件本身（U8 1020017），都是 400；母件是选项类时不能带替代料（U8 1011098，409）。parts 是 BomSql.CheckRows 的存货缓存。
+        // 存货规则见 SubstituteCheck（与生产订单子件共用，400）；母件是选项类时不能带替代料（U8 1011098，409）。
+        // parts 是 BomSql.CheckRows 的存货缓存。
         internal static void Check(object conn, BomAsk ask, List<BomRow> rows, string today, Dictionary<string, int> parts)
         {
             HashSet<int> given = Given(ask);
@@ -203,40 +205,8 @@ namespace U8Co
 
         static void CheckRow(object conn, BomAsk ask, BomRow row, string today, Dictionary<string, int> parts)
         {
-            string at = "第 " + BomReq.Num(row.Seq) + " 行：";
-            for (int k = 0; k < row.Subs.Count; k++)
-            {
-                string inv = row.Subs[k].InvCode;
-                if (string.Equals(inv, row.InvCode, StringComparison.OrdinalIgnoreCase))
-                {
-                    throw BomSql.Bad(at + "替代料不能是子件本身");
-                }
-                if (!parts.ContainsKey(inv))
-                {
-                    parts[inv] = PartOf(conn, inv, today, row.Seq);
-                }
-                if (parts[inv] == ask.PartId)
-                {
-                    throw BomSql.Bad(at + "替代料不能是母件本身");
-                }
-            }
-        }
-
-        // 子件规则的 400 前面标上「第 n 行替代料」。
-        static int PartOf(object conn, string inv, string today, int seq)
-        {
-            try
-            {
-                return BomSql.PartOf(conn, inv, false, today);
-            }
-            catch (BridgeException ex)
-            {
-                if (ex.Status != 400)
-                {
-                    throw;
-                }
-                throw BomSql.Bad("第 " + BomReq.Num(seq) + " 行替代料：" + ex.Message);
-            }
+            SubstituteCheck.Parts(conn, row.Subs, new string[] { row.InvCode, ask.InvCode }, today, parts,
+                "第 " + BomReq.Num(row.Seq) + " 行");
         }
 
         // 写后核对：替代料按存货对上（同一行里不重复），优先级、系数、替换标志、起止日期都相同；定位符集合相同。

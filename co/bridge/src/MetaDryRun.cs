@@ -19,6 +19,8 @@ namespace U8Co
             "archives/create", "archives/update", "archives/delete",
             "archives/customer_person", "archives/customer_fields", "archives/customer_address",
             "archives/customer_address_add", "archives/customer_address_delete",
+            "archives/customer_invoice_company_add", "archives/customer_invoice_company_delete",
+            "archives/customer_invoice_company",
             // 历史发货单表头修正（VoucherHeadFix）。
             "vouchers/head_fix",
             // 销售订单表头自定义项写入（VoucherSoDefines）。

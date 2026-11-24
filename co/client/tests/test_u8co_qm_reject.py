@@ -83,9 +83,11 @@ class QmRejectTests(unittest.TestCase):
         self.assertEqual(verify.type, "qm_product_reject")
         gone = _parser().parse_args(_argv("delete", "--type", "qm_incoming_reject", "--id", "7"))
         self.assertEqual(gone.type, "qm_incoming_reject")
+        edit = _parser().parse_args(_argv("update", "--type", "qm_incoming_reject", "--id", "7", "--file", "x"))
+        self.assertEqual(edit.type, "qm_incoming_reject")
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
-                _parser().parse_args(_argv("update", "--type", "qm_incoming_reject", "--id", "7", "--file", "x"))
+                _parser().parse_args(_argv("update", "--type", "qm_incoming_inspect", "--id", "7", "--file", "x"))
 
 
 if __name__ == "__main__":

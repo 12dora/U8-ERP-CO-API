@@ -26,7 +26,8 @@ WRITE_ROUTES = frozenset(
     | {"/v1/gl/vouchers/unpost"}  # 取消记账（测试账套）
     | {"/v1/gl/transfer/pnl", "/v1/gl/transfer/custom"}  # 期间损益结转、自定义转账（测试账套）
     | _ops("/v1/archives/", "create update delete customer_person customer_fields customer_address "
-        "customer_address_add customer_address_delete")
+        "customer_address_add customer_address_delete customer_invoice_company_add "
+        "customer_invoice_company_delete customer_invoice_company")
     | _ops("/v1/arap/", "writeoff writeoff/cancel writeoff/auto voucher voucher/delete")
     # 应收应付处理：转账、并账、红票对冲、取消处理、处理制单、汇兑损益及取消。
     | _ops("/v1/arap/", "transfer merge red_offset process/cancel process/voucher exchange_gain exchange_gain/cancel")

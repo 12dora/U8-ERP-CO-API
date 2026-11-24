@@ -6,7 +6,7 @@ namespace U8Co
     // 红字采购发票：参照红字采购入库单（RdRecord01.bredvouch=1）生成，同 PurBillVouch / PurBillVouchs，表头 bNegative=1，
     // 行数量、金额为负。与蓝字同一 CO 单据类型（vt 4，purbill / ppurbill），只是 Init 的 bPositive 不同（见下面的开关）。
     // U8 回写入库行 iSumBillQuantity（账套数据里红字入库行开票后为负，与发票行数量相等），提交前核对它按本次负数量移动。
-    // 删除、复核、取消复核沿用蓝字路径（PuInvDel / PuInvReview），只把 Init 的 bPositive 按 bNegative 换掉；修改仍拒绝（PuEditMoreInv）。
+    // 删除、复核、取消复核、修改沿用蓝字路径（PuInvDel / PuInvReview / PuEditMoreInv），只把 Init 的 bPositive 按 bNegative 换掉，修改另按符号 −1 写数量。
     internal static partial class PuInv
     {
         // ===== 可调整：红字采购发票 Init，只改这一块 =====

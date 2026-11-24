@@ -25,6 +25,8 @@ namespace U8Co
             new string[] { "/u8co/v1/vouchers/create", StockOpening.KindName, StockOpening.TestOnlyText },
             new string[] { "/u8co/v1/vouchers/delete", StockOpening.KindName, StockOpening.TestOnlyText },
             new string[] { "/u8co/v1/vouchers/verify", StockOpening.KindName, StockOpening.TestOnlyText },
+            // 只限带 allocations（替代料）的生产订单修改；不带的修改是第一级。
+            new string[] { "/u8co/v1/vouchers/update", "production_order", MoUpdateSubsReq.TestOnly },
             new string[] { ArapBadReq.Path, "arap", ArapBadReq.TestOnly },
             new string[] { ArapExGainReq.Path, "arap", ArapExGainReq.TestOnly },
             new string[] { ArapExGainReq.CancelPath, "arap", ArapExGainReq.TestOnly },
