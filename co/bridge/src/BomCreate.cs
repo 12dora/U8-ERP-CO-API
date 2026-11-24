@@ -8,6 +8,7 @@ namespace U8Co
     // 新 BomId 不写回表头（实测 B2），调用后在新连接上按（母件 PartId、版本、BomType=1）找：
     // U8 返回成功时认创建时间不早于调用前数据库时间的那一行，并核对行号、子件、用量分子、选配、互斥；
     // 调用异常或 IPC 错误时还要制单人是本操作员。找到算成功；有同版本的行却认不了 504，一行都没有时 IPC 错误 503、其他 504。
+    // 认出之后再核对每行的替代料、定位符（BomOut.Saved），与请求不同 409。
     internal static class BomCreate
     {
         public static ApiResult Run(WorkContext ctx, VoucherKind kind, Dictionary<string, object> head, object[] lines)
@@ -24,7 +25,7 @@ namespace U8Co
             ask.Since = BomSql.Now(ctx.Conn);
             Exception lost = BomCom.Save(ctx, ask, false);
             int id = Recover(ctx, ask, user, lost);
-            return BomOut.Saved(ctx, kind, id, "新增");
+            return BomOut.Saved(ctx, kind, id, "新增", ask);
         }
 
         static string Operator(WorkContext ctx)

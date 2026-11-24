@@ -85,6 +85,9 @@ namespace U8Co
             // 存货核算记账、期末处理（IaReq）：dry_run、幂等键同上。
             IaReq.PostSpec,
             IaReq.PeriodEndSpec,
+            // 存货核算制单、取消制单（IaVoucherReq）：dry_run、幂等键同上。
+            IaVoucherReq.Spec,
+            IaVoucherReq.DropSpec,
             // 并账（ArapMergeReq，处理在 ArapMerge）：dry_run、幂等键同上。
             ArapMergeReq.Spec,
             // 处理制单（ArapProcVoucherReq，处理在 ArapProcVoucher）：dry_run、幂等键同上。

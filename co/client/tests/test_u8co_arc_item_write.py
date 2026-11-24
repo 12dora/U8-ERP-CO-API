@@ -1,4 +1,4 @@
-"""货位、计量单位、自定义项档案、客户存货对照可新增、删除（EAI），前两类还能修改；两列主键的不收 template。"""
+"""货位、计量单位、自定义项档案、客户存货对照可新增、修改、删除（自定义项和客户存货对照的修改由桥走受控 SQL）；两列主键的不收 template。"""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ _NEW = {
     "user_define": {"alias": "KD"},
     "customer_inventory": {"ccusinvname": "客户叫法"},
 }
+_EDIT = {"user_define": {"alias": "KD2"}, "customer_inventory": {"boutinvdt": True}}
 
 
 class ItemArchiveWireTests(unittest.TestCase):
@@ -36,10 +37,10 @@ class ItemArchiveWireTests(unittest.TestCase):
             self.assertEqual(path, "/u8co/v1/archives/create")
             self.assertEqual(list(sent), _AUTH + ["archive", "code", "fields"])
             self.assertEqual((sent["archive"], sent["code"], sent["fields"]), (archive, code, _NEW[archive]))
-            if archive in UPDATE_ARCHIVES:
-                update = ArcRecord(archive, code, {"barcode": "B1"})
-                path, sent = self._send(lambda client, r=update: client.arc_update(gl_arc._call(), r))
-                self.assertEqual((path, sent["fields"]), ("/u8co/v1/archives/update", {"barcode": "B1"}))
+            edit = _EDIT.get(archive, {"barcode": "B1"})
+            update = ArcRecord(archive, code, edit)
+            path, sent = self._send(lambda client, r=update: client.arc_update(gl_arc._call(), r))
+            self.assertEqual((path, sent["fields"]), ("/u8co/v1/archives/update", edit))
             path, sent = self._send(lambda client, a=archive, c=code: client.arc_delete(gl_arc._call(), a, c))
             self.assertEqual((path, sent["archive"], sent["code"]), ("/u8co/v1/archives/delete", archive, code))
 
@@ -57,16 +58,10 @@ class ItemArchiveValidationTests(unittest.TestCase):
         self._refused(lambda c: c.arc_create(gl_arc._call(), record), "template")
         self._refused(lambda c: c.arc_delete(gl_arc._call(), "customer_inventory", "C001"), "<第一段>:<第二段>")
 
-    def test_no_update_for_user_define_and_customer_inventory(self) -> None:
-        for archive in ("user_define", "customer_inventory"):
-            record = ArcRecord(archive, _CODES[archive], _NEW[archive])
-            self._refused(lambda c, r=record: c.arc_update(gl_arc._call(), r), "不支持修改")
-
     def test_kind_lists(self) -> None:
         self.assertTrue(set(EAI_ITEM_ARCHIVES) <= set(WRITE_ARCHIVES))
         self.assertTrue(set(EAI_ITEM_ARCHIVES) <= set(DELETE_ARCHIVES))
-        self.assertTrue({"position", "unit"} <= set(UPDATE_ARCHIVES) < set(WRITE_ARCHIVES))
-        self.assertFalse({"user_define", "customer_inventory"} & set(UPDATE_ARCHIVES))
+        self.assertTrue(set(EAI_ITEM_ARCHIVES) <= set(UPDATE_ARCHIVES) < set(WRITE_ARCHIVES))
         self.assertNotIn("trade_class", WRITE_ARCHIVES)
 
 
@@ -80,7 +75,7 @@ class ItemArchiveCliTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 _parser().parse_args(_argv("arc-delete", "--archive", "trade_class", "--code", "01"))
             with self.assertRaises(SystemExit):
-                _parser().parse_args(_argv("arc-update", "--archive", "user_define", "--code", "1002:快递", "--file", "x.json"))
+                _parser().parse_args(_argv("arc-update", "--archive", "trade_class", "--code", "01", "--file", "x.json"))
 
 
 if __name__ == "__main__":

@@ -143,6 +143,7 @@ namespace U8Co
                 {
                     AddAll(rule, set);
                 }
+                ExpandAlias(rule, scope);
                 return rule;
             }
             for (int i = 0; i < keys.Length; i++)
@@ -160,9 +161,13 @@ namespace U8Co
 
         static void ExpandAlias(Rule rule, ColScope scope)
         {
-            if (scope.MapColumn != null && scope.MapAlias != null && rule.Denied.Contains(scope.MapColumn))
+            for (int i = 0; i < scope.Aliases.Count; i++)
             {
-                rule.Denied.Add(scope.MapAlias);
+                string[] pair = scope.Aliases[i];
+                if (pair[0] != null && pair[1] != null && rule.Denied.Contains(pair[0]))
+                {
+                    rule.Denied.Add(pair[1]);
+                }
             }
         }
 

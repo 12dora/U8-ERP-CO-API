@@ -9,7 +9,6 @@ from typing import Annotated, Any, ClassVar
 from pydantic import BaseModel, Field, StrictBool, StrictInt, field_validator, model_validator
 
 from u8co_api.co_doctext import field_doc
-from u8co_api.co_fa_card_write import check_fa_write
 from u8co_api.co_fa_write import refuse_archive_op
 from u8co_api.co_models import CoAuth
 from u8co_api.co_models_arc_fa import FA_CARD, FA_CODE_MAX, FA_RO, FaListFilters, check_fa_filters
@@ -23,22 +22,16 @@ from u8co_api.co_models_arc_names import (
     UpdateArchiveName,
     WriteArchiveName,
 )
-from u8co_api.co_models_arc_partner import (
-    PARTNER_CODE_MAX,
-    PARTNER_NO_UFTS,
-    PARTNER_OPEN,
-    PARTNER_PAIR,
-    check_partner_write,
-)
-from u8co_api.co_models_arc_rw import check_code_tag, check_exch_write, check_gl_write, is_gl_archive
+from u8co_api.co_models_arc_checks import check_create_fields, check_update_fields
+from u8co_api.co_models_arc_partner import PARTNER_CODE_MAX, PARTNER_NO_UFTS, PARTNER_OPEN, PARTNER_PAIR
+from u8co_api.co_models_arc_sa import SA_CODE_MAX, SA_NO_UFTS, SA_PAIR
 from u8co_api.co_models_dry import DryRunFlag
 from u8co_api.co_models_gl import PASS, Scalar
 
 _TAG = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
 _FIELDS_MAX = 300
-_PROJECT_TAGS = frozenset({"name", "bclose", "citemccode"})
 # 没有 rowversion 的只读档案，列表不支持 changed_since。
-_NO_UFTS = frozenset({"voucher_sign", "project", "customer_address", FA_CARD, "operator", "role"}) | PARTNER_NO_UFTS
+_NO_UFTS = frozenset({"voucher_sign", "project", "customer_address", FA_CARD, "operator", "role"}) | PARTNER_NO_UFTS | SA_NO_UFTS
 _PROJECT = "project"
 # 以桥为准（ArcRoutes.CheckCode / ArcKindRo / ArcProject）：编码不含控制字符（\x00–\x1f、\x7f、\uFFFE、\uFFFF），
 # 首尾不能有空白，中间可以有空格。可写档案最长 30；只读档案 account 40、unit / unit_group 35、project 63，
@@ -75,6 +68,7 @@ _CODE_MAX = {
     "operator": 20,
     "role": 20,
     **PARTNER_CODE_MAX,
+    **SA_CODE_MAX,
 }
 # 两列主键的档案（桥 ArcPair）：编码 "<第一段>:<第二段>"，按第一个冒号拆开，两段各自的最大长度和写法。
 _PAIR = {
@@ -82,6 +76,7 @@ _PAIR = {
     "user_define": (10, 400, "<自定义项号>:<档案值>"),
     "customer_inventory": (20, 60, "<客户编码>:<存货编码>"),
     **PARTNER_PAIR,
+    **SA_PAIR,
 }
 # 汇率（桥 ArcExch / ExchKey）：币种 1 到 8 个字符，年度四位，期间 1 到 12，日（浮动汇率的 exch.cdate 原文）最长 10。
 _EXCH = "exchange_rate"
@@ -132,6 +127,7 @@ ReadCode = Annotated[
                     "customer_address：`<客户编码>:<地址编码>`，两段最长 20、30",
                     "user_define：`<自定义项号>:<档案值>`，两段最长 10、400",
                     "customer_inventory：`<客户编码>:<存货编码>`，两段最长 20、60",
+                    "customer_invoice_company：`<客户编码>:<开票单位编码>`，两段最长 20、20",
                     "exchange_rate：`<币种>:<年度>:<期间>[:<日>]`；get 也可以写 `<币种>:<yyyy-mm-dd>`",
                 ),
             ),
@@ -139,7 +135,7 @@ ReadCode = Annotated[
                 "限制",
                 (
                     "一般最长 30 个字符",
-                    "account 40；unit、unit_group 35；position、operator、role 20",
+                    "account 40；unit、unit_group 35；position、operator、role 20；pay_agreement 10",
                     "rd_style、aa_bank 5；purchase_type、sale_type 2；district_class、trade_class 12",
                     "settle_style 3，currency 8，reason 10",
                 ),
@@ -241,22 +237,6 @@ class ArcGetIn(ArcKeyBase):
         return self
 
 
-def check_project_write(archive: str, fields: dict[str, Any], template: str | None, creating: bool) -> None:
-    """project 只收 name、bclose、citemccode，新增必须有 citemccode，不收 template（桥 ArcProjectWrite.Check）。"""
-    if archive != _PROJECT:
-        return
-    unknown = sorted(set(fields) - _PROJECT_TAGS)
-    if unknown:
-        raise ValueError("project 只能写 name、bclose、citemccode，未知字段 " + ", ".join(unknown))
-    if template is not None:
-        raise ValueError("项目档案不支持 template")
-    if creating and "citemccode" not in fields:
-        raise ValueError("新增项目必须给 citemccode（所属末级分类）")
-    close = fields.get("bclose")
-    if close is not None and close not in (True, False, 0, 1, "0", "1"):
-        raise ValueError("bclose 必须是布尔或 0 / 1")
-
-
 class ArcCreateIn(ArcKeyIn):
     archive: WriteArchiveName = Field(..., description=ARCHIVE_DESC + ARCHIVE_WRITE_DESC)
     code: ReadCode
@@ -277,15 +257,7 @@ class ArcCreateIn(ArcKeyIn):
 
     @model_validator(mode="after")
     def _write(self) -> ArcCreateIn:
-        check_code_tag(self.archive, self.fields, True)
-        check_gl_write(self.archive, self.code, self.fields, True)
-        check_project_write(self.archive, self.fields, self.template, True)
-        check_partner_write(self.archive, self.code, self.fields, True)
-        check_exch_write(self.archive, self.code, self.fields, True)
-        check_fa_write(self.archive, self.fields, self.template)  # 固定资产卡片、设备台账
-        no_template = self.archive in _PAIR or self.archive == _EXCH or is_gl_archive(self.archive)
-        if self.template is not None and no_template:
-            raise ValueError(f"档案 {self.archive} 不支持 template")
+        check_create_fields(self.archive, self.code, self.fields, self.template, self.archive in _PAIR or self.archive == _EXCH)
         return self
 
 
@@ -308,11 +280,7 @@ class ArcUpdateIn(ArcKeyIn):
 
     @model_validator(mode="after")
     def _write(self) -> ArcUpdateIn:
-        check_code_tag(self.archive, self.fields, False)
-        check_gl_write(self.archive, self.code, self.fields, False)
-        check_project_write(self.archive, self.fields, None, False)
-        check_partner_write(self.archive, self.code, self.fields, False)
-        check_exch_write(self.archive, self.code, self.fields, False)
+        check_update_fields(self.archive, self.code, self.fields)
         return self
 
 
@@ -389,10 +357,10 @@ class ArcListItem(BaseModel):
     class_code: Scalar = Field(
         None,
         description="分类编码（unit 是计量单位组，project 是项目分类，position 是仓库，"
-        "customer_address、customer_inventory 是客户编码，user_define 是自定义项号）。没有分类的档案省略",
+        "customer_address、customer_inventory、customer_invoice_company 是客户编码，user_define 是自定义项号）。没有分类的档案省略",
     )
     ufts: Scalar = Field(
-        None, description="rowversion 的十进制字符串。voucher_sign、project、customer_address 为 null"
+        None, description="rowversion 的十进制字符串。voucher_sign、project、customer_address、customer_invoice_company 为 null"
     )
     project_class: Scalar = Field(None, description="project：项目大类")
     closed: bool | None = Field(None, description="project：项目已关闭")
@@ -436,7 +404,7 @@ class ArcListOut(BaseModel):
         None,
         description="读这一页之前的 MIN_ACTIVE_ROWVERSION()-1。"
         "整轮读完后，把第一页的 watermark 作为下一轮的 changed_since。"
-        "voucher_sign、project、customer_address、fa_card、operator、role 为 null",
+        "voucher_sign、project、customer_address、customer_invoice_company、fa_card、operator、role 为 null",
     )
     fiscal_year: int | None = Field(
         None,

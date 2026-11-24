@@ -23,10 +23,12 @@ namespace U8Co
 
         static void CheckRoutes()
         {
-            Expect("acct names", All(ReportsAcctReq.Names.Length == 3, ReportsAcctReq.Owns("close_check"),
-                ReportsAcctReq.Owns("ia_anomalies"), ReportsAcctReq.Owns("cost_unit"), !ReportsAcctReq.Owns("close_status")));
-            Expect("acct specs", All(ReportsAcctReq.Specs.Length == 3, ReportsAcctReq.Specs[0][0] == "/u8co/v1/reports/close_check",
+            Expect("acct names", All(ReportsAcctReq.Names.Length == 4, ReportsAcctReq.Owns("close_check"),
+                ReportsAcctReq.Owns("ia_anomalies"), ReportsAcctReq.Owns("cost_unit"), ReportsAcctReq.Owns("ca_inputs"),
+                !ReportsAcctReq.Owns("close_status")));
+            Expect("acct specs", All(ReportsAcctReq.Specs.Length == 4, ReportsAcctReq.Specs[0][0] == "/u8co/v1/reports/close_check",
                 ReportsAcctReq.Specs[1][0] == "/u8co/v1/reports/ia_anomalies", ReportsAcctReq.Specs[2][0] == "/u8co/v1/reports/cost_unit",
+                ReportsAcctReq.Specs[3][0] == "/u8co/v1/reports/ca_inputs",
                 Array.IndexOf(ReportsAcctReq.Specs[0], "period") > 0, Array.IndexOf(ReportsAcctReq.Specs[1], "limit") > 0,
                 Array.IndexOf(ReportsAcctReq.Specs[2], "inv_class") > 0, Array.IndexOf(ReportsAcctReq.Specs[2], "after") < 0));
             Dictionary<string, object> none = new Dictionary<string, object>();
@@ -35,8 +37,8 @@ namespace U8Co
             Dictionary<string, Func<WorkContext, ReportArgs, ApiResult>> map =
                 new Dictionary<string, Func<WorkContext, ReportArgs, ApiResult>>();
             ReportsAcctReq.AddRunners(map);
-            Expect("acct runners", All(map.Count == 3, map.ContainsKey("close_check"), map.ContainsKey("ia_anomalies"),
-                map.ContainsKey("cost_unit")));
+            Expect("acct runners", All(map.Count == 4, map.ContainsKey("close_check"), map.ContainsKey("ia_anomalies"),
+                map.ContainsKey("cost_unit"), map.ContainsKey("ca_inputs")));
         }
 
         static void CheckParse()

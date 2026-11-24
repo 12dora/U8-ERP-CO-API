@@ -80,7 +80,7 @@ namespace U8Co
             return CoRows.AsId(n) > 0;
         }
 
-        // 预检表头。形态转换单只认 cVouchType='15'，其余（组装 13、拆卸 14）当作不存在。
+        // 预检表头（货位调整单的修改也用：只要单号、审核人、审批流标志）。形态转换单只认 cVouchType='15'，其余（组装 13、拆卸 14）当作不存在。
         internal static Dictionary<string, object> Head(object conn, VoucherKind kind, int id)
         {
             Dictionary<string, object> row = Rows.One(conn, HeadSql(kind), new object[] { id });
@@ -103,7 +103,7 @@ namespace U8Co
             {
                 sql = sql + ", cWhCode";
             }
-            else
+            else if (kind.StType == "62")
             {
                 sql = sql + ", cCloser" + RequestCols();
             }

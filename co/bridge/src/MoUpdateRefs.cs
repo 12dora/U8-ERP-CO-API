@@ -7,12 +7,13 @@ namespace U8Co
     // 调用前查下面这些表（表名、列名是常量；账套里没有的表或列先查 sys.columns 跳过），有一行就 409。
     // rdrecords10.iMPoIds 指的是订单行 MoDId，不在这里（MoUpdateSql 的下游闸门已查）。
     // rdrecords11.iMPoIds（材料出库）不在这里：桥能按（行、行号、存货）确定新子件，修改后由 MoUpdateRemap 改写；
-    // 其余表（领料申请、调拨、替代料、计划、历史表、材料出库的序列号明细 ST_SNDetail_MaOut 等）桥改不准，仍一律 409。
+    // 替代料 mom_moallocatesub 不在这里：桥按快照写回到新子件（MoUpdateSubs）。
+    // 其余表（领料申请、调拨、计划、历史表、材料出库的序列号明细 ST_SNDetail_MaOut 等）桥改不准，仍一律 409。
     internal static class MoUpdateRefs
     {
         static readonly string[][] Refs = new string[][]
         {
-            new string[] { "mom_moallocatesub", "AllocateId" }, new string[] { "mom_moallocatescrap", "AllocateId" },
+            new string[] { "mom_moallocatescrap", "AllocateId" },
             new string[] { "mom_moallocateShortDetail", "AllocateId" }, new string[] { "mom_moallocatehistory", "AllocateId" },
             new string[] { "MaterialOut_SubTable", "AllocateId" }, new string[] { "MaterialRecordOutList", "allocateid" },
             new string[] { "mom_replenishapplydtl", "MoAllocateId" }, new string[] { "mps_demand", "AllocateId" },

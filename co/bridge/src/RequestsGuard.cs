@@ -27,8 +27,6 @@ namespace U8Co
         static void GuardItem(string path, WorkItem item)
         {
             StockOpening.PreLogin(item, path);
-            // 货位调整单：修改 400（新增、审核、弃审、删除为第一级写入）。
-            PositionAdjust.PreLogin(item, path);
             GuardKind(path, item.Type);
         }
 

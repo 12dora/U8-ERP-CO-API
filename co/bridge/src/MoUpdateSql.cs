@@ -105,14 +105,11 @@ namespace U8Co
             }
         }
 
-        // 带替代料（mom_moallocatesub）的不改：扩展实体不带替代料，MOrderUpdate 重插子件后替代料会丢。
+        // 替代料（mom_moallocatesub）不在这里拒绝：MOrderUpdate 会丢掉，桥按快照写回（MoUpdateSubs）。由替代料生成的子件
+        // （MoallocateSubId 非空）在 MoUpdateCols.Guard 里拒绝；用替代料出库（出库存货与子件不同）由 MoUpdateRemap.Capture 拒绝。
         // 已领料（IssQty > 0）不在这里拒绝：有改动时任何已领料子件改后需求不能少于已领（MoUpdateRemap.CheckIssued，含超额领料），引用由 MoUpdateRemap 改写。
         static void AllocGate(MoAllocRow a)
         {
-            if (a.Subs > 0)
-            {
-                throw new BridgeException(409, "state_mismatch", "生产订单的子件 " + a.InvCode + " 有替代料，请在 U8 客户端修改");
-            }
             List<string> cols = MoUpdateCols.NotDefault(a.Keep);
             if (cols.Count > 0)
             {
@@ -270,7 +267,9 @@ namespace U8Co
         // UpperMoQty 的原文（null 时为空串）；U8 重插后变 0，桥按新旧行数量比例写回。
         public string UpperMoQty = "";
         public decimal IssQty;
+        // 替代料行数；调用前的快照里另有全部替代料（MoUpdateSubs.Capture，回读时为 null）。
         public int Subs;
+        public List<MoSubRow> SubRows;
         // MoUpdateCols 名单里各列的原文；下面的类型化字段取自其中。
         public Dictionary<string, string> Keep = new Dictionary<string, string>();
         public decimal BaseN;

@@ -14,6 +14,7 @@ DECLARE @cAccounter nvarchar(20); SELECT @cAccounter = accounter FROM #ia_args;
 DECLARE @cEDate nvarchar(10);
 DECLARE @dKeep datetime;
 DECLARE @errmsg nvarchar(200);
+DECLARE @n int, @msg nvarchar(400);
 
 SET @cEDate = CONVERT(nvarchar(10), EOMONTH(DATEFROMPARTS(@y,@m,1)), 23);
 IF NULLIF(LTRIM(@cDate),N'') IS NULL SET @cDate = @cEDate;
@@ -48,6 +49,22 @@ SELECT DISTINCT x.cWhCode FROM (
   UNION
   SELECT cWhCode FROM IA_Subsidiary WHERE iYear=@y AND iMonth=@m AND ISNULL(cWhCode,N'')<>N''
 ) x;
+
+-- 本月还有未记账的出入库调整单（20/21，手工录入的；系统生成的 cAuto=TRUE 不算）：U8 期末处理前检查，范围同它（存货、仓库在本次处理范围内）。
+-- U8 界面是 Per12_NoAccJV；这里的月份窗口与 ia/post 装入调整单的范围一致。
+SELECT @n = COUNT(*)
+FROM JustInVouchs l
+INNER JOIN JustInVouch h ON h.cJVCode=l.cJVCode
+WHERE h.cVouchType IN (N'20',N'21') AND ISNULL(l.cBAccounter,N'')=N''
+  AND UPPER(ISNULL(h.cAuto,N''))<>N'TRUE'
+  AND h.dJVDate>=DATEFROMPARTS(@y,@m,1) AND h.dJVDate<DATEADD(day,1,EOMONTH(DATEFROMPARTS(@y,@m,1)))
+  AND l.cInvCode IN (SELECT cinvcode FROM IA_PerdealInventory)
+  AND h.cWhCode IN (SELECT cWhDepCode FROM Ia_PerDealWhDep);
+IF @n > 0
+BEGIN
+  SET @msg = N'unposted adjustment lines: ' + CONVERT(nvarchar(20),@n);
+  THROW 50023, @msg, 1;
+END
 
 IF OBJECT_ID(N'tempdb..#IA_Summary') IS NOT NULL DROP TABLE #IA_Summary;
 IF OBJECT_ID(N'tempdb..#IA_AccountData') IS NOT NULL DROP TABLE #IA_AccountData;

@@ -78,6 +78,7 @@ namespace U8Co
             Directory.CreateDirectory(cfg.AuditLog);
             // 签名自检与程序集加载的事件行写进审计日志
             AuditEvent.SetDir(cfg.AuditLog);
+            AuditLogRetention.Start(cfg);
             // 写入策略：配置了 writePolicyFile 才加载并起后台重载线程
             WritePolicy.Start(cfg);
             // 只读账套名单（健康检查、meta 显示用；拦截按请求的配置判断）
@@ -242,6 +243,8 @@ namespace U8Co
                     + string.Join(",", cfg.PermEvaluateOperators));
                 Console.WriteLine(ConfigRulesTax.Describe(cfg));
                 Console.WriteLine(WritePolicy.Describe(cfg));
+                Console.WriteLine(AuditLogRetention.Describe(cfg));
+                Console.WriteLine(AuditLogCompression.Describe(cfg));
                 string[] extra = LicenseRules.Describe(cfg);
                 for (int i = 0; i < extra.Length; i++)
                 {

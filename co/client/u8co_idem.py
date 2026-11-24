@@ -37,6 +37,7 @@ WRITE_ROUTES = frozenset(
     | {"/v1/openings/arap"}  # 应收应付期初单据
     | {"/v1/periods/close"}  # 月末结账
     | {"/v1/ia/post", "/v1/ia/period_end"}  # 存货核算记账、期末处理
+    | {"/v1/ia/voucher", "/v1/ia/voucher/delete"}  # 存货核算制单、取消制单（测试账套）
     | LEGACY_ROUTES
 )
 # 支持幂等键的路由就是全部写路由（桥 IdemReq.Supports = WriteGate.IsWrite），不另列清单。

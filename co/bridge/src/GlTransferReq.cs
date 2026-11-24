@@ -54,8 +54,8 @@ namespace U8Co
         {
             CustomPath, "fiscal_year", "period", "voucher_date", "tran_id", "exclude_existing"
         };
-        // 新凭证编号锁：凭证类别在定义里，入队前不知道，常见类别都锁（同应收应付制单没给 sign 时）。
-        static readonly string[] Signs = new string[] { "转", "记", "收", "付" };
+        // 新凭证编号锁：凭证类别在定义里，入队前不知道，常见类别都锁（同应收应付制单没给 sign 时）。存货核算制单没给 sign 时同用这一份。
+        internal static readonly string[] Signs = new string[] { "转", "记", "收", "付" };
 
         public static bool IsPath(string path)
         {

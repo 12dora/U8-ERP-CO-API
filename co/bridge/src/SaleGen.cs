@@ -22,7 +22,8 @@ namespace U8Co
         const string LineExtra = "cbdefineN";
         // 发货单表头的 caddcode、cdefine1–16 和 chdefineN 是核对字段，保存后回读（SalePins）。
         const string HeadKeys = "ddate,cmemo,cwhcode,cdepcode,cpersoncode,cshipaddress,caddcode," + HeadExtra;
-        const string LineKeys = "cwhcode,cbatch,cmemo";
+        // 表体扩展自定义项 cbdefineN（DispatchLists_extradefine）不进 DOM，SalePins 保存后补写并回读。
+        const string LineKeys = "cwhcode,cbatch,cmemo," + LineExtra;
         const string InvHeadKeys = "cvouchtype,ddate,cmemo";
         const string InvLineKeys = "cmemo";
         // 蓝字发票参照发货单另收表体扩展自定义项 cbdefineN（SaleBillVouchs_extradefine，SalePins 保存后补写并回读）；红字发票不收。
@@ -96,7 +97,7 @@ namespace U8Co
             try
             {
                 // 核对字段：收货地址须属于订单客户，列存在、类型长度按列目录；保存后回读（SalePins）。
-                SalePins pins = SalePins.ForDispatch(ctx.Conn, LoginDate(ctx), sourceId, head);
+                SalePins pins = SalePins.ForDispatch(ctx.Conn, LoginDate(ctx), sourceId, head, PinLines(plan));
                 srcHead = LoadRef(ctx.Conn, RefHead, sourceId, "参照视图没有该销售订单");
                 SaSession.OpenSa(ctx.Conn, ctx.Session.Login, SaSession.SaVt(kind), out sys, out co);
                 string card = kind.SaCard == null || kind.SaCard.Length == 0 ? "01" : kind.SaCard;
@@ -189,13 +190,14 @@ namespace U8Co
                 int at = DomRows.RowsOf(doms[1]).Count - 1;
                 DomRows.CopyInto(doms[1], dst, srcRows[0], BodySkip);
                 Scale(doms[1], dst, line.Qty);
+                SaleTaxFlag.Keep(ctx, doms[1], dst);
                 string msg = SaleCalc.Check(fill.Co, doms[0], doms[1], dst, "iquantity", false);
                 if (msg.Length > 0)
                 {
                     CoRows.Note(ctx.Item, "BodyCheck " + msg);
                 }
                 object row = At(doms[1], at);
-                ApplyFields(doms[1], row, line.Fields, false);
+                ApplyFields(doms[1], row, SalePins.DomOnly(SalePins.Dispatch, line.Fields), false);
                 string wh = Warehouse(line.Fields, fill.Head, row);
                 if (wh.Length == 0)
                 {

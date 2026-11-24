@@ -160,7 +160,11 @@ IF EXISTS (
 
 DELETE FROM IA_RestoreAccount
 WHERE iYear=@y AND iMonth=@m
-  AND cVouType IN (N'01',N'08',N'09',N'10',N'11',N'32',N'3201',N'26',N'27');
+  AND cVouType IN (N'01',N'08',N'09',N'10',N'11',N'32',N'3201',N'26',N'27',N'20',N'21');
+
+-- 出入库调整单（20/21）只恢复手工录入的（cBusType 空）和记账时系统生成的（cBusType=记账，IA_sp_CreateJustVouch）。
+-- 成本管理的「在产成本调整」（IA_SP_CreateAdjustVouchForRoll）、期末处理生成的（已由取消期末处理删除）不在恢复集合里：
+-- IA_sp_RestoreAccGen 对它们的 cAuto 另有处理（保留 'True'/'FALSE'），只有成本管理能重新生成，删了就找不回来。
 
 -- ia_cancelkeep has no cValueType; RestoreAccGen returns immediately unless cValueType is 全月平均法 (not FIFO/LIFO/个别).
 INSERT INTO IA_RestoreAccount(
@@ -203,10 +207,15 @@ SELECT
 FROM ia_cancelkeep k
 LEFT JOIN Warehouse w ON w.cWhCode = k.cWhCode
 WHERE k.iYear=@y AND k.iMonth=@m
-  AND k.cVouType IN (N'01',N'08',N'09',N'10',N'11',N'32',N'3201',N'26',N'27');
+  AND k.cVouType IN (N'01',N'08',N'09',N'10',N'11',N'32',N'3201',N'26',N'27',N'20',N'21')
+  AND (k.cVouType NOT IN (N'20',N'21') OR ISNULL(k.cBusType,N'') IN (N'',N'记账'));
+
+-- 已制单的记账行（cPZID 非空）U8 的恢复记账清单里不列；桥拒绝，免得总账凭证的来源行被删。
+IF EXISTS (SELECT 1 FROM IA_RestoreAccount WHERE iYear=@y AND iMonth=@m AND ISNULL(cPZID,N'')<>N'')
+  THROW 50012, N'cannot 恢复记账: some posted lines already have an IA voucher (cPZID). Delete the voucher first (ia/voucher/delete).', 1;
 
 SELECT @n = COUNT(*) FROM IA_RestoreAccount
-WHERE iYear=@y AND iMonth=@m AND cVouType IN (N'01',N'08',N'09',N'10',N'11',N'32',N'3201',N'26',N'27');
+WHERE iYear=@y AND iMonth=@m AND cVouType IN (N'01',N'08',N'09',N'10',N'11',N'32',N'3201',N'26',N'27',N'20',N'21');
 
 IF @n = 0
 BEGIN
@@ -235,6 +244,79 @@ SET @errmsg = NULL;
 EXEC IA_sp_RestoreAccGen @y, @m, @errmsg OUTPUT, 0;
 IF NULLIF(LTRIM(@errmsg),N'') IS NOT NULL
   BEGIN SET @raise = N'RestoreAccGen: ' + ISNULL(@errmsg, N''); THROW 50000, @raise, 1; END
+
+-- 出入库调整单（20/21）。IA_sp_RestoreAccGen 的两段处理都排除这两类，什么也不做；U8 界面另外清调整单行的记账人和日期、
+-- 删分项、刷新表头时间戳（CHHSSQL ~7707）。其余照 RestoreAccGen「按仓库核算」的公式：回退汇总表本月的发生额，删明细账行。
+-- 记账时系统自动生成的调整单（cBusType=记账，生成时已盖记账人，下次记账会再生成）整张删除；手工调整单保留，只清记账人。
+IF EXISTS (SELECT 1 FROM IA_RestoreAccount WHERE iYear=@y AND iMonth=@m AND cVouType IN (N'20',N'21'))
+BEGIN
+  IF OBJECT_ID(N'tempdb..#just_rows') IS NOT NULL DROP TABLE #just_rows;
+  SELECT AutoID, JustID, cVouCode, cVouType, cBusType INTO #just_rows
+  FROM IA_RestoreAccount WHERE iYear=@y AND iMonth=@m AND cVouType IN (N'20',N'21');
+
+  UPDATE s SET
+    iNum = ISNULL(s.iNum,0) - ISNULL(t.InNum,0) + ISNULL(t.OutNum,0),
+    iINum = ISNULL(s.iINum,0) - ISNULL(t.InNum,0), iONum = ISNULL(s.iONum,0) - ISNULL(t.OutNum,0),
+    iMoney = ISNULL(s.iMoney,0) - ISNULL(t.InPrice,0) + ISNULL(t.OutPrice,0),
+    iIMoney = ISNULL(s.iIMoney,0) - ISNULL(t.InPrice,0), iOMoney = ISNULL(s.iOMoney,0) - ISNULL(t.OutPrice,0),
+    iDif = ISNULL(s.iDif,0) - ISNULL(t.InDif,0) + ISNULL(t.OutDif,0),
+    iIDif = ISNULL(s.iIDif,0) - ISNULL(t.InDif,0), iODif = ISNULL(s.iODif,0) - ISNULL(t.OutDif,0),
+    iAbsIMoney = ABS(ISNULL(ABS(s.iAbsIMoney),0) - ISNULL(ABS(t.InAbsPrice),0)),
+    iAbsOMoney = ABS(ISNULL(ABS(s.iAbsOMoney),0) - ISNULL(ABS(t.OutAbsPrice),0)),
+    iAbsNum = ABS(ABS(ISNULL(s.iAbsNum,0) - ISNULL(t.InNum,0) + ISNULL(t.OutNum,0))),
+    iAbsMoney = ABS(ABS(ISNULL(s.iAbsMoney,0) - ABS(ISNULL(t.InAbsPrice,0)) + ABS(ISNULL(t.OutAbsPrice,0))))
+  FROM IA_Summary s
+  INNER JOIN (
+    SELECT r.cWhCode, r.cInvCode,
+      ISNULL(CASE WHEN i.bCheckFree1=1 THEN r.cFree1 ELSE N'' END, N'') cFree1, ISNULL(CASE WHEN i.bCheckFree2=1 THEN r.cFree2 ELSE N'' END, N'') cFree2,
+      ISNULL(CASE WHEN i.bCheckFree3=1 THEN r.cFree3 ELSE N'' END, N'') cFree3, ISNULL(CASE WHEN i.bCheckFree4=1 THEN r.cFree4 ELSE N'' END, N'') cFree4,
+      ISNULL(CASE WHEN i.bCheckFree5=1 THEN r.cFree5 ELSE N'' END, N'') cFree5, ISNULL(CASE WHEN i.bCheckFree6=1 THEN r.cFree6 ELSE N'' END, N'') cFree6,
+      ISNULL(CASE WHEN i.bCheckFree7=1 THEN r.cFree7 ELSE N'' END, N'') cFree7, ISNULL(CASE WHEN i.bCheckFree8=1 THEN r.cFree8 ELSE N'' END, N'') cFree8,
+      ISNULL(CASE WHEN i.bCheckFree9=1 THEN r.cFree9 ELSE N'' END, N'') cFree9, ISNULL(CASE WHEN i.bCheckFree10=1 THEN r.cFree10 ELSE N'' END, N'') cFree10,
+      ISNULL(CASE WHEN i.bCheckBatch=1 AND r.cValueType IN (N'全月平均法',N'移动平均法',N'先进先出法',N'后进先出法') THEN r.cBatchia ELSE N'' END, N'') cBatchia,
+      SUM(ISNULL(r.iAInQuantity,0)) InNum, SUM(ISNULL(r.iAOutQuantity,0)) OutNum,
+      SUM(ISNULL(r.iAInPrice,0)) InPrice, SUM(ISNULL(r.iAOutPrice,0)) OutPrice,
+      SUM(ABS(ISNULL(r.iAInPrice,0))) InAbsPrice, SUM(ABS(ISNULL(r.iAOutPrice,0))) OutAbsPrice,
+      SUM(CASE WHEN r.bRdFlag=1 THEN ISNULL(r.iDebitDifCost,0) - ISNULL(r.iCreditDifCost,0) ELSE CAST(0 AS float) END) InDif,
+      SUM(CASE WHEN r.bRdFlag=0 THEN ISNULL(r.iCreditDifCost,0) - ISNULL(r.iDebitDifCost,0) ELSE CAST(0 AS float) END) OutDif
+    FROM IA_RestoreAccount r LEFT JOIN Inventory i ON i.cInvCode=r.cInvCode
+    WHERE r.iYear=@y AND r.iMonth=@m AND r.cVouType IN (N'20',N'21') AND LEFT(ISNULL(r.cBusType,N''),2) <> N'直运'
+    GROUP BY r.cWhCode, r.cInvCode,
+      ISNULL(CASE WHEN i.bCheckFree1=1 THEN r.cFree1 ELSE N'' END, N''), ISNULL(CASE WHEN i.bCheckFree2=1 THEN r.cFree2 ELSE N'' END, N''),
+      ISNULL(CASE WHEN i.bCheckFree3=1 THEN r.cFree3 ELSE N'' END, N''), ISNULL(CASE WHEN i.bCheckFree4=1 THEN r.cFree4 ELSE N'' END, N''),
+      ISNULL(CASE WHEN i.bCheckFree5=1 THEN r.cFree5 ELSE N'' END, N''), ISNULL(CASE WHEN i.bCheckFree6=1 THEN r.cFree6 ELSE N'' END, N''),
+      ISNULL(CASE WHEN i.bCheckFree7=1 THEN r.cFree7 ELSE N'' END, N''), ISNULL(CASE WHEN i.bCheckFree8=1 THEN r.cFree8 ELSE N'' END, N''),
+      ISNULL(CASE WHEN i.bCheckFree9=1 THEN r.cFree9 ELSE N'' END, N''), ISNULL(CASE WHEN i.bCheckFree10=1 THEN r.cFree10 ELSE N'' END, N''),
+      ISNULL(CASE WHEN i.bCheckBatch=1 AND r.cValueType IN (N'全月平均法',N'移动平均法',N'先进先出法',N'后进先出法') THEN r.cBatchia ELSE N'' END, N'')
+  ) t ON s.cWhCode=t.cWhCode AND s.cInvCode=t.cInvCode
+    AND ISNULL(s.cFree1,N'')=t.cFree1 AND ISNULL(s.cFree2,N'')=t.cFree2 AND ISNULL(s.cFree3,N'')=t.cFree3
+    AND ISNULL(s.cFree4,N'')=t.cFree4 AND ISNULL(s.cFree5,N'')=t.cFree5 AND ISNULL(s.cFree6,N'')=t.cFree6
+    AND ISNULL(s.cFree7,N'')=t.cFree7 AND ISNULL(s.cFree8,N'')=t.cFree8 AND ISNULL(s.cFree9,N'')=t.cFree9
+    AND ISNULL(s.cFree10,N'')=t.cFree10 AND ISNULL(s.cBatchia,N'')=t.cBatchia
+  WHERE s.iYear=@y AND s.iMonth=@m AND ISNULL(s.iDirect,0)=0;
+
+  IF OBJECT_ID(N'IA_Subsidiary_Item', N'U') IS NOT NULL
+    DELETE x FROM IA_Subsidiary_Item x INNER JOIN #just_rows j ON x.iSubID=j.AutoID;
+  IF OBJECT_ID(N'IA_Subsidiary_ItemOut', N'U') IS NOT NULL
+    DELETE x FROM IA_Subsidiary_ItemOut x INNER JOIN #just_rows j ON x.iSubID=j.AutoID;
+  IF OBJECT_ID(N'IA_Subsidiary_STSub', N'U') IS NOT NULL
+    DELETE x FROM IA_Subsidiary_STSub x INNER JOIN #just_rows j ON x.iIASubID=j.AutoID;
+  DELETE x FROM IA_Subsidiary x INNER JOIN #just_rows j ON x.AutoID=j.AutoID AND x.cVouType=j.cVouType WHERE x.iYear=@y;
+
+  IF OBJECT_ID(N'IA_JustInVouchs_Item', N'U') IS NOT NULL
+    DELETE x FROM IA_JustInVouchs_Item x INNER JOIN #just_rows j ON x.iJustAutoID=j.JustID
+    WHERE ISNULL(j.cBusType,N'') <> N'分项调整';
+
+  DELETE l FROM JustInVouchs l
+  INNER JOIN #just_rows j ON l.AutoID=j.JustID
+  WHERE j.cBusType=N'记账';
+  DELETE h FROM JustInVouch h
+  WHERE h.cJVCode IN (SELECT cVouCode FROM #just_rows)
+    AND NOT EXISTS (SELECT 1 FROM JustInVouchs l WHERE l.cJVCode=h.cJVCode);
+  UPDATE JustInVouchs SET cBAccounter=NULL, dKeepDate=NULL WHERE AutoID IN (SELECT JustID FROM #just_rows);
+  UPDATE JustInVouch SET cBusType=cBusType WHERE cJVCode IN (SELECT cVouCode FROM #just_rows);
+  DROP TABLE #just_rows;
+END
 
 -- UI ~7722–7788: clear rdrecords stamp; keep iunitcost/iPrice/iAPrice/faCost only if bMoneyFlag=1 and MoneySrc=0.
 UPDATE RdRecords01 SET cbAccounter=NULL, dbkeepdate=NULL,
@@ -334,6 +416,8 @@ UNION ALL SELECT N'sbv_still_posted', COUNT(*) FROM SaleBillVouchs s
   INNER JOIN IA_RestoreAccount a ON s.AutoID = CASE WHEN a.isen=1 THEN ISNULL(a.ValueID,a.ID) ELSE a.ID END
   AND a.cVouType IN (N'26',N'27') WHERE ISNULL(s.cbAccounter,N'')<>N''
 UNION ALL SELECT N'unacc_SA', COUNT(*) FROM IA_SA_UnAccountVouch
+UNION ALL SELECT N'just_still_posted', COUNT(*) FROM JustInVouchs l
+  INNER JOIN IA_RestoreAccount a ON l.AutoID=a.JustID AND a.cVouType IN (N'20',N'21') WHERE ISNULL(l.cBAccounter,N'')<>N''
 UNION ALL SELECT N'rd_still_posted', (
   SELECT COUNT(*) FROM rdrecords01 r INNER JOIN IA_RestoreAccount a ON r.autoid=a.id AND a.cVouType=N'01' WHERE ISNULL(r.cbaccounter,N'')<>N''
 )+(SELECT COUNT(*) FROM rdrecords08 r INNER JOIN IA_RestoreAccount a ON r.autoid=a.id AND a.cVouType=N'08' WHERE ISNULL(r.cbaccounter,N'')<>N'')

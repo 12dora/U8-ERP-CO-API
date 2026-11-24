@@ -64,8 +64,8 @@ namespace U8Co
                 // Ap_CloseBill / Ap_Vouch 同名列。按 flag / vouch_type 核对类型。
                 return "dverifysystime as verify_sys, cFlag as flag, cVouchType as vouch_type, IsWfControlled as wf";
             }
-            // 形态转换单、调拨申请单、盘点单（StockMisc）：修改后的回读（EditMsg.Saved）。
-            if (StockMisc.Handles(kind))
+            // 形态转换单、调拨申请单、盘点单（StockMisc）、货位调整单：修改后的回读（EditMsg.Saved）。
+            if (StockMisc.Handles(kind) || PositionAdjust.Handles(kind))
             {
                 return "iswfcontrolled as wf, csource as source";
             }

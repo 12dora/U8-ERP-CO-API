@@ -8,6 +8,7 @@ namespace U8Co
     // 货位、计量单位、自定义项档案、客户存货对照也走 EAI 可写（ArcKindRw），get、list 同样按表列名返回；
     // 之后计量单位组、结算方式、收发类别、采购类型、销售类型、地区分类、银行档案也改为 EAI 可写（ArcKindRwMore）。
     // 币种、凭证类别也可写（ArcGlKinds：新增走 U8PzInsert 的 EAI 组件，修改、删除走受控 SQL），get、list 照旧按表列名返回。
+    // 客户开票单位 customer_invoice_company（两列主键）只读，get、list 按表列名返回；收付款协议 pay_agreement 可写（受控 SQL，ArcAgreement），get、list 同样按表列名返回。
     // 仍然只读：科目（ICode 实测不可用、写入年度无法确定）、行业、客户收货地址（EAI 没有根标签）。汇率 可写（ArcExchWrite）。
     // Ts 为 null 的表没有 rowversion，列表不支持 changed_since。
     // 货位、收发类别、采购类型、销售类型、地区分类、行业、银行档案（所属银行）单列主键；
@@ -41,6 +42,11 @@ namespace U8Co
                 // 行业的 rowversion 列叫 ufts。
                 Ro("trade_class", "TradeClass", "cTradeCCode", "cTradeCName", "ufts", 12),
                 ArcKindRwMore.AaBankKind(Ro("aa_bank", "AA_Bank", "cBankCode", "cBankName", "pubufts", 5)),
+                // 收付款协议：AA_Agreement 一张表（协议条款都在本表的列上，没有子表），编码最长 10，rowversion 列叫 ufts；
+                // 可写（受控 SQL，ArcAgreement）。
+                ArcAgreement.Kind(Ro(ArcAgreement.Name, "AA_Agreement", "cCode", "cName", "ufts", ArcAgreement.CodeMax)),
+                // 客户开票单位：sa_invoicecustomers，一个客户可有多个开票单位，编码 "<客户编码>:<开票单位编码>"；没有 rowversion。
+                ArcPair.Apply(Ro("customer_invoice_company", "sa_invoicecustomers", "ccuscode", "cinvoicecompany", null, 0)),
                 // 客户收货地址没有 rowversion；自定义项的名称就是档案值 cValue（别名 cAlias 在 fields 里）。
                 ArcPair.Apply(Ro("customer_address", "CusDeliverAdd", "cCusCode", "cDeliverAdd", null, 0)),
                 ArcKindRw.Define(ArcPair.Apply(Ro("user_define", "UserDefine", "cID", "cValue", "pubufts", 0))),

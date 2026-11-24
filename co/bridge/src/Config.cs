@@ -28,6 +28,10 @@ namespace U8Co
         // 权限评估（perm/evaluate）：可以查询其他操作员权限的调用操作员编码。缺省为空，一个都不放行；账套主管不例外。
         public string[] PermEvaluateOperators = new string[0];
         public string AuditLog;
+        // 审计日志按日文件保留天数（0 不清理）。
+        public int AuditLogRetentionDays = 30;
+        // 审计日志按日文件压缩天数（0 不压缩）。
+        public int AuditLogCompressAfterDays;
         public string U8Home = Paths.DefaultU8Home;
         public byte[] Secret;
         public byte[] MacKey;
@@ -77,7 +81,8 @@ namespace U8Co
 
         static readonly string[] ConfigKeys = new string[]
         {
-            "listenPrefix", "u8Server", "allowedAccounts", "allowedClients", "auditLog", "u8Home",
+            "listenPrefix", "u8Server", "allowedAccounts", "allowedClients", "auditLog",
+            "auditLogRetentionDays", "auditLogCompressAfterDays", "u8Home",
             "staWorkers", "readWorkers", "queueCap", "authCacheSeconds",
             // 空白模板缓存
             "templateCache",
@@ -132,6 +137,8 @@ namespace U8Co
             cfg.LoginReuse = ConfigRules.OptionalBool(map, "loginReuse", false);
             cfg.LoginReuseOffHours = ReuseWindow.FromConfig(map);
             WedgedRules.Load(cfg, map);
+            AuditLogRetention.Load(cfg, map);
+            AuditLogCompression.Load(cfg, map);
             FileAcl.RefuseExtraReaders(Paths.SecretFile);
             cfg.Secret = ReadSecret(Paths.SecretFile);
             cfg.MacKey = Crypto.MacKey(cfg.Secret);

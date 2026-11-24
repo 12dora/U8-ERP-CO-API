@@ -36,9 +36,20 @@ namespace U8Co
 
         // 数据权限：先在表头表上带类型条件探一次，越权的单据不走 CO 读取，直接 403。
         // 事先没探到（类型条件与读取口径不一时）：单据读到后再按列表同一套条件核对，越权 403。
+        // 同表分两个类型的单据（发货单 / 退货单，到货单 / 采购退货单）读到另一个类型的单据时 400（VoucherScope），
+        // 没有数据权限的操作员先得到 403，不会借类型提示知道单据存在。
         static ApiResult Guarded(WorkContext ctx, VoucherKind kind, int id)
         {
             bool permitted = PermHook.VoucherBefore(ctx, kind, id);
+            BridgeException foreign = VoucherScope.Check(ctx.Conn, kind, id);
+            if (foreign != null)
+            {
+                if (!permitted)
+                {
+                    PermHook.Voucher(ctx, kind, id);
+                }
+                throw foreign;
+            }
             ApiResult result = Pick(ctx, kind, id);
             if (!permitted && result != null && result.Body != null && result.Status == 200)
             {
@@ -96,11 +107,6 @@ namespace U8Co
             if (kind.Name == "purchase_invoice" || kind.Name == "production_order")
             {
                 return ArapAudit.WithState(ctx.Conn, kind, id, SqlRead.Load(ctx, kind, id));
-            }
-            // 退货单先核对红字，再同发货单走 CO（VT 10）。
-            if (kind.Name == SaleReturn.KindName)
-            {
-                return SaleReturn.Load(ctx, kind, id);
             }
             if (kind.Family == "sa")
             {

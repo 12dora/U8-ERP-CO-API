@@ -22,6 +22,9 @@ def _source_id(row: dict, seen: set[int]) -> None:
 def _quantity(value: object) -> None:
     if type(value) not in (int, float):
         raise ValueError("数量无效")
+    # 大整数先比范围：float() 会 OverflowError（500）。
+    if type(value) is int and abs(value) > _QTY_MAX:
+        raise ValueError("数量无效")
     number = float(value)
     if not math.isfinite(number) or number <= 0 or number > _QTY_MAX:
         raise ValueError("数量无效")

@@ -77,16 +77,22 @@ jobs:
         run: uv run pytest -q
 
   leak-public:
-    name: 泄露与中立性扫描
+    name: 公开仓库泄露扫描
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      # 只用标准库。先测扫描器本身，再扫全部已跟踪的文本文件。
+      # 只用标准库，不带任何私有词表。先测扫描器本身，再扫全部已跟踪的文本文件。
       - name: unittest scripts/tests
         run: python3 -m unittest discover -s scripts/tests -v
+      # 有 internal 目录时跳过（另有检查覆盖）。
       - name: scripts/scan-public.py
-        run: python3 scripts/scan-public.py
+        run: |
+          if [ -d internal ]; then
+            echo "有 internal 目录，跳过扫描"
+            exit 0
+          fi
+          python3 scripts/scan-public.py
 
   windows-build:
     name: C# 编译（csc x86）并自检

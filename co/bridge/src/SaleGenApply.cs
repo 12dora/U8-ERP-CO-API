@@ -156,6 +156,7 @@ namespace U8Co
                 decimal full = Dec(DomRows.Get(srcRows[0], "iquantity"));
                 List<string> schema = DomRows.Schema(doms[1]);
                 ReturnsApplyDom.SetQty(doms[1], At(doms[1], index), line.Qty, full == 0m ? 0m : -line.Qty / full, schema);
+                SaleTaxFlag.Keep(ctx, doms[1], At(doms[1], index), schema);
                 ReturnsApplyDom.Recalc(ctx, co, doms, At(doms[1], index));
                 PinAppLine(doms[1], At(doms[1], index), line, index, schema);
             }

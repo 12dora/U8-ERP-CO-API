@@ -54,7 +54,39 @@ namespace U8Co
             line["remark"] = row.Remark;
             line["eff_beg"] = row.EffBeg;
             line["eff_end"] = row.EffEnd;
+            line[BomSubs.SubsKey] = Subs(row);
+            line[BomSubs.LocsKey] = Locs(row);
             return line;
+        }
+
+        // 与请求同形：[{"loc": …}]。
+        static List<object> Locs(BomRow row)
+        {
+            List<object> list = new List<object>();
+            for (int i = 0; i < row.Locs.Count; i++)
+            {
+                Dictionary<string, object> item = new Dictionary<string, object>();
+                item["loc"] = row.Locs[i];
+                list.Add(item);
+            }
+            return list;
+        }
+
+        static List<object> Subs(BomRow row)
+        {
+            List<object> list = new List<object>();
+            for (int i = 0; i < row.Subs.Count; i++)
+            {
+                Dictionary<string, object> item = new Dictionary<string, object>();
+                item["sequence"] = row.Subs[i].Seq;
+                item["inv_code"] = row.Subs[i].InvCode;
+                item["factor"] = row.Subs[i].Factor;
+                item["replace_flag"] = row.Subs[i].Replace == 1;
+                item["eff_begin"] = row.Subs[i].EffBeg;
+                item["eff_end"] = row.Subs[i].EffEnd;
+                list.Add(item);
+            }
+            return list;
         }
     }
 }

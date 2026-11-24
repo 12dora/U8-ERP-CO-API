@@ -1,4 +1,4 @@
-"""按角色分族的只读报表 /v1/co/reports/<name>（质量、生产、库龄、采购、销售、收付款与现金流、账务核对）。
+"""按角色分族的只读报表 /v1/co/reports/<name>（质量、生产、库龄、采购、销售、收付款与现金流、账务核对、成本核算）。
 
 模型和说明文字在各族的 co_models_reports_<族>：<Name>In / <Name>Out 和 <NAME>_SUMMARY / <NAME>_DOC。
 汇入 co_routes_reports.REPORT_ROUTES；访问级别（读）见 co_access。
@@ -89,6 +89,12 @@ from u8co_api.co_models_reports_acct import (
     IaAnomaliesIn,
     IaAnomaliesOut,
 )
+from u8co_api.co_models_reports_ca import (
+    CA_INPUTS_DOC,
+    CA_INPUTS_SUMMARY,
+    CaInputsIn,
+    CaInputsOut,
+)
 
 ROLE_REPORT_ROUTES = (
     report("qm_indicators", (QmIndicatorsIn, QmIndicatorsOut), QM_INDICATORS_SUMMARY, QM_INDICATORS_DOC),
@@ -128,4 +134,5 @@ ROLE_REPORT_ROUTES = (
     report("close_check", (CloseCheckIn, CloseCheckOut), CLOSE_CHECK_SUMMARY, CLOSE_CHECK_DOC),
     report("ia_anomalies", (IaAnomaliesIn, IaAnomaliesOut), IA_ANOMALIES_SUMMARY, IA_ANOMALIES_DOC),
     report("cost_unit", (CostUnitIn, CostUnitOut), COST_UNIT_SUMMARY, COST_UNIT_DOC),
+    report("ca_inputs", (CaInputsIn, CaInputsOut), CA_INPUTS_SUMMARY, CA_INPUTS_DOC),
 )

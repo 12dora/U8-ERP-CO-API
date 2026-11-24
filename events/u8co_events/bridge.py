@@ -21,7 +21,7 @@ from typing import Any, Protocol
 
 from co.client.u8co_arap_proc_list import ProcDigestQuery, ProcListQuery
 from co.client.u8co_client import U8Call, U8CoClient
-from co.client.u8co_errors import U8CoNotFound
+from co.client.u8co_errors import U8CoError, U8CoNotFound
 from co.client.u8co_gl_digest import GlDigestQuery
 from co.client.u8co_gl_arc import ArcQuery, VoucherQuery
 
@@ -83,6 +83,7 @@ _PROOF_PATHS = _PROOF_PATHS | {_NOTE_PATH}
 # 桥对没登记的路由也回 404 not_found，message 固定是这句（HttpServer / Dispatch）。
 _UNKNOWN_ROUTE = "未知路径"
 _ERROR_LIMIT = 65536
+_TYPE_MISMATCH = "type_mismatch"
 
 
 class DocumentNotFound(U8CoNotFound):
@@ -111,6 +112,19 @@ def not_found_from(path: str, status: int, raw: bytes) -> DocumentNotFound | Non
 def is_not_found(exc: BaseException) -> bool:
     """只有 DocumentNotFound 才算单据不存在。按状态码推出来的 not_found、未知路径、403、503、连不上……都不算。"""
     return isinstance(exc, DocumentNotFound)
+
+
+def is_type_mismatch(exc: BaseException) -> bool:
+    """桥回答「这张单据属于另一个类型」：vouchers/load 的 400 bad_request，detail.reason 是 type_mismatch
+    （发货单 / 退货单、到货单 / 采购退货单这类同表分开的类型）。单据还在，只是不再属于这个类型，不是删除。"""
+    detail = getattr(exc, "detail", None)
+    return (
+        isinstance(exc, U8CoError)
+        and exc.status == 400
+        and exc.code == "bad_request"
+        and isinstance(detail, dict)
+        and detail.get("reason") == _TYPE_MISMATCH
+    )
 
 
 class ProofClient(U8CoClient):

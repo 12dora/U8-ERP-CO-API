@@ -28,6 +28,8 @@ namespace U8Co
             },
             new string[] { IaReq.PostPath, IaReq.TestOnly, "\"fiscal_year\":2026,\"period\":1,\"action\":\"post\"" },
             new string[] { IaReq.PeriodEndPath, IaReq.TestOnly, "\"fiscal_year\":2026,\"period\":1,\"action\":\"run\"" },
+            new string[] { IaVoucherReq.Path, IaVoucherReq.TestOnly, "\"month\":1" },
+            new string[] { IaVoucherReq.DropPath, IaVoucherReq.DropTestOnly, "\"pz_id\":\"2026IA0000000000001\"" },
             new string[] { "/u8co/v1/vouchers/create", StockOpening.TestOnlyText, "\"type\":\"stock_opening\"" },
             new string[] { "/u8co/v1/vouchers/delete", StockOpening.TestOnlyText, "\"type\":\"stock_opening\",\"id\":1" },
             new string[] { "/u8co/v1/vouchers/verify", StockOpening.TestOnlyText, "\"type\":\"stock_opening\",\"id\":1,\"action\":\"verify\"" },

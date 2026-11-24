@@ -10,6 +10,7 @@ namespace U8Co
     // op_seq（"0000"）、sort_seq（按 10、20… 往后排）、optional（选配，布尔）、mutex_rule（1–4，仅选配）可省。
     // 修改：表头只收 version_desc、eff_date、parent_scrap；明细按 sort_seq 定位：update 至少再改一个字段、不能改存货，
     // delete 只能有 op 和 sort_seq，add 同新增的行。optional、mutex_rule 未送则保持现值；已是选配的行可只改 mutex_rule。
+    // 新增、修改的行都可带 substitutes（替代料）、locators（定位符）数组（BomSubReq）：修改时没带保留现有的，带了整组替换。
     internal static class BomReq
     {
         public const int LinesMax = 200;
@@ -23,11 +24,12 @@ namespace U8Co
         static readonly string[] AddKeys = new string[]
         {
             "sort_seq", "op_seq", "inv_code", "base_qty_n", "base_qty_d", "comp_scrap", "wip_type", "wh_code", "remark",
-            "optional", "mutex_rule"
+            "optional", "mutex_rule", BomSubs.SubsKey, BomSubs.LocsKey
         };
         static readonly string[] EditKeys = new string[]
         {
-            "op_seq", "base_qty_n", "base_qty_d", "comp_scrap", "wip_type", "wh_code", "remark", "optional", "mutex_rule"
+            "op_seq", "base_qty_n", "base_qty_d", "comp_scrap", "wip_type", "wh_code", "remark", "optional", "mutex_rule",
+            BomSubs.SubsKey, BomSubs.LocsKey
         };
 
         // meta 用：新增表头、明细名单，修改表头名单，新增必填。
@@ -271,6 +273,10 @@ namespace U8Co
             {
                 return Int(value, key, 1, 4);
             }
+            if (key == BomSubs.SubsKey || key == BomSubs.LocsKey)
+            {
+                return BomSubReq.Parse(key, value);
+            }
             return Typed(row, key, value);
         }
 
@@ -295,7 +301,7 @@ namespace U8Co
         }
 
         // JSON 布尔（不收 0/1、字符串、null）。存成 0/1 以便 BomRow.Apply。
-        static int Flag(object value, string key)
+        internal static int Flag(object value, string key)
         {
             if (!(value is bool))
             {
@@ -327,7 +333,7 @@ namespace U8Co
             return rest;
         }
 
-        static void Only(Dictionary<string, object> map, string[] keys)
+        internal static void Only(Dictionary<string, object> map, string[] keys)
         {
             if (map == null)
             {
@@ -344,7 +350,7 @@ namespace U8Co
         }
 
         // 编码和文本只收字符串；去掉首尾空白后不能含控制字符。
-        static string Str(Dictionary<string, object> map, string key, int max, bool required)
+        internal static string Str(Dictionary<string, object> map, string key, int max, bool required)
         {
             object value = MfgReq.Raw(map, key);
             if (value == null)
@@ -379,7 +385,7 @@ namespace U8Co
             return text;
         }
 
-        static string Date(Dictionary<string, object> map, string key)
+        internal static string Date(Dictionary<string, object> map, string key)
         {
             string text = Str(map, key, 10, true);
             DateTime parsed;
@@ -391,7 +397,7 @@ namespace U8Co
         }
 
         // JSON 整数（不收布尔、字符串、小数）。
-        static int Int(object value, string key, int min, int max)
+        internal static int Int(object value, string key, int min, int max)
         {
             long n;
             if (value is int)
@@ -415,7 +421,7 @@ namespace U8Co
         }
 
         // 用量是大于 0、不超过 1000000000000、最多 6 位小数的数（bom_opcomponent.BaseQtyN / BaseQtyD 是 6 位小数）。
-        static decimal Qty(object value, string key)
+        internal static decimal Qty(object value, string key)
         {
             decimal qty;
             if (!TryNum(value, out qty) || qty <= 0m || qty > QtyMax)

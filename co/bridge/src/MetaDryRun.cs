@@ -25,6 +25,8 @@ namespace U8Co
             "vouchers/so_defines",
             "arap/writeoff", "arap/writeoff/cancel", "arap/writeoff/auto", "arap/voucher", "arap/voucher/delete", "arap/merge",
             "openings/post", "openings/arap", "periods/close", "ia/post", "ia/period_end",
+            // 存货核算制单、取消制单（IaVoucher、IaVoucherDrop，测试账套）。
+            "ia/voucher", "ia/voucher/delete",
             // 取消应收冲应付 / 应付冲应收 / 并账（ArapProcCancel）。
             "arap/process/cancel",
             // 应收冲应付 / 应付冲应收（ArapTransfer）。

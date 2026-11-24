@@ -23,6 +23,8 @@ namespace U8Co
             QmEditSelfTest.Run();
             // 产品报检单单独弃审。
             QmInsUnverifySelfTest.Run();
+            // 产品检验单合并检验。
+            QmMergeSelfTest.Run();
         }
 
         static void CheckBag()

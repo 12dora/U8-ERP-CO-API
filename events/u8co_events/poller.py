@@ -5,6 +5,8 @@
 
 删除检测：按 delete_scan_minutes 做一次 keys_only 整轮主键扫描，快照里有、扫描里没有的发 deleted。
 扫描中途失败就整轮作废，绝不在不完整的扫描上发删除事件。
+不见了的快照 id 逐张 load 确认（最多 empty_scan_confirm_max 张）：桥回答 type_mismatch（单据还在，改属了同表的另一个类型，
+如红字发货单不属于 dispatch）的，只清快照、不发 deleted——单据离开一个类型的范围不是删除；其他回答照旧发 deleted。
 整轮一张都没扫到、快照里却有单据时，先逐张 vouchers/load 确认（最多 empty_scan_confirm_max 张）：
 全部是桥明确回答的单据不存在（bridge.DocumentNotFound）才当作都删了；读到第一张还在的、或读取出别的错，
 就当作列表或权限出了问题，立即停下、整轮作废。每读一张都要登录 U8 子系统（占加密点数），所以读到一张还在就不再往下读；
@@ -31,7 +33,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from u8co_events.bridge import Lister, PageRequest, SourceLister, is_not_found
+from u8co_events.bridge import Lister, PageRequest, SourceLister, is_not_found, is_type_mismatch
 from u8co_events.config import AccountConf, Config
 from u8co_events.diff import Scope, changes, deletions, refill, utc_text
 from u8co_events.source import (
@@ -202,10 +204,12 @@ class Poller:
         seen = {_id_of(row) for row in rows}
         if not seen and known:
             # 库还原到这类单据还没有的时候会一直读空：逐张确认都不存在才提交，否则水位不动。
-            self._confirm_resync(scope, sorted(known))
+            moved = self._confirm_resync(scope, sorted(known))
             log.info("账套 %s %s：水位倒退后整轮读取为空，%d 张快照逐张确认都已不存在", scope.acc, scope.type, len(known))
+        else:
+            moved = self._moved_out(scope, sorted(i for i in known if i not in seen))
         upserts, events = changes(scope, rows, known, emit_created=True)
-        gone, gone_events = deletions(scope, known, seen)
+        gone, gone_events = deletions(scope, known, seen, moved)
         note = f"{old_mark}->{new_mark}"
         log.error(
             "账套 %s %s 水位倒退（%s），整轮重新对比：%d 个事件，%d 张删除",
@@ -217,7 +221,7 @@ class Poller:
         )
         self._store.commit_resync(scope, Resync(new_mark, upserts, gone, events + gone_events, note))
 
-    def _confirm_resync(self, scope: Scope, ids: list[int]) -> None:
+    def _confirm_resync(self, scope: Scope, ids: list[int]) -> set[int]:
         """水位倒退后空读取的确认，按 delete_scan_minutes 节流（0 时按 30 分钟）：每次 load 都要登录 U8、占加密点数，
         列表或权限问题没解决前不能每轮（poll_interval_seconds）都读。两次确认之间照旧报上次的原因，不调 load。"""
         key = (scope.acc, scope.type)
@@ -227,11 +231,12 @@ class Poller:
         if last is not None and now - last[0] < timedelta(minutes=minutes):
             raise BridgeContractError(f"{last[1]}（上次逐张确认于 {utc_text(last[0])}，{minutes:g} 分钟内不再确认）")
         try:
-            self._confirm_empty(scope, ids, "水位倒退后的整轮读取")
+            moved = self._confirm_empty(scope, ids, "水位倒退后的整轮读取")
         except BridgeContractError as exc:
             self._resync_tries[key] = (now, str(exc))
             raise
         self._resync_tries.pop(key, None)
+        return moved
 
     def scan_type(self, scope: Scope) -> None:
         """整轮 keys_only 扫描，找出被删的单据。只有整轮都成功才提交。"""
@@ -245,15 +250,42 @@ class Poller:
             raise BridgeContractError("主键扫描没有返回任何单据，未发删除事件")
         if not seen and known:
             # 一张都没扫到却有快照：可能真的都删了，也可能是账套或权限出了问题。逐张确认。
-            self._confirm_empty(scope, sorted(known), "主键扫描")
+            moved = self._confirm_empty(scope, sorted(known), "主键扫描")
             log.info("账套 %s %s：主键扫描为空，%d 张快照逐张确认都已不存在", scope.acc, scope.type, len(known))
-        gone, events = deletions(scope, known, seen)
+        else:
+            moved = self._moved_out(scope, sorted(i for i in known if i not in seen))
+        gone, events = deletions(scope, known, seen, moved)
         self._store.commit_scan(scope, gone, events)
         if gone:
-            log.info("账套 %s %s：%d 张单据已删除", scope.acc, scope.type, len(gone))
+            log.info(
+                "账套 %s %s：%d 张单据离开了这个类型，其中 %d 张改属别的类型（不发 deleted）",
+                scope.acc,
+                scope.type,
+                len(gone),
+                len(moved),
+            )
 
-    def _confirm_empty(self, scope: Scope, ids: list[int], what: str) -> None:
-        """空读取的确认：每个快照 id 都是 DocumentNotFound 才返回；否则抛 BridgeContractError，不发删除事件。
+    def _moved_out(self, scope: Scope, ids: list[int]) -> set[int]:
+        """扫描里不见了的快照 id 里，哪些其实还在、只是改属了别的类型（桥读取回答 type_mismatch，例如红字发货单
+        不再属于 dispatch）：它们离开了这个类型的范围，不是删除，快照清掉但不发 deleted。
+
+        每张逐一 load 确认，最多 empty_scan_confirm_max 张（0 或超出的部分不确认，照旧发 deleted）。
+        读到的是不存在、仍能读取、别的错，都不算改属，照旧发 deleted（权限收窄等原有口径不变）。
+        """
+        moved: set[int] = set()
+        for done, doc_id in enumerate(ids[: self._cfg.empty_scan_confirm_max]):
+            if self._stopping():
+                raise StopRequested(f"删除扫描确认到第 {done + 1} 张时收到停止信号")
+            try:
+                self._lister.load(scope.acc, scope.type, doc_id)
+            except Exception as exc:
+                if is_type_mismatch(exc):
+                    moved.add(doc_id)
+        return moved
+
+    def _confirm_empty(self, scope: Scope, ids: list[int], what: str) -> set[int]:
+        """空读取的确认：每个快照 id 都是 DocumentNotFound 或改属别的类型（type_mismatch）才返回，返回改属的那些 id；
+        否则抛 BridgeContractError，不发删除事件。
 
         读到第一张还在的就停（每张 load 都要登录 U8 子系统）；每张之前看一次停止信号。
         """
@@ -265,6 +297,7 @@ class Poller:
             raise BridgeContractError(
                 f"{head}，快照有 {len(ids)} 张，超过逐张确认上限 empty_scan_confirm_max={limit}，未发删除事件"
             )
+        moved: set[int] = set()
         for done, doc_id in enumerate(ids):
             if self._stopping():
                 raise StopRequested(f"{head}，逐张确认到第 {done + 1} 张时收到停止信号")
@@ -273,12 +306,16 @@ class Poller:
             except Exception as exc:
                 if is_not_found(exc):
                     continue
+                if is_type_mismatch(exc):
+                    moved.add(doc_id)
+                    continue
                 raise BridgeContractError(
                     f"{head}，逐张确认时读取 id={doc_id} 出错（{error_text(exc)}），疑似列表或权限问题，未发删除事件"
                 ) from exc
             raise BridgeContractError(
                 f"{head}，但快照里 {len(ids)} 张中至少 1 张（id={doc_id}）仍能读取，疑似列表或权限问题，未发删除事件"
             )
+        return moved
 
     def _pages(self, acc: str, request: PageRequest) -> Iterator[dict[str, Any]]:
         after: int | None = None

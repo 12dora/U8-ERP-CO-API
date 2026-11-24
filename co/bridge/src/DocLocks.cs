@@ -210,12 +210,19 @@ namespace U8Co
             {
                 return PeriodCloseReq.LockKeys(item.Body);
             }
-            // 存货核算记账、期末处理："ia:<年度>-<期间>" 和 "period:ia"（IaReq.LockKeys）。
+            return IaKeys(item, path) ?? MoreArapKeys(item, path);
+        }
+
+        // 存货核算的锁键；返回 null 表示不是存货核算路由。
+        static string[] IaKeys(WorkItem item, string path)
+        {
+            // 记账、期末处理："ia:<年度>-<期间>" 和 "period:ia"（IaReq.LockKeys）。
             if (IaReq.IsPath(path))
             {
                 return IaReq.LockKeys(path, item.Body);
             }
-            return MoreArapKeys(item, path);
+            // 制单、取消制单："period:ia"、"ia:voucher"，制单另锁新凭证编号（IaVoucherReq.LockKeys）。
+            return IaVoucherReq.IsPath(path) ? IaVoucherReq.LockKeys(path, item.Body) : null;
         }
 
         // ArapKeys 的下一档：汇兑损益、并账；返回 null 表示不是这类路由。
@@ -334,6 +341,11 @@ namespace U8Co
             if (item.GenSources != null)
             {
                 return SaleInvSources.LockKeys(item, kind);
+            }
+            // 产品检验单合并检验：来源报检单要查库才知道（QmMergeReq.LockKeys）。
+            if (QmMergeReq.Is(item))
+            {
+                return QmMergeReq.LockKeys();
             }
             if (kind == "sale_return")
             {

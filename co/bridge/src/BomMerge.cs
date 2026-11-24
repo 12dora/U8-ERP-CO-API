@@ -4,7 +4,8 @@ using System.Collections.Generic;
 namespace U8Co
 {
     // 物料清单要写给 U8 的整套行：新增按缺省建行；修改把调用方的 add / update / delete 叠到库里的现有行上。
-    // 修改走 UpdateByDiff=true，没送的行号会被 U8 删掉（实测 B4），所以这里算出的是修改后的全部行，每行带全标志。
+    // 修改走 UpdateByDiff=true，没送的行号会被 U8 删掉（实测 B4），所以这里算出的是修改后的全部行，每行带全标志、
+    // 现有的替代料和定位符（调用方给了的换成给的）。
     internal static class BomMerge
     {
         const int SeqStep = 10;
@@ -14,6 +15,7 @@ namespace U8Co
         {
             List<BomRow> rows = new List<BomRow>();
             AddRows(ask, rows, new HashSet<int>());
+            BomSubs.Settle(rows);
             Sort(rows);
             return rows;
         }
@@ -51,6 +53,7 @@ namespace U8Co
             {
                 throw BomSql.Bad("不能删除全部明细");
             }
+            BomSubs.Settle(rows);
             Sort(rows);
             ask.Rows = rows;
         }

@@ -29,6 +29,7 @@ WRITE_COMMANDS = (
     "ia-post", "ia-period-end", "openings-arap",
     "gl-reverse",  # 红字冲销
     "gl-transfer-pnl", "gl-transfer-custom",  # 期间损益结转、自定义转账（测试账套）
+    "ia-voucher", "ia-voucher-delete",  # 存货核算制单、取消制单（测试账套）
 ) + tuple(f"gl-{op}" for op in GL_OPS)
 _DRY_HELP = "预演：桥照常校验（能回滚的操作真跑一遍再回滚），不写入；响应带 mode、docs、warnings"
 _ITEM_HELP = "档案=名称或编码，例如 customer=张三贸易；可重复，最多 20 项"

@@ -177,7 +177,7 @@ namespace U8Co
             {
                 MarkBody(doms[1]);
             }
-            return InTran(conn, co, doms, item);
+            return InTran(conn, co, doms, item, id, opt.ExtraKind);
         }
 
         static void MarkBody(object body)
@@ -350,7 +350,8 @@ namespace U8Co
             return "";
         }
 
-        static string InTran(object conn, object co, object[] doms, WorkItem item)
+        // extraKind 非空时（SoDeleteOpt.ExtraKind）：Delete 之前记下表体行主键，成功之后同一事务删扩展表行（SaleExtraDrop）。
+        static string InTran(object conn, object co, object[] doms, WorkItem item, int id, string extraKind)
         {
             bool open = false;
             try
@@ -358,6 +359,7 @@ namespace U8Co
                 CoTrans.Begin(conn);
                 open = true;
                 item.TranBefore = CoTrans.Count(conn);
+                SaleExtraDrop drop = string.IsNullOrEmpty(extraKind) ? null : SaleExtraDrop.Capture(conn, extraKind, id);
                 object[] args = new object[] { doms[0], doms[1] };
                 object ret = ComUtil.CallRef(co, "Delete", args, new int[] { 0, 1 });
                 CoRows.Swap(doms, 0, args[0]);
@@ -369,6 +371,7 @@ namespace U8Co
                 {
                     return Fail(conn, item, ref open, msg);
                 }
+                DropExtra(conn, item, drop);
                 CoTrans.CommitSeen(conn);
                 open = false;
                 return "";
@@ -378,6 +381,21 @@ namespace U8Co
                 CoRows.CatchTran(conn, item, open);
                 throw;
             }
+        }
+
+        // U8 已自行结束事务（@@TRANCOUNT 为 0）时不再写，记一笔，扩展表行留给人工处理。
+        static void DropExtra(object conn, WorkItem item, SaleExtraDrop drop)
+        {
+            if (drop == null)
+            {
+                return;
+            }
+            if (CoTrans.Count(conn) == "0")
+            {
+                CoRows.Note(item, "扩展自定义项：U8 已自行提交，未删扩展表行");
+                return;
+            }
+            drop.Run(conn);
         }
 
         static string Fail(object conn, WorkItem item, ref bool open, string msg)
@@ -403,6 +421,8 @@ namespace U8Co
     {
         internal string IdColumn;
         internal bool MarkBody;
+        // 非空时删除后同一事务里删该类型的扩展自定义项行（SaleExtraDrop，类型名同 SaleExtraRead.Tables）。
+        internal string ExtraKind = "";
 
         internal static SoDeleteOpt Of(string idColumn, bool markBody)
         {

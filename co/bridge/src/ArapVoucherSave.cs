@@ -116,29 +116,37 @@ namespace U8Co
         // 保存后、回写前：凭证号指向的凭证必须正是这一张（行数、借贷合计、未记账），否则不碰它，504。
         public static void Identify(WorkContext ctx, VoucherPlan plan)
         {
-            decimal total = 0;
-            foreach (GlLine line in plan.Draft.Lines)
-            {
-                total += line.Debit;
-            }
-            Dictionary<string, object> row;
+            bool same;
             try
             {
-                row = Rows.One(ctx.Conn, "select convert(varchar(12), count(*)) n, " + WriteoffSql.Dec("sum(md)", 2) + " d, "
-                    + WriteoffSql.Dec("sum(mc)", 2) + " c, convert(varchar(12), max(isnull(ibook,0))) b from GL_accvouch"
-                    + GlState.KeyWhere, GlSql.KeyArgs(plan.Key));
+                same = Same(ctx.Conn, plan.Key, plan.Draft);
             }
             catch (Exception ex)
             {
                 CoRows.Note(ctx.Item, "制单核对 " + ex.Message);
                 throw Saved(plan, "核对新凭证失败");
             }
-            bool same = CoRows.AsId(CoRows.Col(row, "n")) == plan.Draft.Lines.Count && CoRows.Col(row, "b") == "0"
-                && WriteoffSql.Num(CoRows.Col(row, "d")) == total && WriteoffSql.Num(CoRows.Col(row, "c")) == total;
             if (!same)
             {
                 throw Saved(plan, "U8 返回的凭证号上的凭证与本次制单对不上，未回写单据");
             }
+        }
+
+        // 凭证键上的凭证正是这份分录：行数、借贷合计相同、未记账（存货核算制单 IaVoucherSave 同用）。
+        internal static bool Same(object conn, GlKey key, GlDraft draft)
+        {
+            decimal debit = 0;
+            decimal credit = 0;
+            foreach (GlLine line in draft.Lines)
+            {
+                debit += line.Debit;
+                credit += line.Credit;
+            }
+            Dictionary<string, object> row = Rows.One(conn, "select convert(varchar(12), count(*)) n, " + WriteoffSql.Dec("sum(md)", 2) + " d, "
+                + WriteoffSql.Dec("sum(mc)", 2) + " c, convert(varchar(12), max(isnull(ibook,0))) b from GL_accvouch"
+                + GlState.KeyWhere, GlSql.KeyArgs(key));
+            return CoRows.AsId(CoRows.Col(row, "n")) == draft.Lines.Count && CoRows.Col(row, "b") == "0"
+                && WriteoffSql.Num(CoRows.Col(row, "d")) == debit && WriteoffSql.Num(CoRows.Col(row, "c")) == credit;
         }
 
         public static BridgeException Unknown(VoucherPlan plan, string why)

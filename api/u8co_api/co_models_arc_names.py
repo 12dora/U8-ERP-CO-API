@@ -41,8 +41,8 @@ ArchiveName = Literal[
     "inventory_class",
 ]
 # 开户银行可新增、修改、删除（EAI）；项目走受控 SQL，fields 只收 name、bclose、citemccode，删除只删没有被引用的项目。
-# 货位、计量单位可新增、修改、删除（EAI）；自定义项档案、客户存货对照只能新增、删除（U8 不提供修改）。
-# 两列主键的档案不收 template。
+# 货位、计量单位可新增、修改、删除（EAI）；自定义项档案、客户存货对照新增、删除走 EAI，修改走受控 SQL（桥 ArcPairEdit）。
+# 收付款协议新增、修改、删除走受控 SQL（桥 ArcAgreement）。两列主键的档案不收 template。
 # 之后：计量单位组、结算方式、收发类别、采购类型、销售类型、地区分类、银行档案可新增、修改、删除（EAI）。
 # 币种、凭证类别可新增（EAI，U8PzInsert 的组件；桥 ArcGl）、修改、删除（受控 SQL）；会计科目仍只读。
 # 汇率、供应商联系人可新增（EAI 分发器；桥 ArcExchWrite、ArcVenContact）、修改、删除（受控 SQL）。
@@ -53,8 +53,9 @@ _WRITE_SIMPLE = (
     "`position` 货位：编码最长 20，warehouse_code 必填",
     "`unit` 计量单位：编码最长 35，group_code 必填",
     "`unit_group` 计量单位组：type 必填（0 无换算、1 固定换算、2 浮动换算）",
-    "`user_define` 自定义项档案：编码 `<自定义项号>:<档案值>`",
-    "`customer_inventory` 客户存货对照：编码 `<客户编码>:<存货编码>`，ccusinvname 必填",
+    "`user_define` 自定义项档案：编码 `<自定义项号>:<档案值>`，修改只收 alias、barcode",
+    "`customer_inventory` 客户存货对照：编码 `<客户编码>:<存货编码>`，ccusinvname 必填；修改不能改编码两段",
+    "`pay_agreement` 收付款协议：编码最长 10，fields 的标签是表列名（cName 必填）；已被客户、供应商或单据引用的不能删除",
     "`settle_style` 结算方式：编码最长 3，按编码方案分级",
     "`rd_style` 收发类别：编码最长 5，按编码方案分级，一级须给 rsflag",
     "`purchase_type` 采购类型、`sale_type` 销售类型：编码最长 2",
@@ -63,6 +64,16 @@ _WRITE_SIMPLE = (
     "`aa_bank` 银行档案：编码最长 5",
 )
 _WRITE_DETAIL = (
+    (
+        "pay_agreement 收付款协议",
+        (
+            "fields 的标签是表列名：cName 名称（新增必填）、cMemo 说明、dEDate 停用日期（空串清除）",
+            "条款列 iLZYJ、iLZFS、iMon、iDay1、iDay2、iDay3、iLZJZ、iPLNum、iZQ、dblZQNum、iGDSZR1、iGDSZR2、iGDSZR3 是整数，"
+            "新增缺省 0，含义以 U8 收付款协议档案界面为准",
+            "制单日期、制单人由桥按登录日期和操作员写，不能改",
+            "U8 没有这个档案的 EAI 对象，桥直接改表",
+        ),
+    ),
     (
         "currency 币种",
         (
@@ -103,8 +114,8 @@ _WRITE_DETAIL = (
     ),
 )
 # 开户银行可新增、修改、删除（EAI）；项目走受控 SQL，fields 只收 name、bclose、citemccode，删除只删没有被引用的项目。
-# 货位、计量单位可新增、修改、删除（EAI）；自定义项档案、客户存货对照只能新增、删除（U8 不提供修改）。
-# 两列主键的档案不收 template。
+# 货位、计量单位可新增、修改、删除（EAI）；自定义项档案、客户存货对照新增、删除走 EAI，修改走受控 SQL（桥 ArcPairEdit）。
+# 收付款协议新增、修改、删除走受控 SQL（桥 ArcAgreement）。两列主键的档案不收 template。
 # 之后：计量单位组、结算方式、收发类别、采购类型、销售类型、地区分类、银行档案可新增、修改、删除（EAI）。
 # 币种、凭证类别可新增（EAI，U8PzInsert 的组件；桥 ArcGl）、修改、删除（受控 SQL）；会计科目仍只读。
 # 汇率、供应商联系人可新增（EAI 分发器；桥 ArcExchWrite、ArcVenContact）、修改、删除（受控 SQL）。
@@ -133,6 +144,7 @@ WriteArchiveName = Literal[
     "unit",
     "user_define",
     "customer_inventory",
+    "pay_agreement",
     "unit_group",
     "settle_style",
     "rd_style",
@@ -152,11 +164,8 @@ WriteArchiveName = Literal[
     "fa_card",
     "equipment",
 ]
-# 修改：自定义项档案、客户存货对照 U8 不提供修改（EAI 修改报错，桥 400），只能新增、读取、删除。
-ARCHIVE_UPDATE_DESC = ARCHIVE_WRITE_DESC + "\n\n" + section(
-    "不能修改",
-    ("`user_define`、`customer_inventory`：U8 不提供修改，删除后重新新增", "`fa_card`、`equipment`"),
-)
+# 修改：自定义项档案、客户存货对照的 EAI 不提供修改，桥走受控 SQL 改非主键列。
+ARCHIVE_UPDATE_DESC = ARCHIVE_WRITE_DESC + "\n\n" + section("不能修改", ("`fa_card`、`equipment`",))
 UpdateArchiveName = Literal[
     "customer",
     "vendor",
@@ -171,6 +180,9 @@ UpdateArchiveName = Literal[
     "project",
     "position",
     "unit",
+    "user_define",
+    "customer_inventory",
+    "pay_agreement",
     "unit_group",
     "settle_style",
     "rd_style",
@@ -202,6 +214,7 @@ DeleteArchiveName = Literal[
     "unit",
     "user_define",
     "customer_inventory",
+    "pay_agreement",
     "project",
     "unit_group",
     "settle_style",
@@ -223,7 +236,7 @@ DeleteArchiveName = Literal[
 ]
 # 读取按表列名（get 的 fields 是表列名，不是 EAI 标签）；只读档案只能 get、list（新增、修改、删除 400）。
 _RO_ITEMS = (
-    "只读（不能新增、修改、删除）：account、trade_class、customer_address、operator、role",
+    "只读（不能新增、修改、删除）：account、trade_class、customer_address、customer_invoice_company、operator、role",
     "`account` 科目：按登录日期的年份",
     "`unit` 计量单位、`unit_group` 计量单位组、`settle_style` 结算方式、`voucher_sign` 凭证类别",
     "`currency` 币种：编码是币种名称",
@@ -232,6 +245,8 @@ _RO_ITEMS = (
     "`project` 项目：编码 `<项目大类>:<项目编码>`",
     "`position` 货位：class_code 是仓库",
     "`customer_address` 客户收货地址：编码 `<客户编码>:<地址编码>`",
+    "`customer_invoice_company` 客户开票单位：编码 `<客户编码>:<开票单位编码>`，`fields.bdefault` 是默认开票单位",
+    "`pay_agreement` 收付款协议：编码是协议编码，`fields` 含协议各列，`dEDate` 不空表示已停用",
     "`user_define` 自定义项档案：编码 `<自定义项号>:<档案值>`",
     "`customer_inventory` 客户存货对照：编码 `<客户编码>:<存货编码>`",
     "`exchange_rate` 汇率：编码 `<币种>:<年度>:<期间>[:<日>]`",
@@ -269,6 +284,8 @@ ReadArchiveName = Literal[
     "trade_class",
     "aa_bank",
     "customer_address",
+    "customer_invoice_company",
+    "pay_agreement",
     "user_define",
     "customer_inventory",
     "exchange_rate",

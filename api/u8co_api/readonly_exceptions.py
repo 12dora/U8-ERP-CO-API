@@ -3,7 +3,7 @@
 JSON 数组，每项 accounts / operators（或 callers）/ type / op，archives 的 create、delete 另有 archives。
 operators 与 callers 恰好写一个且非空，两个都写或都不写让进程起不来。callers 是 API 信任项的 name（调用系统）：
 只能用于 type=vouchers 且 op 是登记表里单据类型不固定的行（create、update、close、verify、
-generate），archives、head_fix、so_defines 只能写 operators。callers 行命中 = 账套在 accounts、请求的已验签信任项
+generate、delete），archives、head_fix、so_defines 只能写 operators。callers 行命中 = 账套在 accounts、请求的已验签信任项
 name 在 callers 里、路由 / 单据类型 / 来源规则与 operators 行完全相同；这时任何操作员都放行（操作员仍以自己的口令
 登录 U8，受 U8 自身权限和信任项 operators.allow / deny 约束）。审计 read_only_match 记 operator 或 caller。
 type 只能是 archives 或 vouchers。
@@ -16,8 +16,8 @@ op=create、delete 必须写 archives：非空的档案种类列表，每项都�
 customer_address_delete 与 customer_address_add 同理成对。
 type=vouchers：op 与单据类型 voucher 只能是登记表 readonly_voucher_ops.VOUCHER_OPS 里的一对（head_fix 发货单、
 so_defines / create / update / close 销售订单、verify 销售订单 / 发货单 / 销售发票（发票只是复核，不含应收审核）、
-generate 发货单参照销售订单或销售发票参照发货单），一项一对；
-create、update、close、verify、generate 必须写 voucher；head_fix、so_defines 的单据类型固定，
+generate 发货单参照销售订单或销售发票参照发货单、delete 销售订单 / 发货单），一项一对；
+create、update、close、verify、generate、delete 必须写 voucher；head_fix、so_defines 的单据类型固定，
 voucher 可省（写了须一致）。
 请求路径必须恰好是 vouchers/<op>，请求体 type 必须等于 voucher（区分大小写），按 action 映射的写入分类 op 须在该行里
 （verify 含审核、弃审，action 只能是 verify / unverify；close 只有关闭），generate 的 source_type 须是该单据类型的来源
@@ -25,7 +25,7 @@ voucher 可省（写了须一致）。
 type=archives 不能写 voucher。
 账套必须是 U8CO_READONLY_ACCOUNTS 的子集。未知键、其它 type/op、不合规的操作员编码一律让进程起不来。
 操作员比较只忽略 ASCII 字母大小写（非 ASCII 字符逐字比较，与桥一致），不去首尾空白。archives/update（含客户）、其它档案的 create / delete、客户的 delete、
-没列出的单据类型、vouchers/delete、vouchers/lock、旧版审核路由等其余写路由在只读账套上仍一律 403。
+没列出的单据类型（含销售发票等其它单据的 vouchers/delete）、vouchers/lock、旧版审核路由等其余写路由在只读账套上仍一律 403。
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ _PREFIX = {_ARCHIVES: "co:archives/", _VOUCHERS: "co:vouchers/"}
 CREATE_ARCHIVES = frozenset(("district_class", "customer"))
 DELETE_ARCHIVES = frozenset(("district_class",))
 _ELIGIBLE = {_CREATE: CREATE_ARCHIVES, _DELETE: DELETE_ARCHIVES}
-# callers 只能用于这些 op（登记表里单据类型不固定的行：create、update、close、verify、generate），与桥
+# callers 只能用于这些 op（登记表里单据类型不固定的行：create、update、close、verify、generate、delete），与桥
 # ConfigRulesReadOnly.CallerOps 一致。head_fix、so_defines、archives 只能按操作员开放。
 CALLER_OPS = frozenset(op for op, row in VOUCHER_OPS.items() if not row.fixed)
 # 信任项 name 的写法（同 trust._NAME）。桥按 API 单独发来的 caller_trust 比较（co_idem.TRUST_FIELD）；

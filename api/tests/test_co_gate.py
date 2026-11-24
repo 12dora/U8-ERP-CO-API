@@ -123,11 +123,12 @@ _SOURCE_OF = {
 
 
 def _generated_doc(payload: dict) -> dict:
-    sources = payload.get("sources") or [{"id": payload["id"]}]  # 多张发货单：source_id 是第一张，另给 source_ids
+    # 多张发货单：source_id 是第一张，另给 source_ids；合并检验没有 id，source_ids 照请求。
+    sources = payload.get("sources") or [{"id": payload.get("id", 7)}]
     saved = {**_edited({**payload, "id": 42}), "source_id": sources[0]["id"]}
     saved["source_type"] = payload.get("source_type") or _SOURCE_OF[payload["type"]]
-    if "sources" in payload:
-        saved["source_ids"] = [one["id"] for one in sources]
+    if "sources" in payload or "source_ids" in payload:
+        saved["source_ids"] = payload.get("source_ids") or [one["id"] for one in sources]
     return saved
 
 

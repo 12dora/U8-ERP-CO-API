@@ -326,7 +326,7 @@ uv run --no-project --python 3.12 --with cryptography python -m co.client.u8co_c
 | `gl-update` | `--period` `--sign` `--no` `--file`，整张替换 |
 | `gl-list` | `--period-from` `--period-to`，可选 `--sign` `--date-from` `--date-to` `--maker` `--state all\|unaudited\|audited\|posted\|void` `--after` `--limit`（最多 200） |
 | `arc-get` / `arc-delete` | `--archive` `--code`。档案种类、可写性和复合编码的写法见下文 |
-| `arc-create` / `arc-update` | `--archive` `--code` `--file`。文件为 `{"fields":{EAI 标签: 值}}`，新增可再带 `template`。`arc-update` 不接受 `user_define`、`customer_inventory`（U8 不提供修改，须删除后重建） |
+| `arc-create` / `arc-update` | `--archive` `--code` `--file`。文件为 `{"fields":{EAI 标签: 值}}`，新增可再带 `template`。`user_define`、`customer_inventory` 的修改由桥直接改表，只收非主键列（`alias`、`barcode`；对照的客户存货名称、检验设置等），`pay_agreement` 的 `fields` 键是表列名（`cName` 等） |
 | `arc-customer-person` | `--code` `--person`，可选 `--expect`。只改客户专管业务员；条件满足时一并改分管部门并同步 `Customer_Auth`。写命令，可加 `--dry-run`、`--idempotency-key` |
 | `arc-customer-fields` | `--code` `--file`，文件 `{"fields":{"abbrname","district","end_date","sa_protocol","name","tax_no"},"expect":{...}}`（`expect` 可选，建议带上）。只改客户名称、简称、税号、地区分类、停用日期、销售默认收付款协议。写命令，可加 `--dry-run`、`--idempotency-key` |
 | `arc-customer-address` | `--code` `--address` `--file`，文件 `{"fields":{"code","name","unit","default"},"expect":{...}}`（改 `name` / `unit` / `default` 时 `expect` 必填）。只改客户已有收货地址。写命令，可加 `--dry-run`、`--idempotency-key` |
@@ -347,9 +347,9 @@ uv run --no-project --python 3.12 --with cryptography python -m co.client.u8co_c
 
 档案（`--archive`）：
 
-- 只读：`account`、`trade_class`、`customer_address`、`fa_card`、`operator`、`role`。
+- 只读：`account`、`trade_class`、`customer_address`、`customer_invoice_company`、`fa_card`、`operator`、`role`。
 - 可写（`template` 不适用）：`currency`、`voucher_sign`、`exchange_rate`（`fields` 接受 `rate`、`adjust_rate`）、`reason`（编码最长 10，`fields` 接受 `name`、`Reasontype`、`ReasonMemo`）、`customer_bank`、`vendor_bank`、`customer_contact`、`vendor_contact`。
-- 其余档案（客户、供应商、存货、部门、人员、仓库及分类，`position`、`unit`、`unit_group`、`settle_style`、`rd_style`、`purchase_type`、`sale_type`、`district_class`、`aa_bank`、`project`、`user_define`、`customer_inventory` 等）可新增、修改、删除；`project` 被单据、凭证引用时桥拒绝删除。
+- 其余档案（客户、供应商、存货、部门、人员、仓库及分类，`position`、`unit`、`unit_group`、`settle_style`、`rd_style`、`purchase_type`、`sale_type`、`district_class`、`aa_bank`、`project`、`user_define`、`customer_inventory`、`pay_agreement` 等）可新增、修改、删除；`project` 被单据、凭证引用时桥拒绝删除。
 - 复合编码：`project` 写 `<项目大类>:<项目编码>`；`customer_address`、`user_define`、`customer_inventory` 写 `<第一段>:<第二段>`；`exchange_rate` 写 `<币种>:<年度>:<期间>[:<日>]`（如 `美元:2026:1`），`arc-get` 另接受 `<币种>:<yyyy-mm-dd>`，返回该日单据会使用的汇率；银行账户、联系人写 `<客户或供应商编码>:<银行账号或联系人编码>`，新增联系人写 `<客户或供应商编码>:`，由 U8 自动编号。
 
 完整的档案清单和字段见 [接口参考](api-reference.md)「基础档案 `archives/*`」。
@@ -396,6 +396,7 @@ doc = client.load_voucher(call, "sale_order")
 | `openings_arap(call, side, action, doc_id=None, **create)` | 应收（`side="ar"`）/ 应付（`"ap"`）期初单据：`action="create"` 时以关键字给出 `partner`、`amount`、`account`（可选 `department`、`person`、`digest`、`currency`、`exch_rate`）；`delete`、`verify`、`unverify` 只给 `doc_id`。字段组合不对时本地抛出 `ValueError` |
 | `close_period(call, PeriodClose(module, fiscal_year, period, action="close", through=False))` | 月末结账（`action="reopen"` 取消；`through=True` 时 `module` 写空串）。`PeriodClose` 在 `co.client.u8co_periods` |
 | `ia_post(call, IaMonth(fiscal_year, period, action, on_uncosted=""))`、`ia_period_end(call, IaMonth(fiscal_year, period, action))` | 存货核算记账（`post` / `unpost`，`on_uncosted` 为 `refuse` / `skip` 或空串）、期末处理（`run` / `cancel`）。`IaMonth` 在 `co.client.u8co_ia` |
+| `ia_voucher(call, IaVoucherAsk(ids=((type, id), …) 或 month=M, types=(), merge="", sign="", digest="", voucher_date=""))`、`ia_voucher_delete(call, pz_id)` | 存货核算制单（`merge` 为 `per_bill` / `all` 或空串）、取消制单。`IaVoucherAsk` 在 `co.client.u8co_ia_voucher` |
 | `workflow_state`、`workflow_history`、`workflow_tasks`、`workflow_submit`、`workflow_withdraw`、`workflow_approve`、`workflow_disagree`、`workflow_return`、`workflow_abandon`、`workflow_resubmit` | 审批流 |
 | `gl_load`、`gl_list(GlQuery)`、`gl_create(GlDraft)`、`gl_update(GlKey, GlDraft)`、`gl_op` | 总账凭证。`gl_op` 的动作为 `void`、`unvoid`、`verify`、`unverify`、`sign`、`unsign`、`delete` |
 | `gl_digest(GlDigestQuery)` | 总账凭证摘要：按期间返回每张凭证的指纹 |

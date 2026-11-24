@@ -354,7 +354,7 @@ SQL 只使用参数 `?`，调用方输入不拼入 SQL 文本；表名和列名�
 
 ### 桥
 
-目录为 `auditLog`（必须位于桥的运行目录之下），按本地日期写 `u8co-yyyyMMdd.log`，一行一个 JSON：
+目录为 `auditLog`（必须位于桥的运行目录之下），按本地日期写 `u8co-yyyyMMdd.log`，一行一个 JSON。超过 `auditLogRetentionDays`（缺省 30 天，0 表示不清理）的按日文件（`.log` 与 `.log.gz`）在服务启动 60 秒后清理一次，之后每 6 小时清理一次。超过 `auditLogCompressAfterDays`（缺省 0 表示不压缩）天的 `u8co-yyyyMMdd.log` 会在同一次清理里先压成 `.log.gz`（解压后校验内容再替换）。
 
 | 字段 | 内容 |
 | --- | --- |
@@ -373,7 +373,7 @@ SQL 只使用参数 `?`，调用方输入不拼入 SQL 文本；表名和列名�
 | `duration_ms` | 耗时 |
 | `trancount_before`、`trancount_after` | 审核前后的 `@@TRANCOUNT` |
 
-另有事件行（带 `event` 字段），例如 `signature_check`、`assembly_loaded`、`license_full`、`idem_persist_failed`、`write_policy_invalid`、`login_wedged`、`worker_recycled`、`login_probe`、`restart_requested`（见「登录状态不是 0 自愈」）。
+另有事件行（带 `event` 字段），例如 `signature_check`、`assembly_loaded`、`license_full`、`idem_persist_failed`、`write_policy_invalid`、`audit_log_pruned`、`audit_log_compressed`、`audit_log_compress_conflict`、`login_wedged`、`worker_recycled`、`login_probe`、`restart_requested`（见「登录状态不是 0 自愈」）。
 
 不记录口令、签名、密钥、登录令牌、连接串，也不记录 `head`、`lines`、`fields`、分录和审批意见。异常文本中出现的连接串口令替换为 `***`。401、403 等在登录前即被拒绝的请求，审计中没有操作员和年度。
 

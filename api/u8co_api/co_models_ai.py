@@ -13,7 +13,7 @@ from u8co_api.co_models import CoAuth
 _FORBID = ConfigDict(extra="forbid")
 _PASS = ConfigDict(extra="allow")
 
-# 能 list 的档案去掉两列主键的（客户收货地址、客户存货对照、客户 / 供应商银行、联系人、自定义项）、汇率和固定资产卡片。
+# 能 list 的档案去掉两列主键的（客户收货地址、客户开票单位、客户存货对照、客户 / 供应商银行、联系人、自定义项）、汇率和固定资产卡片。
 ResolveArchive = Literal[
     "customer",
     "vendor",
@@ -39,6 +39,7 @@ ResolveArchive = Literal[
     "district_class",
     "trade_class",
     "aa_bank",
+    "pay_agreement",
     "operator",
     "role",
     "reason",
@@ -60,7 +61,7 @@ RESOLVE_HELP = op_doc(
             "status：partial 只有包含匹配且恰好一条；none 没有",
             "match 只在 exact、partial 时给出；candidates 最多 limit 条，more 表示还有更多",
             "已停用的档案缺省不返回",
-            "停用：客户、供应商、存货、部门、仓库的停用日期不晚于登录日期；科目、项目已关闭；操作员已停用",
+            "停用：客户、供应商、存货、部门、仓库、收付款协议的停用日期不晚于登录日期；科目、项目已关闭；操作员已停用",
             "科目只返回末级",
         ),
     ),

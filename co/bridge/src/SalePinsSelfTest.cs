@@ -43,6 +43,7 @@ namespace U8Co
             Eq("key so head", SalePins.KeyOf("SO_SOMain"), "ID");
             Eq("key so line extra", SalePins.KeyOf("SO_SODetails_extradefine"), "iSOsID");
             Eq("key disp extra", SalePins.KeyOf("DispatchList_extradefine"), "DLID");
+            Eq("key disp line extra", SalePins.KeyOf("DispatchLists_extradefine"), "iDLsID");
         }
 
         static void CheckCollectCreate()

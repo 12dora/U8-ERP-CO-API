@@ -39,6 +39,12 @@ namespace U8Co
             contra.Obj1 = PermObj.Customer;
             contra.Obj2 = PermObj.Inventory;
             map.Add("customer_inventory", contra);
+            // 客户开票单位 sa_invoicecustomers：主键 (ccuscode, cinvoicecompany)，表列 nvarchar(20)，即客户编码长度；
+            // 开票单位也是客户，两段都按客户的数据权限过滤。
+            ArcPair invoice = Spec("ccuscode", 20, "cinvoicecompany", 20, "<客户编码>:<开票单位编码>");
+            invoice.Obj1 = PermObj.Customer;
+            invoice.Obj2 = PermObj.Customer;
+            map.Add("customer_invoice_company", invoice);
             // 客户、供应商的银行账户（主键 (cCusCode / cVenCode, cAccountNum)，账号 nvarchar(50)）和联系人
             // （cContactCode nvarchar(30)），见 ArcPartner。
             Partner(map, "customer_bank", true, "cAccountNum", 50, "<客户编码>:<银行账号>");

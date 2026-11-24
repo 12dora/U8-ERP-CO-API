@@ -11,15 +11,19 @@ from tests.test_co_core_routes import _auth, _sealed, _Up, _wired
 from tests.test_co_update_close_gen import _enum, _spec
 
 _ARC = "/v1/co/archives/"
-_SINGLE = ("position", "rd_style", "purchase_type", "sale_type", "district_class", "trade_class", "aa_bank")
+_SINGLE = ("position", "rd_style", "purchase_type", "sale_type", "district_class", "trade_class", "aa_bank", "pay_agreement")
 _PAIR = {
     "customer_address": "C001:01",
     "user_define": "1002:快递",
     "customer_inventory": "C001:INV0010",
+    "customer_invoice_company": "C001:C002",
 }
 _KINDS = (*_SINGLE, *_PAIR)
-# 以下档案可写（EAI），见 test_co_arc_item_write / test_co_arc_class_write。
-_WRITABLE_KINDS = ("position", "user_define", "customer_inventory", "rd_style", "purchase_type", "sale_type", "district_class", "aa_bank")
+# 以下档案可写（EAI 或受控 SQL），见 test_co_arc_item_write / test_co_arc_class_write / test_co_arc_agreement_write。
+_WRITABLE_KINDS = (
+    "position", "user_define", "customer_inventory", "rd_style", "purchase_type", "sale_type", "district_class", "aa_bank",
+    "pay_agreement",
+)
 _RO_KINDS = tuple(a for a in _KINDS if a not in _WRITABLE_KINDS)
 
 
@@ -40,6 +44,12 @@ _FORWARD = (
     ),
     (_ARC + "list", _auth(archive="trade_class", changed_since="25131155"), _sealed("archive", "changed_since")),
     (_ARC + "list", _auth(archive="customer_inventory", changed_since="7"), _sealed("archive", "changed_since")),
+    (_ARC + "list", _auth(archive="pay_agreement", changed_since="7"), _sealed("archive", "changed_since")),
+    (
+        _ARC + "list",
+        _auth(archive="customer_invoice_company", code_prefix="C001:", limit=5),
+        _sealed("archive", "code_prefix", "limit"),
+    ),
 )
 
 
@@ -65,6 +75,12 @@ _REJECTS = (
     (_ARC + "get", _auth(archive="sale_type", code="123")),
     (_ARC + "get", _auth(archive="district_class", code="9" * 13)),
     (_ARC + "get", _auth(archive="trade_class", code="9" * 13)),
+    (_ARC + "get", _auth(archive="pay_agreement", code="9" * 11)),
+    (_ARC + "get", _auth(archive="customer_invoice_company", code="C001")),
+    (_ARC + "get", _auth(archive="customer_invoice_company", code="C001:")),
+    (_ARC + "get", _auth(archive="customer_invoice_company", code="C" * 21 + ":C002")),
+    (_ARC + "get", _auth(archive="customer_invoice_company", code="C001:" + "C" * 21)),
+    (_ARC + "list", _auth(archive="customer_invoice_company", changed_since="1")),
     (_ARC + "get", _auth(archive="aa_bank", code="123456")),
     (_ARC + "get", _auth(archive="customer_address", code="C001")),
     (_ARC + "get", _auth(archive="customer_address", code=":01")),

@@ -417,7 +417,7 @@ namespace U8Co
                 {
                     throw BridgeException.BadField(FieldPath.Join(at, key), "不能填写字段 " + key);
                 }
-                if (!Plain(row[key]) && !QmReq.ListField(kind, key, row[key]))
+                if (!Plain(row[key]) && !NestedFields.Allowed(kind, at == "head", key, row[key]))
                 {
                     throw BridgeException.BadField(FieldPath.Join(at, key), "字段 " + key + " 的值只能是字符串、数字或布尔");
                 }

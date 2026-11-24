@@ -28,6 +28,7 @@ namespace U8Co
                 {
                     r.Put(ZeroFlags[i], "0");
                 }
+                QmMergeDom.Flags(r, job);
                 r.Put("ISWFCONTROLLED", job.Wf ? "1" : "0");
                 QmGenInspect.PutDefines(r, job.Ask);
                 r.Raw("editprop", QmDom.Added);
@@ -132,7 +133,7 @@ namespace U8Co
             r.Put("CCHKNORMALCODE", CoRows.Col(job.Project, "CCHKNORMALCODE"));
         }
 
-        static decimal Pieces(decimal qty, decimal rate)
+        internal static decimal Pieces(decimal qty, decimal rate)
         {
             return decimal.Round(qty / rate, 6, MidpointRounding.AwayFromZero);
         }

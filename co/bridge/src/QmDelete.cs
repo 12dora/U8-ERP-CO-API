@@ -10,7 +10,8 @@ namespace U8Co
     // 只在操作员有弃审权限时这样做，否则 409。弃审由 U8 自己提交，之后删除只要没成功（U8 拒绝、回读不符、任何异常）
     // 都按 504 outcome_unknown 返回并注明单据已弃审：状态已经变了，不能用表示「什么都没写」的 409。
     // 不再重新审核：U8 的 confirm 对报检单总是失败（见 QmVerify），接口没有办法恢复。
-    // 检验单：已提交审批或已审核、已入库、已有不良品处理单 409。U8 删除后回退报检单行 FSUMCHECKQTY / 到货行 fInspectQuantity。
+    // 检验单：已提交审批或已审核、已入库、已有不良品处理单 409。U8 删除后回退报检单行 FSUMCHECKQTY / 到货行 fInspectQuantity；
+    // 合并检验的检验单经 VO 接口 DelVoucher（带合并明细 VO）删除，删除后另核对每条来源报检单行都已回退（QmMergeDel）。
     internal static class QmDelete
     {
         const string GoneInsSql = "select count(*) from QMINSPECTVOUCHER where ID=?";
@@ -24,9 +25,12 @@ namespace U8Co
             QmGen.CheckRows(perm, spec, "delete", QmDoc.PermRows(ctx.Conn, spec, id, doc));
             bool verified = QmDoc.Verified(doc);
             Gate(ctx.Conn, spec, id, doc, perm);
+            // 合并检验：删除前记下各来源，删除后核对来源报检单行都已回退（QmMergeDel）。
+            List<Dictionary<string, object>> merged = QmMergeDel.Before(ctx.Conn, spec, id);
             // 预演（校验模式）：删除、弃审都由 U8 自己提交，闸门查完就停。
             DryRun.Set("unverify_first", spec.Inspect && verified);
-            DryRun.Stop(ctx, spec.Inspect && verified ? "UFQMCo.VoucherOperate(unconfirm, delete)" : "UFQMCo.VoucherOperate(delete)");
+            DryRun.Stop(ctx, spec.Inspect && verified ? "UFQMCo.VoucherOperate(unconfirm, delete)"
+                : (merged != null ? "UFQMCo.DelVoucher(detailVO)" : "UFQMCo.VoucherOperate(delete)"));
             bool unverified = false;
             using (QmCo co = QmCo.Open(ctx, spec))
             {
@@ -38,9 +42,10 @@ namespace U8Co
                 }
                 else
                 {
-                    Remove(ctx, co, spec, id);
+                    Remove(ctx, co, spec, id, QmMergeDel.IsMerged(merged));
                 }
             }
+            QmMergeDel.After(ctx, merged);
             Dictionary<string, object> body = new Dictionary<string, object>();
             body["ok"] = true;
             body["type"] = spec.Kind;
@@ -73,7 +78,7 @@ namespace U8Co
         {
             try
             {
-                Remove(ctx, co, spec, id);
+                Remove(ctx, co, spec, id, false);
             }
             catch (BridgeException ex)
             {
@@ -86,18 +91,10 @@ namespace U8Co
             }
         }
 
-        static void Remove(WorkContext ctx, QmCo co, QmSpec spec, int id)
+        // merged：合并检验走 VO 接口删除（QmMergeDel.Delete；VoucherOperate 删合并检验单 U8 报错），其余 VoucherOperate("delete")。
+        static void Remove(WorkContext ctx, QmCo co, QmSpec spec, int id, bool merged)
         {
-            object[] doms = QmDom.LoadedPair(ctx.Conn, spec, id);
-            QmOutcome outcome;
-            try
-            {
-                outcome = co.Operate(doms, "delete", id.ToString(CultureInfo.InvariantCulture));
-            }
-            finally
-            {
-                QmDom.Release(doms);
-            }
+            QmOutcome outcome = merged ? QmMergeDel.Delete(ctx, spec, id) : Operate(ctx, co, spec, id);
             if (!outcome.Ok)
             {
                 CoRows.Note(ctx.Item, "VoucherOperate " + QmGen.Text(outcome));
@@ -124,6 +121,19 @@ namespace U8Co
                 throw new BridgeException(504, "outcome_unknown", "U8 删除调用异常，结果未知：" + QmGen.Text(outcome));
             }
             throw new BridgeException(409, "state_mismatch", "U8 返回成功但单据仍在");
+        }
+
+        static QmOutcome Operate(WorkContext ctx, QmCo co, QmSpec spec, int id)
+        {
+            object[] doms = QmDom.LoadedPair(ctx.Conn, spec, id);
+            try
+            {
+                return co.Operate(doms, "delete", id.ToString(CultureInfo.InvariantCulture));
+            }
+            finally
+            {
+                QmDom.Release(doms);
+            }
         }
 
         // 新连接上数一下：0 已删除，1 还在，-1 读不到。

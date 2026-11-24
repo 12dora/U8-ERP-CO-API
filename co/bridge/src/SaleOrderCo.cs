@@ -60,6 +60,7 @@ namespace U8Co
                 SalePins pins = SalePins.ForOrder(ctx.Conn, LoginDate(ctx), head, lines);
                 pins.MarkDom(SoDom.Has(doms[0]), SoDom.Has(doms[1]));
                 SoDom.Apply(ctx.Conn, doms, head, lines);
+                SaleTaxFlag.FreshAll(ctx, doms[1]);
                 // Save 不算价税。按单行 BodyCheck 回写单价、金额和本币金额。
                 SaleCalc.ForCreate(co, doms[0], doms[1], lines);
                 SoSave.Stamp(ctx, sys, doms[0], card);

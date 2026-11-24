@@ -246,6 +246,11 @@ def _check_head(head: dict) -> None:
     _text("cCheckPersonCode", head["ccheckpersoncode"], True)
 
 
+def check_head_only(head: dict | None) -> None:
+    """检验单表头（合并检验 co_gen_qm_merge 同样用它）。"""
+    _check_head(_lowered(head or {}))
+
+
 def _check_line(lines: list[dict]) -> None:
     if len(lines) != 1:
         raise ValueError("检验单只能有 1 行")
@@ -254,11 +259,23 @@ def _check_line(lines: list[dict]) -> None:
         if key not in _CHECK_LINE:
             raise ValueError("不能设置字段 " + key)
     _source_id(row, set())
+    check_split(row)
+
+
+def check_split(row: dict) -> None:
+    """quantity 大于 0；合格、让步、不良之和等于 quantity（合格省略时取差额）。row 的键已是小写。"""
     qty = _number("quantity", row.get("quantity"), True)
     parts = [_number(key, row[key], False) for key in _SPLIT[1:] if key in row]
     reg = _number("fRegQuantity", row["fregquantity"], False) if "fregquantity" in row else qty - sum(parts)
     if reg < -_EPS or abs(reg + sum(parts) - qty) > _EPS * max(1.0, qty):
         raise ValueError("合格、让步、不良数量之和必须等于 quantity")
+
+
+def check_parts(row: dict) -> None:
+    """没给 quantity 时（合并检验取整行剩余）：给出的合格、让步、不良数量都必须是不小于 0 的数。"""
+    for key in _SPLIT:
+        if key in row:
+            _number(key, row[key], False)
 
 
 def _reject_head(head: dict) -> None:
@@ -343,10 +360,3 @@ def check_qm_gen(kind: str, head: dict | None, lines: list[dict] | None, source_
         return
     _check_head(found)
     _check_line(lines)
-
-
-def nested_head(kind: str, head: dict | None) -> None:
-    """只有检验单的 head.items 可以是列表；别的类型、别的键一律不能嵌套。"""
-    for key, value in (head or {}).items():
-        if isinstance(value, list) and not (kind in CHECK_KINDS and key.lower() == "items"):
-            raise ValueError("表头的值不能嵌套：" + key)

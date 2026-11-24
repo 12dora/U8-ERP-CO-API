@@ -66,6 +66,24 @@ class BomWireTests(unittest.TestCase):
         self.assertEqual(sent["lines"], _EDIT)
         self.assertEqual(sent["head"], {"eff_date": "2026-10-01"})
 
+    def test_substitutes_and_locators_pass_through(self) -> None:
+        lines = [
+            {"op": "update", "sort_seq": 10, "substitutes": [{"inv_code": "S001", "factor": 1.5}]},
+            {"op": "update", "sort_seq": 20, "substitutes": [], "locators": [{"loc": "R1"}]},
+        ]
+        sent, _captured = _sent(lambda client: client.update_voucher(_call(9), VoucherEdit(_KIND, {}, lines)))
+        self.assertEqual(sent["lines"], lines)
+        created = [dict(_LINES[0], substitutes=[{"inv_code": "S001"}], locators=[{"loc": "R1"}])]
+        sent, _captured = _sent(lambda client: client.create_voucher(_call(0), VoucherDraft(_KIND, _HEAD, created)))
+        self.assertEqual(sent["lines"], created)
+
+    def test_only_bom_lines_take_arrays(self) -> None:
+        client = U8CoClient("http://127.0.0.1/u8co", SECRET, timeout=5)
+        with self.assertRaises(ValueError):
+            client.create_voucher(_call(0), VoucherDraft("other_in", {"a": "b"}, [{"a": 1, "substitutes": []}]))
+        with self.assertRaises(ValueError):
+            client.create_voucher(_call(0), VoucherDraft(_KIND, _HEAD, [dict(_LINES[0], substitutes=["S001"])]))
+
     def test_verify_and_delete_bodies(self) -> None:
         sent, captured = _sent(lambda client: client.verify_voucher(_call(9, "unverify"), _KIND))
         self.assertEqual(captured["path"], "/u8co/v1/vouchers/verify")

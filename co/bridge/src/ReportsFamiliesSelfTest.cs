@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace U8Co
 {
-    // --selftest 的分族报表接线部分（ReportsFamilies）：17 张报表都登记在名单、字段表、读线程池和权限登记表里，
+    // --selftest 的分族报表接线部分（ReportsFamilies）：18 张报表都登记在名单、字段表、读线程池和权限登记表里，
     // 登录子系统、规则后缀、金额遮蔽标记符合约定。只测纯逻辑，不连库。各族自己的取值校验与 SQL 在各族的自检里。
     internal static class ReportsFamiliesSelfTest
     {
@@ -11,7 +11,7 @@ namespace U8Co
         {
             "qm_indicators", "qm_pass_rate", "production_daily", "mo_progress", "mo_consumption", "stock_age",
             "purchase_analysis", "arrival_otif", "open_orders", "sales_price_history", "customer_churn",
-            "receipts_payments", "notes_due", "cash_flow", "close_check", "ia_anomalies", "cost_unit"
+            "receipts_payments", "notes_due", "cash_flow", "close_check", "ia_anomalies", "cost_unit", "ca_inputs"
         };
 
         public static void Run()
@@ -24,7 +24,7 @@ namespace U8Co
             CheckColumnPlans();
         }
 
-        // 名单：17 张、不重复，都在 Reports.Names 里，ReportsFamilies 认得。
+        // 名单：18 张、不重复，都在 Reports.Names 里，ReportsFamilies 认得。
         static void CheckNames()
         {
             Expect("fam count", ReportsFamilies.Names.Length == Expected.Length);
@@ -67,7 +67,8 @@ namespace U8Co
                 new string[] { "purchase_analysis", "PU" }, new string[] { "arrival_otif", "PU" },
                 new string[] { "open_orders", "SA" }, new string[] { "sales_price_history", "SA" },
                 new string[] { "customer_churn", "SA" }, new string[] { "cash_flow", "GL" },
-                new string[] { "close_check", "GL" }, new string[] { "ia_anomalies", "IA" }, new string[] { "cost_unit", "GL" }
+                new string[] { "close_check", "GL" }, new string[] { "ia_anomalies", "IA" }, new string[] { "cost_unit", "GL" },
+                new string[] { "ca_inputs", "GL" }
             };
             for (int i = 0; i < fixedSubs.Length; i++)
             {
@@ -147,7 +148,7 @@ namespace U8Co
             string[] plain = new string[]
             {
                 "qm_indicators", "qm_pass_rate", "production_daily", "mo_progress", "mo_consumption", "arrival_otif", "notes_due",
-                "cash_flow", "close_check", "cost_unit"
+                "cash_flow", "close_check", "cost_unit", "ca_inputs"
             };
             for (int i = 0; i < plain.Length; i++)
             {

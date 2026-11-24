@@ -14,9 +14,9 @@ namespace U8Co
         public string[] Keys;
         // 报表自己的字段权限对象（Keys 的子集）：这些对象上的任何拒绝都按金额组处理，见 PermMask.RuleOf。
         public string[] Strict = new string[0];
-        // 响应别名 → 物理列（按账套配置的数电号列）。物理列被拒绝时别名一并置空。
-        public string MapAlias;
-        public string MapColumn;
+        // 物理列 → 响应别名（{列, 别名}）：物理列被拒绝时别名一并置空。例：按账套配置的数电号列；生产订单子件替代料的
+        // inv_code、define22…（MoSubs.MaskAliases）。
+        public readonly List<string[]> Aliases = new List<string[]>();
 
         public ColScope(string section, string[] keys)
         {
@@ -28,6 +28,11 @@ namespace U8Co
             : this(section, keys)
         {
             Strict = strict ?? new string[0];
+        }
+
+        public void Alias(string column, string alias)
+        {
+            Aliases.Add(new string[] { column, alias });
         }
 
         // Strict 里有对象被拒绝了任何字段。
@@ -106,6 +111,8 @@ namespace U8Co
             map["stock_check"] = RdUnion;
             map["ia_adjust"] = RdUnion;
             map["inventory_price_adjust"] = RdUnion;
+            // 物料清单：U8 的「物料清单资料查询」对象（BO26，生产制造 BO）。
+            map[BomRoutes.KindName] = new string[] { "BO26" };
             // 收款单、付款单和它们的退款：U8 的收款单 / 付款单对象 VCH_AR48 / VCH_AR49 / VCH_AP48 / VCH_AP49（收付款汇总用同一份）。
             map["ar_receipt"] = PermColumnReports.Receipts;
             map["ar_refund"] = PermColumnReports.Receipts;
@@ -310,6 +317,15 @@ namespace U8Co
         {
             ColScope scope = new ColScope("", KeysOfType(type));
             BindTax(scope, item, type);
+            if (type == "production_order" || type == BomRoutes.KindName)
+            {
+                // 生产订单子件、物料清单子件行的替代料用通用键名（形状同 SubstituteRows），按对应的子件列遮（MoSubs.MaskAliases）：
+                // 存货 InvCode → inv_code（物料清单行的子件编码同名，一并遮），Define22–37 → define22…。
+                for (int i = 0; i < MoSubs.MaskAliases.Length; i++)
+                {
+                    scope.Alias(MoSubs.MaskAliases[i][0], MoSubs.MaskAliases[i][1]);
+                }
+            }
             return scope;
         }
 
@@ -324,8 +340,7 @@ namespace U8Co
             {
                 return;
             }
-            scope.MapAlias = TaxInvoiceNo.Alias;
-            scope.MapColumn = col;
+            scope.Alias(col, TaxInvoiceNo.Alias);
         }
 
         static string TypeOf(WorkItem item)

@@ -28,6 +28,7 @@ namespace U8Co
             new string[] { "product_in", "rdrecords10 d", "d.ID", "d.cInvCode" },
             new string[] { "material_out", "rdrecords11 d", "d.ID", "d.cInvCode" },
             new string[] { "sale_out", "rdrecords32 d", "d.ID", "d.cInvCode" },
+            new string[] { "stock_opening", "rdrecords34 d", "d.ID", "d.cInvCode" },
             new string[] { "transfer", "TransVouchs d", "d.ID", "d.cInvCode" },
             new string[] { "transfer_request", "ST_AppTransVouchs d", "d.ID", "d.cInvCode" },
             new string[] { "shape_change", "AssemVouchs d", "d.ID", "d.cInvCode" },

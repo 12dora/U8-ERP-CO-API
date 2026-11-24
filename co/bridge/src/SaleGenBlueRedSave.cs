@@ -139,6 +139,7 @@ namespace U8Co
                 BlueLine line = job.Lines[i];
                 ClearAttrs(doms[1], At(doms[1], i), RInvLineClear, schema);
                 RedScale(doms[1], At(doms[1], i), line.Qty);
+                SaleTaxFlag.Keep(job.Ctx, doms[1], At(doms[1], i), schema);
                 string msg = SaleCalc.Check(co, doms[0], doms[1], At(doms[1], i), "iquantity", false);
                 if (msg.Length > 0)
                 {

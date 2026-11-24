@@ -15,6 +15,7 @@ _PAIR_CODE = {
     "customer_address": "C001:01",
     "user_define": "1002:快递",
     "customer_inventory": "C001:INV0010",
+    "customer_invoice_company": "C001:C002",
 }
 
 

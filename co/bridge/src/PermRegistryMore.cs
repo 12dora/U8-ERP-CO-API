@@ -164,7 +164,11 @@ namespace U8Co
                 WriteRule("currency", "delete", "币种删除", A("AS028M")),
                 WriteRule("voucher_sign", "create", "凭证类别新增", A("AS026")),
                 WriteRule("voucher_sign", "update", "凭证类别修改", A("AS026")),
-                WriteRule("voucher_sign", "delete", "凭证类别删除", A("AS026"))
+                WriteRule("voucher_sign", "delete", "凭证类别删除", A("AS026")),
+                // 收付款协议：协议档案表单 Archives_U8Agreement_List 的新增、修改、删除按钮都是 AS60202（读取同一个 id）。
+                WriteRule("pay_agreement", "create", "收付款协议新增", A("AS60202")),
+                WriteRule("pay_agreement", "update", "收付款协议修改", A("AS60202")),
+                WriteRule("pay_agreement", "delete", "收付款协议删除", A("AS60202"))
             };
         }
 
@@ -230,6 +234,12 @@ namespace U8Co
                 // 与操作员、角色同一口径，只认账套主管（admin），不按记录过滤。注意：客户、供应商银行账户和本单位开户银行
                 // 的写入要填 AA_Bank 的所属银行编码（bank_code），非主管查不到银行档案，只能向主管要编码。
                 Arc("aa_bank", "银行档案", A("admin")),
+                // 收付款协议：AS60201 是协议档案的菜单（浏览，U8 功能持有日志里每次先开它），AS60202 是协议档案表单
+                // Archives_U8Agreement_List 的新增、修改、删除按钮（UFMeta）；有其一即可读。
+                Arc("pay_agreement", "收付款协议", A("AS60201", "AS60202")),
+                // 客户开票单位是客户档案的子页，用客户档案的 id；开票单位本身也是客户，两段都按客户记录权限判断（同调拨单的两个仓库）。
+                Arc("customer_invoice_company", "客户开票单位", A("AS011Q", "AS011"),
+                    PermObj.H(PermObj.Customer, "ccuscode"), PermObj.H(PermObj.Customer, "cinvoicecompany")),
                 // 原因码（ArcReason）：U8 桌面配置里原因码档案的 cAuthId 为空、UFMeta 里也没有它的表单按钮，没有功能 id 可查；
                 // U8 自己不按功能控制它，这里同样登录即可、不按记录过滤。写入不登记，交给 U8。
                 Arc("reason", "原因码档案", A()),

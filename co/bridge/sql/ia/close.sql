@@ -100,6 +100,19 @@ BEGIN
   THROW 50043, @msg, 1;
 END
 
+-- 本月还有未记账的出入库调整单（20/21，手工录入的；系统生成的 cAuto=TRUE 不算）：U8 月末结账前检查（Close12_NoAccJust）。
+SELECT @n = COUNT(*)
+FROM JustInVouchs l
+INNER JOIN JustInVouch h ON h.cJVCode=l.cJVCode
+WHERE h.cVouchType IN (N'20',N'21') AND ISNULL(l.cBAccounter,N'')=N''
+  AND UPPER(ISNULL(h.cAuto,N''))<>N'TRUE'
+  AND h.dJVDate>=@dS AND h.dJVDate<@dNext;
+IF @n > 0
+BEGIN
+  SET @msg = N'unposted adjustment lines: ' + CONVERT(nvarchar(20),@n);
+  THROW 50047, @msg, 1;
+END
+
 IF @bChk IN (N'True',N'TRUE',N'true',N'1')
 BEGIN
   SELECT @n = COUNT(*) FROM #unposted WHERE ISNULL(handler,N'')=N'';

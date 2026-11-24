@@ -248,7 +248,7 @@ namespace U8Co
         }
 
         // 货位调整单（短码 19，卡片 0313）：同一仓库内货位之间移库，审核时 U8 写货位台账 InvPosition（每行一出一入）。
-        // 主键 Id、表体 autoID 都不是自增；审核人 chandler / dVeriDate。不开修改（PositionAdjust.PreLogin）。
+        // 主键 Id、表体 autoID 都不是自增；审核人 chandler / dVeriDate。修改走 StockEdit.MiscUpdate（PositionAdjust.Try）。
         static VoucherKind PositionAdjustKind()
         {
             VoucherKind kind = Blank(PositionAdjust.KindName, "货位调整单", "st", "ST");
@@ -257,6 +257,7 @@ namespace U8Co
             kind.StType = PositionAdjust.StType;
             kind.LineIdColumn = "autoID";
             kind.Creatable = true;
+            kind.Updatable = true;
             kind.Deletable = true;
             return kind;
         }

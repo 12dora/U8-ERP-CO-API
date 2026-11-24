@@ -28,13 +28,14 @@ ARCHIVES = (
     "customer", "vendor", "inventory", "department", "person", "warehouse",
     "customer_class", "vendor_class", "inventory_class",
 )
-# 只读档案：只有 arc-get、arc-list。project 的编码写成 <项目大类>:<项目编码>。
-# 只读档案；两列主键的（PAIR_ARCHIVES）编码写成 <第一段>:<第二段>。
+# 读取列表（READ_ARCHIVES 的一部分）：只有 trade_class、customer_address、customer_invoice_company 只能 arc-get、arc-list；
+# 其余（货位、收发类别、采购 / 销售类型、地区分类、银行档案、自定义项、客户存货对照、收付款协议）也可写，见 WRITE_ARCHIVES。
+# 两列主键的（PAIR_ARCHIVES）编码写成 <第一段>:<第二段>；project 的编码写成 <项目大类>:<项目编码>。
 RO6_ARCHIVES = (
     "position", "rd_style", "purchase_type", "sale_type", "district_class", "trade_class", "aa_bank",
-    "customer_address", "user_define", "customer_inventory",
+    "customer_address", "user_define", "customer_inventory", "pay_agreement", "customer_invoice_company",
 )
-PAIR_ARCHIVES = ("customer_address", "user_define", "customer_inventory", *PARTNER_ARCHIVES)
+PAIR_ARCHIVES = ("customer_address", "user_define", "customer_inventory", "customer_invoice_company", *PARTNER_ARCHIVES)
 # 汇率：编码 <币种>:<年度>:<期间>[:<日>]，arc-get 也收 <币种>:<yyyy-mm-dd>；arc-list 可按 currency、fiscal_year 过滤。
 # 可写：fields 收 rate（记账汇率或浮动汇率）、adjust_rate（调整汇率），细的校验在 API 和桥。
 EXCH_ARCHIVE = "exchange_rate"
@@ -56,22 +57,26 @@ READ_ARCHIVES = (
 )
 # 编码（含 after、code_prefix）的最大长度，其余 60。细的校验（每类长度、两段各自长度）在 API 和桥。
 _CODE_LIMIT = {
-    "project": 63, "customer_address": 51, "user_define": 411, "customer_inventory": 81, EXCH_ARCHIVE: 27, FA_ARCHIVE: 20,
+    "project": 63, "customer_address": 51, "user_define": 411, "customer_inventory": 81, EXCH_ARCHIVE: 27,
+    FA_ARCHIVE: 20, "customer_invoice_company": 41, "pay_agreement": 10,
     "operator": 20, "role": 20, **PARTNER_CODE_LIMIT, EQ_ARCHIVE: EQ_CODE_LIMIT,
 }
 # 开户银行可新增、修改、删除；项目走受控 SQL，可新增、修改，没有被引用的项目可以删除。
-# 货位、计量单位、自定义项档案、客户存货对照走 EAI，可新增、删除（两列主键的不收 template）；
-# 自定义项档案、客户存货对照 U8 不提供修改，arc-update 只收 UPDATE_ARCHIVES。
+# 货位、计量单位、自定义项档案、客户存货对照走 EAI 新增、删除（两列主键的不收 template）；
+# 前两类 EAI 修改，后两类 U8 的 EAI 不提供修改，由桥用受控 SQL 改非主键列（自定义项只改 alias、barcode，客户存货对照不改编码两段）。
 EAI_ITEM_ARCHIVES = ("position", "unit", "user_define", "customer_inventory")
+# 收付款协议：受控 SQL 新增、修改、删除，fields 的标签是表列名（cName 必填）。
+SA_WRITE_ARCHIVES = ("pay_agreement",)
 # 之后又走 EAI、可新增、修改、删除的七类。
 EAI_CLASS_ARCHIVES = ("unit_group", "settle_style", "rd_style", "purchase_type", "sale_type", "district_class", "aa_bank")
 # 币种（fields 的 code 是币种符号）、凭证类别（新增要 type_name，修改只收 type_name）。会计科目仍只读。
 GL_ARCHIVES = ("currency", "voucher_sign")
 # 新增走 EAI、修改删除由桥直接改表的几类：币种、凭证类别，子档案，汇率。
 _SQL_RW = (*GL_ARCHIVES, *PARTNER_WRITE_ARCHIVES, EXCH_ARCHIVE)
-WRITE_ARCHIVES = (*ARCHIVES, "bank", "project", *EAI_ITEM_ARCHIVES, *EAI_CLASS_ARCHIVES, *_SQL_RW, REASON_ARCHIVE, *FA_WRITE_ARCHIVES)
-UPDATE_ARCHIVES = (*ARCHIVES, "bank", "project", "position", "unit", *EAI_CLASS_ARCHIVES, *_SQL_RW, REASON_ARCHIVE)
-DELETE_ARCHIVES = (*ARCHIVES, "bank", "project", *EAI_ITEM_ARCHIVES, *EAI_CLASS_ARCHIVES, *_SQL_RW, REASON_ARCHIVE, *FA_DELETE_ARCHIVES)
+_SQL_ARCHIVES = (*_SQL_RW, *SA_WRITE_ARCHIVES)
+WRITE_ARCHIVES = (*ARCHIVES, "bank", "project", *EAI_ITEM_ARCHIVES, *EAI_CLASS_ARCHIVES, *_SQL_ARCHIVES, REASON_ARCHIVE, *FA_WRITE_ARCHIVES)
+UPDATE_ARCHIVES = (*ARCHIVES, "bank", "project", *EAI_ITEM_ARCHIVES, *EAI_CLASS_ARCHIVES, *_SQL_ARCHIVES, REASON_ARCHIVE)
+DELETE_ARCHIVES = (*ARCHIVES, "bank", "project", *EAI_ITEM_ARCHIVES, *EAI_CLASS_ARCHIVES, *_SQL_ARCHIVES, REASON_ARCHIVE, *FA_DELETE_ARCHIVES)
 _PROJECT_CLASS = re.compile(r"^[0-9A-Za-z]{1,2}\Z")
 # 单据列表里取布尔值的过滤键，其余都是字符串。
 BOOL_FILTERS = ("verified", "closed", "red")
@@ -199,7 +204,7 @@ class U8CoGlArcMixin:
         fields = _arc_keyed(call, record.archive, record.code, WRITE_ARCHIVES)
         fields["fields"] = _arc_fields(record.fields, False)
         if record.template:
-            if record.archive in (*PAIR_ARCHIVES, *GL_ARCHIVES, EXCH_ARCHIVE, *NO_TEMPLATE_ARCHIVES):
+            if record.archive in (*PAIR_ARCHIVES, *GL_ARCHIVES, EXCH_ARCHIVE, *SA_WRITE_ARCHIVES, *NO_TEMPLATE_ARCHIVES):
                 raise ValueError("该档案不支持 template")
             fields["template"] = _text(record.template, "template", 60)
         return self.call("/v1/archives/create", with_key(fields, idempotency_key))
@@ -208,7 +213,7 @@ class U8CoGlArcMixin:
         if record.template:
             raise ValueError("修改档案不能带 template")
         if record.archive in WRITE_ARCHIVES and record.archive not in UPDATE_ARCHIVES:
-            raise ValueError(NO_UPDATE_TEXT.get(record.archive, "该档案不支持修改（U8 不提供修改），请删除后重新新增"))
+            raise ValueError(NO_UPDATE_TEXT.get(record.archive, "该档案不支持修改，请删除后重新新增"))
         fields = _arc_keyed(call, record.archive, record.code, UPDATE_ARCHIVES)
         fields["fields"] = _arc_fields(record.fields, True)
         return self.call("/v1/archives/update", with_key(fields, idempotency_key))

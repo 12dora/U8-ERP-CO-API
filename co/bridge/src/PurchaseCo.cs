@@ -13,7 +13,6 @@ namespace U8Co
             {
                 throw new BridgeException(404, "not_found", "单据不存在");
             }
-            PuRet.RequireRed(kind, snap);
             object info = null;
             object co = null;
             object[] doms = new object[2];

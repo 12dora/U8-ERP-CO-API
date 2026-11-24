@@ -368,6 +368,7 @@ namespace U8Co
                 int at = DomRows.RowsOf(doms[1]).Count - 1;
                 DomRows.CopyInto(doms[1], dst, srcRows[0], InvBodySkip);
                 Scale(doms[1], dst, line.Qty);
+                SaleTaxFlag.Keep(ctx, doms[1], dst);
                 string msg = SaleCalc.Check(co, doms[0], doms[1], dst, "iquantity", false);
                 if (msg.Length > 0)
                 {

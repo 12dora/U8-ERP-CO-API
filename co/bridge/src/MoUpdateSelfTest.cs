@@ -15,6 +15,7 @@ namespace U8Co
             CheckFormula();
             CheckGuards();
             MoUpdateRemapSelfTest.Run();
+            MoSubsSelfTest.Run();
             Expect("mo upd restore sql", MoUpdateCols.RestoreSql() == "update mom_moallocate set OpComponentId=?, VirOpComponentIds=?,"
                 + " cSubSysBarCode=?, SoDId=?, UpperMoQty=convert(decimal(28,6), ?) where AllocateId=?");
             Expect("mo upd define name", MoExtNames.Define("define28") == "DDefine_28");

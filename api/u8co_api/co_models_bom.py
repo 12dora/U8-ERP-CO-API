@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import math
-from decimal import Decimal, InvalidOperation
-
 from pydantic import BaseModel, ConfigDict, Field
 
 from u8co_api.co_doctext import section
+from u8co_api.co_models_bom_subs import check_int as _int
+from u8co_api.co_models_bom_subs import check_nested
+from u8co_api.co_models_bom_subs import check_qty as _qty
+from u8co_api.co_models_bom_subs import check_rate as _rate
 from u8co_api.co_models_mo import _date, _get, _only, _text
 
 _OUT = ConfigDict(extra="ignore")
-_QTY_MAX = Decimal(10**12)
 _SEQ_MAX = 99999
 _INT_MAX = 2147483647
 LINES_MAX = 200
@@ -32,6 +32,8 @@ _ADD_KEYS = (
     "remark",
     "optional",
     "mutex_rule",
+    "substitutes",
+    "locators",
 )
 _EDIT_KEYS = (
     "op_seq",
@@ -43,6 +45,8 @@ _EDIT_KEYS = (
     "remark",
     "optional",
     "mutex_rule",
+    "substitutes",
+    "locators",
 )
 BOM_CREATE_HELP = section(
     "物料清单（bom）",
@@ -56,6 +60,9 @@ BOM_CREATE_HELP = section(
         "明细可省 base_qty_d（分母，缺省 1）、comp_scrap（子件损耗率）、wip_type（1 到 5，缺省 3 领用）",
         "明细可省 wh_code、remark、op_seq（缺省 0000）、sort_seq（缺省按 10、20… 往后排）",
         "明细可省 optional（布尔，选配；母件须是模型或选项类）、mutex_rule（1 单选 2 全选 3 任选 4 至少选一；仅 optional 为 true，缺省 2）",
+        "明细可省 substitutes（替代料数组，每项 inv_code 必填，sequence 1 到 10000 缺省 1、factor 大于 0 缺省 1、"
+        "replace_flag 布尔、eff_begin / eff_end 缺省取子件行日期；同一行存货不重复，不能是子件本身）",
+        "明细可省 locators（定位符数组，每项 loc 必填、最长 255、同一行不重复）；两者各最多 50 项",
     ),
 )
 BOM_UPDATE_HELP = section(
@@ -66,6 +73,8 @@ BOM_UPDATE_HELP = section(
         "update 改 base_qty_n、base_qty_d、comp_scrap、wip_type、wh_code、remark、op_seq、optional、mutex_rule，不能改 inv_code",
         "未送的 optional、mutex_rule 保持现值；已是选配的行可只改 mutex_rule；optional 为 false 时不能带 mutex_rule",
         "delete 只带 op 和 sort_seq；add 同新增的行",
+        "update 可带 substitutes、locators（形状同新增）：整组替换该行现有的，空数组清空；不带时保留现有的",
+        "行上带分段损耗或自由项（读取里 client_only 为 \"1\"）的清单不能修改（409）",
     ),
 )
 
@@ -163,6 +172,7 @@ def _fields(row: dict, update: bool) -> None:
     if _get(row, "wip_type") is not None:
         _int(_get(row, "wip_type"), "wip_type", 5)
     _optional(row, update)
+    check_nested(row)
 
 
 def _has(row: dict, name: str) -> bool:
@@ -178,41 +188,6 @@ def _optional(row: dict, update: bool) -> None:
     _int(_get(row, "mutex_rule"), "mutex_rule", 4)
     if opt is False or (not update and opt is not True):
         raise ValueError("mutex_rule 只用于选配子件")
-
-
-def _int(value: object, key: str, top: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(key + " 必须是整数")
-    if not 1 <= value <= top:
-        raise ValueError(f"{key} 必须是 1 到 {top} 的整数")
-    return value
-
-
-def _number(value: object, key: str) -> Decimal:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise ValueError(key + " 必须是数")
-    if isinstance(value, float) and not math.isfinite(value):
-        raise ValueError(key + " 必须是有限数")
-    try:
-        return Decimal(str(value))
-    except InvalidOperation as exc:
-        raise ValueError(key + " 必须是数") from exc
-
-
-def _qty(value: object, key: str) -> None:
-    qty = _number(value, key)
-    if qty <= 0 or qty > _QTY_MAX:
-        raise ValueError(key + " 必须大于 0 且不超过 1000000000000")
-    if qty != qty.quantize(Decimal("0.000001")):
-        raise ValueError(key + " 最多 6 位小数")
-
-
-def _rate(value: object, key: str) -> None:
-    rate = _number(value, key)
-    if rate < 0 or rate >= 100:
-        raise ValueError(key + " 必须是 0 到小于 100 的数")
-    if rate != rate.quantize(Decimal("0.001")):
-        raise ValueError(key + " 最多 3 位小数")
 
 
 class CoBomComponent(BaseModel):

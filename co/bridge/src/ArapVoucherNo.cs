@@ -13,17 +13,24 @@ namespace U8Co
 
         public static string Allocate(object conn, string flag)
         {
+            return Allocate(conn, flag, no => ArapVoucherRule.PzId(flag, no), id => Used(conn, flag, id));
+        }
+
+        // 通用取号（存货核算制单 IaVoucherNo 同用）：Ap_CancelNo 的 cType='PZ'、cFlag=flag 行加一；format 把序号拼成外部业务号，
+        // used 判断该号是否已被占用（被占用就往后跳）。
+        internal static string Allocate(object conn, string flag, Func<int, string> format, Func<string, bool> used)
+        {
             string raw = Rows.Scalar(conn, "select convert(varchar(20), iCancelNo) from Ap_CancelNo with (UPDLOCK, HOLDLOCK) "
                 + "where cType=N'PZ' and cFlag=?", new object[] { flag });
             int current = 0;
             bool have = raw != null && int.TryParse(raw.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out current);
             int next = (have ? current : 0) + 1;
-            for (int i = 0; i < MaxSkip && Used(conn, flag, ArapVoucherRule.PzId(flag, next)); i++)
+            for (int i = 0; i < MaxSkip && used(format(next)); i++)
             {
                 next++;
             }
-            string id = ArapVoucherRule.PzId(flag, next);
-            if (Used(conn, flag, id))
+            string id = format(next);
+            if (used(id))
             {
                 throw ArapVoucherDoc.Refuse("凭证外部业务号 " + id + " 已被占用，请检查 Ap_CancelNo");
             }

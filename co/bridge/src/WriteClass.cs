@@ -122,6 +122,9 @@ namespace U8Co
             Add(map, PeriodCloseReq.Path, "periods", "close=close,reopen=open");
             Add(map, IaReq.PostPath, "ia", "post=post,unpost=other");
             Add(map, IaReq.PeriodEndPath, "ia", "run=close,cancel=open");
+            // 存货核算制单记 voucher；取消制单 other。
+            Add(map, IaVoucherReq.Path, "ia", "voucher");
+            Add(map, IaVoucherReq.DropPath, "ia", "other");
         }
 
         static void Add(Dictionary<string, Rule> map, string path, string type, string op)
@@ -254,7 +257,10 @@ namespace U8Co
                 return 0;
             }
             ICollection lines = Requests.Field(body, "lines") as ICollection;
-            return (lines == null ? 0 : lines.Count) + SourceLines(Requests.Field(body, SaleInvSources.Field) as ICollection);
+            // 产品检验单合并检验（QmMergeReq）可省 lines：每条来源报检单行算一行。
+            ICollection merged = lines == null ? Requests.Field(body, QmMergeReq.Field) as ICollection : null;
+            int own = lines != null ? lines.Count : (merged == null ? 0 : merged.Count);
+            return own + SourceLines(Requests.Field(body, SaleInvSources.Field) as ICollection);
         }
 
         static int SourceLines(ICollection sources)

@@ -7,6 +7,7 @@ from u8co_api.co_edit_dispatch_add import DISPATCH_ADD_HELP
 from u8co_api.co_edit_qm import QM_UPDATE_HELP
 from u8co_api.co_gen_pu_settle import SETTLE_GEN_HELP
 from u8co_api.co_gen_qm import QM_GEN_HELP
+from u8co_api.co_gen_qm_merge import QM_MERGE_HELP
 from u8co_api.co_gen_red_sale import RED_SALE_HELP
 from u8co_api.co_gen_sale_out import SALE_OUT_LINES_HELP
 from u8co_api.co_gen_mo import MO_GEN_HELP
@@ -23,7 +24,7 @@ UPDATE_TYPE_HELP = field_doc(
         "",
         (
             "销售订单、采购订单、其他入库单、其他出库单、调拨单、采购入库单（无来源）、请购单",
-            "形态转换单、调拨申请单；收款单、付款单、应收单、应付单",
+            "形态转换单、调拨申请单、货位调整单；收款单、付款单、应收单、应付单",
             "生单来的：发货单、退货单、销售发票、销售出库单、产成品入库单、材料出库单",
             "生单来的：采购入库单（参照生成）、到货单、采购退货单、采购发票",
             "生单来的类型不能新增行；发货单、来源为库存的销售出库单除外，可增删行、不能换仓库",
@@ -60,6 +61,7 @@ UPDATE_LINES_HELP = "\n\n".join(
                     "delete 只能有 op 和 line_id；update 至少再改一个字段",
                     "生单来的单据不能 add（发货单、来源为库存的销售出库单除外）",
                     "生单来的单据不能删光明细，数量只能减少（退货单、采购退货单填正数）",
+                    "货位调整单不能改存货 cinvcode（删除该行后新增），改完按新增的规则核对货位、批号、结存",
                 ),
             ),
         ),
@@ -139,6 +141,7 @@ GENERATE_HEAD_HELP = "\n\n".join(
             ),
         ),
         QM_GEN_HELP,
+        QM_MERGE_HELP,
         SALE_PINS_HELP,
         RED_SALE_HELP,
         TRANSFER_GEN_HELP,
@@ -185,6 +188,14 @@ GENERATE_LINES_HELP = field_doc(
         (
             "采购入库（四种来源）、材料出库、产成品入库的行都可带",
             "仓库启用货位管理时每行必填该仓库的末级货位，否则不能填",
+        ),
+    ),
+    (
+        "发货单",
+        (
+            "source_line_id 是销售订单行 iSOsID",
+            "另可带 cWhCode、cBatch、cMemo、cFree1–10、cDefine22–37",
+            "表体扩展自定义项 cbdefineN（DispatchLists_extradefine，列须在账套里存在；保存后回读核对）",
         ),
     ),
     (

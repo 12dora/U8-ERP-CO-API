@@ -110,6 +110,9 @@ namespace U8Co
                 case "warehouse":
                     s.EndDate = "h.dWhEndDate";
                     return;
+                case "pay_agreement":
+                    s.EndDate = "h.dEDate";
+                    return;
             }
         }
 

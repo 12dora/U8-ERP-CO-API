@@ -225,6 +225,7 @@ namespace U8Co
         {
             RedLine line = job.Lines[index];
             RedScale(doms[1], At(doms[1], index), line.Qty);
+            SaleTaxFlag.Keep(ctx, doms[1], At(doms[1], index));
             string msg = SaleCalc.Check(co, doms[0], doms[1], At(doms[1], index), "iquantity", false);
             if (msg.Length > 0)
             {

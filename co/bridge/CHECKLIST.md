@@ -14,6 +14,7 @@
 - 新增或改动 U8 COM 调用（ProgID、成员、实参个数、by-ref 下标）时，同步 `SigTable.cs` 的期望签名，`--check-signatures` 靠它核对。（`docs/testing.md` §2；`SigTable.cs`）
 - `BodyCheck` 只对单行表体调用：先 `cloneNode(true)` 并删掉其他 `z:row`，再用普通 `ComUtil.Call`，不要加 by-ref。整表多行时 U8 读第 R 行、写第 0 行。（`docs/u8-notes.md` §4）
 - 单价键（`itaxunitprice`、`iunitprice`、`itaxrate`）的 `BodyCheck` 不改行，而是换成 `<R K="…" V="…"/>`。把这些 K/V 写回真实行。（`docs/u8-notes.md` §4；`SaleCalc.cs`）
+- 销售行的含税 / 无税口径由行上 `bsaleprice` 决定。第一次 `BodyCheck` 之前：新增行 `SaleTaxFlag.Fresh` / `FreshAll`（账套 SA.bSalePrice；克隆种子行时先清掉），参照和冲销行 `SaleTaxFlag.Keep`（照抄来源行，空时取选项）。参照生单不要再锚定价格；新增、修改仍按调用方的价格键锚定（`SaleCalc.Anchored`）。不要在 C# 里算本币。（`docs/u8-notes.md` §4）
 - 一行的顺序：先 `iquantity`，再调用方给出的单价键（有 `itaxunitprice` 用它，否则 `iunitprice`），调用方改了税率才调 `itaxrate`，然后再调一次单价键。返回非空串作 409 `u8_rejected`，原文带回。（`docs/u8-notes.md` §4）
 - 表头 `z:row` 的主键属性必须在，值可以是空串。缺了 U8 回「使用 Null 无效」。销售发票写 `sbvid=""`。（`docs/u8-notes.md` §3）
 - CO 的 `Save`、`VoucherSave2`、`Insert`、`Update` 都不重算价税，金额和辅数量由桥填。销售走上面的单行 `BodyCheck`；采购按 `btaxcost` 自己算（单价 6 位、金额 2 位、`AwayFromZero`）；库存看调用方这一次送来的字段：只送了 `iPrice` 就反算 `iUnitCost`，否则有单位成本就 `iPrice = round(数量 × iUnitCost, 2)`。（`docs/u8-notes.md` §4）

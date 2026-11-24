@@ -94,7 +94,7 @@ namespace U8Co
             }
         }
 
-        // 子件：存在、可做子件、不是母件本身；有仓库就查仓库。同一存货只查一次。
+        // 子件：存在、可做子件、不是母件本身；有仓库就查仓库；行上的替代料按子件同一套规则查（BomSubs.Check）。同一存货只查一次。
         internal static void CheckRows(object conn, BomAsk ask, List<BomRow> rows, string today)
         {
             Dictionary<string, int> seen = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -115,6 +115,7 @@ namespace U8Co
                     CheckWh(conn, row.Wh, today);
                 }
             }
+            BomSubs.Check(conn, ask, rows, today, seen);
             CheckOptional(conn, ask, rows);
         }
 
@@ -135,6 +136,13 @@ namespace U8Co
             {
                 throw new BridgeException(409, "state_mismatch", "母件不是模型或选项类，子件不能选配");
             }
+        }
+
+        // 母件是选项类（bCheckItem）：U8 BaseBom 不许它的子件带替代料（1011098，PTO 模型同样，由 U8 拒绝）。
+        internal static bool ParentIsOptionClass(object conn, string inv)
+        {
+            Dictionary<string, object> row = Rows.One(conn, InvSql, new object[] { inv });
+            return row != null && CoRows.Col(row, "option_class") == "1";
         }
 
         internal static bool AnyOptional(List<BomRow> rows)

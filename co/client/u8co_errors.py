@@ -14,7 +14,7 @@ _HINT_LIMIT = 300
 
 class U8CoError(Exception):
     # field 是出错字段的请求体路径（如 lines.0.cinvcode），hint 是桥给的修正提示；桥没给时为空串。
-    # detail 是桥给的结构化补充（只在 4xx，如存货核算记账拒绝时的 uncosted、uncosted_total），由 error_from 赋值；
+    # detail 是桥给的结构化补充（只在 4xx 和 502 u8_fields_ignored，如存货核算记账拒绝时的 uncosted、uncosted_total），由 error_from 赋值；
     # 没有时为 None。
     detail: dict | None = None
 
@@ -198,7 +198,8 @@ def error_from(status: int, data: dict[str, Any]) -> U8CoError:
         message = ""
     field, hint = _text(data, "field", _FIELD_LIMIT), _text(data, "hint", _HINT_LIMIT)
     detail = data.get("detail")
-    if not isinstance(detail, dict) or not detail or not 400 <= status < 500:
+    # 4xx 带 detail；档案已保存但 U8 没写某些列（502 u8_fields_ignored）也带，列出这些列。
+    if not isinstance(detail, dict) or not detail or not (400 <= status < 500 or code == "u8_fields_ignored"):
         detail = None
     error = _BY_CODE.get(code, U8CoError)(status, code, message, field, hint)
     error.detail = detail

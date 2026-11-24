@@ -20,6 +20,8 @@ namespace U8Co
             new string[] { PeriodCloseReq.Path, "periods", PeriodCloseReq.TestOnly },
             new string[] { IaReq.PostPath, "ia", IaReq.TestOnly },
             new string[] { IaReq.PeriodEndPath, "ia", IaReq.TestOnly },
+            new string[] { IaVoucherReq.Path, "ia", IaVoucherReq.TestOnly },
+            new string[] { IaVoucherReq.DropPath, "ia", IaVoucherReq.DropTestOnly },
             new string[] { "/u8co/v1/vouchers/create", StockOpening.KindName, StockOpening.TestOnlyText },
             new string[] { "/u8co/v1/vouchers/delete", StockOpening.KindName, StockOpening.TestOnlyText },
             new string[] { "/u8co/v1/vouchers/verify", StockOpening.KindName, StockOpening.TestOnlyText },

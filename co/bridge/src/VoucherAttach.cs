@@ -30,10 +30,10 @@ namespace U8Co
         static Dictionary<string, string[]> BuildShared()
         {
             Dictionary<string, string[]> map = new Dictionary<string, string[]>(StringComparer.Ordinal);
-            map.Add("dispatch", new string[] { "ISNULL(h.bReturnFlag,0)=0", "01" });
-            map.Add("sale_return", new string[] { "h.bReturnFlag=1", "03" });
-            map.Add("arrival", new string[] { "ISNULL(h.iBillType,0)<>1", "26" });
-            map.Add("purchase_return", new string[] { "h.iBillType=1", "26" });
+            map.Add("dispatch", new string[] { ListKinds.BlueDispatch, "01" });
+            map.Add("sale_return", new string[] { ListKinds.RedDispatch, "03" });
+            map.Add("arrival", new string[] { ListKinds.BlueArrival, "26" });
+            map.Add("purchase_return", new string[] { ListKinds.RedArrival, "26" });
             map.Add("ar_receipt", new string[] { "h.cFlag=N'AR' AND h.cVouchType=N'48'", "AR48" });
             map.Add("ap_payment", new string[] { "h.cFlag=N'AP' AND h.cVouchType=N'49'", "AP49" });
             map.Add("ar_bill", new string[] { "h.cFlag=N'AR' AND h.cVouchType=N'R0'", "AR04" });

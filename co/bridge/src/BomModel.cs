@@ -30,6 +30,9 @@ namespace U8Co
         public int Mutex = 2;
         public int ProductType = 1;
         public int CostWip;
+        // 替代料、定位符：新增行缺省没有；修改时先取库里现有的（BomSubs.Take），调用方给了才整组替换。
+        public List<BomSub> Subs = new List<BomSub>();
+        public List<string> Locs = new List<string>();
 
         // 调用方的字段（BomReq 已校验、键为小写）叠到本行上。行号、存货只在新增行上出现。
         // 清除选配时 Mutex 写成 2（U8 ComponentOption 清除 OptionalFlag 同样强制 MutexRule=2）。
@@ -58,7 +61,34 @@ namespace U8Co
                 Mutex = (int)value;
                 return;
             }
+            if (key == BomSubs.SubsKey || key == BomSubs.LocsKey)
+            {
+                SetList(key, value);
+                return;
+            }
             SetNamed(key, value);
+        }
+
+        // BomSubReq 解析好的整组（空列表即清空）；每行一份副本，Settle 补日期时不改到请求本身。
+        void SetList(string key, object value)
+        {
+            if (key == BomSubs.LocsKey)
+            {
+                Locs = new List<string>((List<string>)value);
+                return;
+            }
+            Subs = new List<BomSub>();
+            foreach (BomSub sub in (List<BomSub>)value)
+            {
+                BomSub copy = new BomSub();
+                copy.Seq = sub.Seq;
+                copy.InvCode = sub.InvCode;
+                copy.Factor = sub.Factor;
+                copy.Replace = sub.Replace;
+                copy.EffBeg = sub.EffBeg;
+                copy.EffEnd = sub.EffEnd;
+                Subs.Add(copy);
+            }
         }
 
         void SetNamed(string key, object value)
@@ -88,11 +118,11 @@ namespace U8Co
         }
 
         // 写后回读核对：回读行（BomRead.RowOf）与要写的行逐项相同——桥送给 U8 的每个字段都要对上
-        // （DCompScrapFlag 除外：U8 的 _AddBomDetails 不读它）。编码去空格、存货和仓库不分大小写。
+        // （DCompScrapFlag 除外：U8 的 _AddBomDetails 不读它），替代料、定位符也要相同。编码去空格、存货和仓库不分大小写。
         public bool SameAs(BomRow want)
         {
             return Seq == want.Seq && SameText(want) && QtyN == want.QtyN && QtyD == want.QtyD && Scrap == want.Scrap
-                && Wip == want.Wip && EffBeg == want.EffBeg && EffEnd == want.EffEnd && SameFlags(want);
+                && Wip == want.Wip && EffBeg == want.EffBeg && EffEnd == want.EffEnd && SameFlags(want) && BomSubs.Same(this, want);
         }
 
         bool SameText(BomRow want)

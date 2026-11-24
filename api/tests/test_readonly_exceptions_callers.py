@@ -1,6 +1,6 @@
 """只读例外的 callers 行：按调用系统（API 信任项 name）放行，代替 operators。
 
-callers 只能用于 type=vouchers 的 create / update / close / verify / generate；operators 与 callers 恰好写一个。
+callers 只能用于 type=vouchers 的 create / update / close / verify / generate / delete；operators 与 callers 恰好写一个。
 命中时任何操作员都放行（仍受信任项 operators.allow / deny 约束），路由、单据类型、来源规则与 operators 行相同；
 信任项 name 取自已验签令牌，不取自请求体。审计 read_only_match 记 operator 或 caller。假桥，不访问网络。
 """
@@ -49,7 +49,7 @@ def _ask(voucher: str, **extra) -> dict:
 
 
 def test_caller_ops_are_the_non_fixed_registry_rows() -> None:
-    assert CALLER_OPS == {"create", "update", "close", "verify", "generate"}
+    assert CALLER_OPS == {"create", "update", "close", "verify", "generate", "delete"}
 
 
 def test_caller_row_parses_and_summarises() -> None:
@@ -102,9 +102,14 @@ def test_caller_rows_still_need_read_only_accounts_and_a_registry_pair() -> None
     )
     _exits(json.dumps([{**_BASE, "callers": [_APP], "op": "create"}]), _RO, "voucher 在 op=create 时必须给出")
     _exits(
-        json.dumps([{**_BASE, "callers": [_APP], "op": "delete", "voucher": "sale_order"}]),
+        json.dumps([{**_BASE, "callers": [_APP], "op": "lock", "voucher": "sale_order"}]),
         _RO,
         "type=vouchers 时只能是",
+    )
+    _exits(
+        json.dumps([{**_BASE, "callers": [_APP], "op": "delete", "voucher": "sale_invoice"}]),
+        _RO,
+        "voucher 在 op=delete 时只能是",
     )
 
 
@@ -139,6 +144,12 @@ def test_caller_row_keeps_route_voucher_and_source_rules() -> None:
     gen = _rule("generate", "sale_invoice")
     assert allows(gen, "co:vouchers/generate", _ask("sale_invoice", source_type="dispatch"), _APP) is True
     assert allows(gen, "co:vouchers/generate", _ask("sale_invoice", source_type="sale_return"), _APP) is False
+    delete = _rule("delete", "dispatch")
+    assert allows(delete, "co:vouchers/delete", _ask("dispatch"), _APP) is True
+    assert allows(delete, "co:vouchers/delete", _ask("dispatch", dry_run=True), _APP) is True
+    for kind in ("sale_order", "sale_invoice"):
+        assert allows(delete, "co:vouchers/delete", _ask(kind), _APP) is False, kind
+    assert allows(delete, "co:vouchers/delete", _ask("dispatch"), "tool") is False
 
 
 def test_operator_match_is_reported_before_caller() -> None:
@@ -199,6 +210,19 @@ def test_caller_row_over_http_admits_any_operator_and_audits_the_kind(capsys) ->
     assert line["outcome"] == "read_only_exception"
     # 桥收到的 caller 是验过签的「信任项:客户端」。
     assert all(call[1]["caller"].startswith("app-a:") for call in fake.calls)
+
+
+def test_caller_delete_rows_over_http(capsys) -> None:
+    fake = DryBridge()
+    client = _app(fake, _rule("delete", "sale_order") + _rule("delete", "dispatch"))
+    for kind in ("sale_order", "dispatch"):
+        ok = client.post("/v1/co/vouchers/delete", json=_login(type=kind, id=1))
+        assert ok.status_code == 200, ok.text
+        dry = client.post("/v1/co/vouchers/delete", json=_login(type=kind, id=1, dry_run=True))
+        assert dry.status_code == 200, dry.text
+    assert audit_line(capsys.readouterr().out, "/v1/co/vouchers/delete")["read_only_match"] == "caller"
+    _refused(client.post("/v1/co/vouchers/delete", json=_login(type="sale_invoice", id=1)))
+    assert len(fake.calls) == 4
 
 
 def test_operator_row_audits_operator(capsys) -> None:

@@ -48,6 +48,7 @@ def _body(path: str = "/v1/co/vouchers/create", key: str = _KEY) -> dict:
         ("/v1/co/periods/close", "/u8co/v1/periods/close"),
         ("/v1/co/ia/post", "/u8co/v1/ia/post"),
         ("/v1/co/ia/period_end", "/u8co/v1/ia/period_end"),
+        ("/v1/co/ia/voucher", "/u8co/v1/ia/voucher"),
         ("/v1/co/workflow/approve", "/u8co/v1/workflow/approve"),
         ("/v1/co/archives/delete", "/u8co/v1/archives/delete"),
         ("/v1/co/arap/writeoff/auto", "/u8co/v1/arap/writeoff/auto"),

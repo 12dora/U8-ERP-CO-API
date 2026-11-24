@@ -69,6 +69,8 @@ namespace U8Co
             IdemSelfTest.Run();
             PermSelfTest.Run();
             LicenseSelfTest.Run();
+            AuditLogRetentionSelfTest.Run();
+            AuditLogCompressionSelfTest.Run();
             MoCreateSelfTest.Run();
             MoGenSelfTest.Run();
             MoUpdateSelfTest.Run();
@@ -82,10 +84,14 @@ namespace U8Co
             ArcPartnerSelfTest.Run();
             // 原因码档案（ArcReasonSelfTest）。
             ArcReasonSelfTest.Run();
+            // 受控 SQL 档案写入：列校验、存货 Inventory_Sub 扩展标签、收付款协议、自定义项和客户存货对照的修改（ArcSqlWriteSelfTest）。
+            ArcSqlWriteSelfTest.Run();
             // 档案列表 keys_only、end_date / disabled（ArcListExtraSelfTest）。
             ArcListExtraSelfTest.Run();
             // 票据列表 ar_note / ap_note、单张读取 notes/get（NotesReadSelfTest）。
             NotesReadSelfTest.Run();
+            // 同表分两个类型的单据（发货单 / 退货单，到货单 / 采购退货单）的读取核对（VoucherScopeSelfTest）。
+            VoucherScopeSelfTest.Run();
         }
 
         // 单据、报表、无来源单据、生单核对字段与写闸门 / 写入策略。
@@ -98,6 +104,8 @@ namespace U8Co
             SalePinsSelfTest.Run();
             // 销售发票参照多张发货单（sources）与蓝字发票表体扩展自定义项 cbdefineN（SaleInvSourcesSelfTest）。
             SaleInvSourcesSelfTest.Run();
+            // 发货单参照订单的表体扩展自定义项 cbdefineN（DispatchLists_extradefine，SaleDispPinsSelfTest）。
+            SaleDispPinsSelfTest.Run();
             // 写闸门与写入策略（RunWritePolicy）。
             RunWritePolicy();
         }
@@ -150,6 +158,8 @@ namespace U8Co
             PeriodCloseSelfTest.Run();
             // 存货核算记账、期末处理 ia/post、ia/period_end（IaSelfTest）。
             IaSelfTest.Run();
+            // 存货核算制单、取消制单 ia/voucher、ia/voucher/delete（IaVoucherSelfTest）。
+            IaVoucherSelfTest.Run();
             // 账套体检 reports/account_readiness（ReportsReadinessSelfTest）。
             ReportsReadinessSelfTest.Run();
             // 登录复用与操作员固定写线程（RunLogins）。
@@ -232,6 +242,7 @@ namespace U8Co
             SaSelfTest.Run();
             FinSelfTest.Run();
             AcctSelfTest.Run();
+            CaInputsSelfTest.Run();
         }
 
         // 应收应付其他处理、票据处理的自检（从 Run 拆出，控制函数长度）。

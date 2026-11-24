@@ -44,6 +44,9 @@ namespace U8Co
             // 发货单参照销售订单生单；销售发票参照发货单生单（单张或多张 sources），不含参照退货单、红冲蓝字发票。
             Make("generate", new string[] { Dispatch, SaleInvoice }, new string[] { "generate" }, false,
                 new string[] { SaleOrder, Dispatch }),
+            // 删除未审核的销售订单、发货单（SaleOrderCo / SaleEdit 另查未审核、无下游、不在审批流；预演同一路由、随事务回滚）。
+            // 不含销售发票等其它单据。
+            Make("delete", new string[] { SaleOrder, Dispatch }, new string[] { "delete" }, false, null),
         };
 
         static Row Make(string op, string[] kinds, string[] classOps, bool fixedKind, string[] sources)

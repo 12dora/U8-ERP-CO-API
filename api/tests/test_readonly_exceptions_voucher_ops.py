@@ -1,4 +1,5 @@
-"""只读例外 type=vouchers 的登记表（readonly_voucher_ops）：create / update / close / verify / generate 按 (op, voucher) 一对一放行。
+"""只读例外 type=vouchers 的登记表（readonly_voucher_ops）：create / update / close / verify / generate / delete
+按 (op, voucher) 一对一放行。delete 只有销售订单、发货单（含预演），销售发票等其它单据的删除仍拒绝。
 销售发票：verify 只是复核（不含应收审核 arap_*），generate 只认参照发货单（含多来源 sources），不连带放行发货单那一对。
 解析（缺 voucher、未知的对、键用错都让进程起不来）、allows 的判定（路径、请求体 type、action、生单来源、操作员、账套）、
 走真实路由的闸门与预演。假桥，不访问网络。
@@ -33,6 +34,10 @@ _PAIRS = (
     ("generate", "sale_invoice", {}),
     ("generate", "sale_invoice", {"source_type": "dispatch"}),
     ("generate", "sale_invoice", {"sources": [{"id": 7, "lines": [{"source_line_id": 1, "quantity": 1}]}]}),
+    ("delete", "sale_order", {}),
+    ("delete", "sale_order", {"dry_run": True}),
+    ("delete", "dispatch", {}),
+    ("delete", "dispatch", {"dry_run": True}),
 )
 
 
@@ -60,6 +65,7 @@ def test_registry_holds_the_open_pairs_and_the_two_fixed_ops() -> None:
         "close": (("sale_order",), False),
         "verify": (("sale_order", "dispatch", "sale_invoice"), False),
         "generate": (("dispatch", "sale_invoice"), False),
+        "delete": (("sale_order", "dispatch"), False),
     }
     assert VOUCHER_OPS["generate"].source_of("dispatch") == "sale_order"
     assert VOUCHER_OPS["generate"].source_of("sale_invoice") == "dispatch"
@@ -69,6 +75,9 @@ def test_registry_holds_the_open_pairs_and_the_two_fixed_ops() -> None:
     assert VOUCHER_OPS["verify"].actions == ("verify", "unverify")
     assert VOUCHER_OPS["create"].actions is None
     assert VOUCHER_OPS["close"].ops == ("close",)
+    assert VOUCHER_OPS["delete"].ops == ("delete",)
+    assert VOUCHER_OPS["delete"].actions is None
+    assert VOUCHER_OPS["delete"].source_of("dispatch") is None
 
 
 @pytest.mark.parametrize(("op", "voucher"), sorted({(op, voucher) for op, voucher, _ in _PAIRS}))
@@ -78,7 +87,7 @@ def test_each_pair_parses_and_summarises(op: str, voucher: str) -> None:
     assert item.summary() == {**_BASE, "op": op, "voucher": voucher}
 
 
-@pytest.mark.parametrize("op", ("create", "update", "close", "verify", "generate"))
+@pytest.mark.parametrize("op", ("create", "update", "close", "verify", "generate", "delete"))
 def test_missing_voucher_stops_the_process(op: str) -> None:
     _exits(json.dumps([{**_BASE, "op": op}]), _RO, f"voucher 在 op={op} 时必须给出")
 
@@ -100,13 +109,16 @@ def test_missing_voucher_stops_the_process(op: str) -> None:
         ("create", ["sale_order"]),
         ("head_fix", "sale_order"),
         ("so_defines", "dispatch"),
+        ("delete", "sale_invoice"),
+        ("delete", "purchase_order"),
+        ("delete", "Dispatch"),
     ),
 )
 def test_unknown_pair_stops_the_process(op: str, voucher) -> None:
     _exits(json.dumps([{**_BASE, "op": op, "voucher": voucher}]), _RO, f"voucher 在 op={op} 时只能是")
 
 
-@pytest.mark.parametrize("op", ("delete", "lock", "open", "unverify", "Create", "generate "))
+@pytest.mark.parametrize("op", ("Delete", "lock", "open", "unverify", "Create", "generate "))
 def test_unregistered_voucher_op_stops_the_process(op: str) -> None:
     raw = json.dumps([{**_BASE, "op": op, "voucher": "sale_order"}])
     _exits(raw, _RO, "type=vouchers 时只能是 head_fix、so_defines")
@@ -215,6 +227,21 @@ def test_sale_invoice_verify_is_review_only() -> None:
     assert allows(_rule("verify", "dispatch"), "co:vouchers/verify", _ask("sale_invoice", action="verify")) is False
 
 
+def test_delete_opens_only_the_listed_voucher() -> None:
+    so = _rule("delete", "sale_order")
+    assert allows(so, "co:vouchers/delete", _ask("sale_order")) is True
+    assert allows(so, "co:vouchers/delete", _ask("sale_order", dry_run=True)) is True
+    for other in ("dispatch", "sale_invoice", "purchase_order", "Sale_Order"):
+        assert allows(so, "co:vouchers/delete", _ask(other)) is False, other
+    dispatch = _rule("delete", "dispatch")
+    assert allows(dispatch, "co:vouchers/delete", _ask("dispatch")) is True
+    assert allows(dispatch, "co:vouchers/delete", _ask("sale_order")) is False
+    # 删除规则不连带放行新增、关闭、审核、锁定，也不放行档案删除。
+    for path in ("create", "close", "verify", "lock", "head_fix"):
+        assert allows(dispatch, "co:vouchers/" + path, _ask("dispatch", action="verify")) is False, path
+    assert allows(dispatch, "co:archives/delete", {**_ask("dispatch"), "archive": "district_class"}) is False
+
+
 def test_sale_invoice_generate_needs_the_dispatch_source() -> None:
     rules = _rule("generate", "sale_invoice")
     for source in ("sale_return", "sale_invoice", "sale_order", "Dispatch", "", None):
@@ -230,7 +257,14 @@ def test_sale_invoice_generate_needs_the_dispatch_source() -> None:
 
 def test_forged_op_does_not_widen_a_rule() -> None:
     # 直接构造的规则：未登记的 op、缺 voucher、voucher 不在该行里一律不放行。
-    for op, voucher in (("delete", "sale_order"), ("create", None), ("create", "dispatch"), ("lock", "sale_order")):
+    forged_pairs = (
+        ("delete", "sale_invoice"),
+        ("delete", None),
+        ("create", None),
+        ("create", "dispatch"),
+        ("lock", "sale_order"),
+    )
+    for op, voucher in forged_pairs:
         rule = ReadOnlyException(("803",), ("op009",), "vouchers", op, None, voucher)
         assert allows((rule,), "co:vouchers/" + op, _ask(voucher or "sale_order")) is False, op
     forged = ReadOnlyException(("803",), ("op009",), "archives", "create", ("customer",), "sale_order")
@@ -300,6 +334,36 @@ def test_idempotent_replay_follows_the_same_rule() -> None:
     client = _gated(fake, read_only_exceptions=_rule("create", "sale_order"))
     other = {**_SO_CREATE, "type": "purchase_order"}
     _refused(client.post("/v1/co/vouchers/create", json=other, headers={"Idempotency-Key": "replay-ro-other"}))
+    assert fake.calls == []
+
+
+def test_delete_rules_admit_sale_order_and_dispatch_delete_and_their_dry_run() -> None:
+    fake = DryBridge()
+    client = _gated(fake, read_only_exceptions=_rule("delete", "sale_order") + _rule("delete", "dispatch"))
+    for kind in ("sale_order", "dispatch"):
+        body = _login(operator="op009", type=kind, id=1)
+        ok = client.post("/v1/co/vouchers/delete", json=body)
+        assert ok.status_code == 200, ok.text
+        dry = client.post("/v1/co/vouchers/delete", json={**body, "dry_run": True})
+        assert dry.status_code == 200, dry.text
+    assert [call[0] for call in fake.calls] == ["/v1/vouchers/delete"] * 4
+    assert [call[1].get("dry_run") is True for call in fake.calls] == [False, True, False, True]
+
+
+def test_delete_rule_refuses_other_types_operators_and_routes() -> None:
+    fake = DryBridge()
+    client = _gated(fake, read_only_exceptions=_rule("delete", "sale_order"))
+    # 销售发票不在登记表里；发货单在登记表里但没配置；其它操作员不放行；预演同样拒绝。
+    for kind in ("sale_invoice", "dispatch"):
+        body = _login(operator="op009", type=kind, id=1)
+        _refused(client.post("/v1/co/vouchers/delete", json=body))
+        _refused(client.post("/v1/co/vouchers/delete", json={**body, "dry_run": True}))
+    _refused(client.post("/v1/co/vouchers/delete", json=_login(operator="op001", type="sale_order", id=1)))
+    _refused(client.post("/v1/co/vouchers/create", json=_SO_CREATE))
+    close = _login(operator="op009", type="sale_order", id=1, action="close")
+    _refused(client.post("/v1/co/vouchers/close", json=close))
+    lock = _login(operator="op009", type="sale_order", id=1, action="lock")
+    _refused(client.post("/v1/co/vouchers/lock", json=lock))
     assert fake.calls == []
 
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Collection
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
@@ -186,10 +187,15 @@ def changes(
     return upserts, events
 
 
-def deletions(scope: Scope, known: dict[int, Snapshot], seen: set[int]) -> tuple[list[int], list[dict[str, Any]]]:
-    """整轮主键扫描后：快照里有、扫描里没有的就是被删了。只在整轮扫描成功后调用。"""
+def deletions(
+    scope: Scope, known: dict[int, Snapshot], seen: set[int], moved: Collection[int] = ()
+) -> tuple[list[int], list[dict[str, Any]]]:
+    """整轮主键扫描后：快照里有、扫描里没有的就是被删了。只在整轮扫描成功后调用。
+
+    moved 是确认过已经属于另一个类型的单据（桥回答 type_mismatch）：快照照样清掉，但不发 deleted。
+    """
     gone = sorted(doc_id for doc_id in known if doc_id not in seen)
-    events = [_event(scope, "deleted", known[doc_id], None) for doc_id in gone]
+    events = [_event(scope, "deleted", known[doc_id], None) for doc_id in gone if doc_id not in moved]
     return gone, events
 
 

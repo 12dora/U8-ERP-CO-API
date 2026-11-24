@@ -166,6 +166,17 @@ def test_watermark_reset_alerts_for_a_day_and_notes_are_warnings(tmp_path):
     assert health.Monitor(cfg, now=clock).report(_FakeState([fresh]))["ok"] is True
 
 
+def test_watermark_reset_on_test_account_is_only_a_warning(tmp_path):
+    accounts = [{"acc": "999", "operator_file": "/run/secrets/op.json", "types": ["sale_order"], "restored_by_tests": True}]
+    cfg = make_config(str(tmp_path / "s.sqlite3"), accounts=accounts)
+    assert cfg.accounts[0].restored_by_tests is True
+    at = "2026-09-28T01:00:00Z"
+    row = TypeStatus("999", "sale_order", "10", 1, at, at, at, None, None, at, "900->10")
+    report = health.Monitor(cfg, now=Clock()).report(_FakeState([row]))
+    assert report["ok"] is True
+    assert any("900->10" in text and "测试账套" in text for text in report["warnings"])
+
+
 def test_readonly_state_never_creates_db(tmp_path):
     missing = tmp_path / "nope.sqlite3"
     try:

@@ -213,6 +213,18 @@ def test_audit_names_the_verb_and_hides_the_draft(path: str, body: dict, view: s
     assert _audit_line(err, path)["action"] == view
 
 
+# 生产订单子件上的替代料（桥 MoSubs.Output 的形状），API 原样透传。
+_SUB = {
+    "sequence": 1,
+    "inv_code": "DEMO-001",
+    "factor": 1.0,
+    "replace_flag": False,
+    "eff_begin": "2026-01-01",
+    "eff_end": None,
+    "defines": {"define22": "文本A"},
+}
+
+
 class _OrderBridge(FakeBridge):
     def call(self, path: str, payload: dict) -> dict:
         body = super().call(path, payload)
@@ -222,7 +234,7 @@ class _OrderBridge(FakeBridge):
         state["closed"] = False
         state["note"] = "x"
         body["state"] = state
-        body["allocations"] = [{"MoDId": "9"}]
+        body["allocations"] = [{"MoDId": "9", "substitutes": [_SUB]}]
         body["allocations_truncated"] = False
         body["mystery"] = "x"
         return body
@@ -233,7 +245,7 @@ def test_production_order_load_keeps_allocations_and_closed() -> None:
     ok = client.post("/v1/co/vouchers/load", json=_auth(type="production_order", id=1))
     assert ok.status_code == 200, ok.text
     body = ok.json()
-    assert body["allocations"] == [{"MoDId": "9"}]
+    assert body["allocations"] == [{"MoDId": "9", "substitutes": [_SUB]}]
     assert body["allocations_truncated"] is False
     assert body["state"]["closed"] is False
     assert body["state"]["verified"] is False

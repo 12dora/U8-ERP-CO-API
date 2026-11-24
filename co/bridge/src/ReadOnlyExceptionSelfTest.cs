@@ -218,7 +218,11 @@ namespace U8Co
             ExpectError("roex3 archives on head_fix", VoucherRule(VoucherHeadFix.Op, new object[] { ArcKindRwMore.District }),
                 ro, "只能用于");
             ExpectError("roex3 op update no voucher", VoucherRule("update", null), ro, "必须给出");
-            ExpectError("roex3 op delete", VoucherRule("delete", null), ro, VoucherHeadFix.Op);
+            ExpectError("roex3 op delete no voucher", VoucherRule("delete", null), ro, "必须给出");
+            Dictionary<string, object> delInv = VoucherRule("delete", null);
+            delInv["voucher"] = "sale_invoice";
+            ExpectError("roex3 op delete sale_invoice", delInv, ro, "目前只允许");
+            ExpectError("roex3 op lock", VoucherRule("lock", null), ro, VoucherHeadFix.Op);
             ExpectError("roex3 op archives op", VoucherRule(ArcCusAddr.Op, null), ro, VoucherHeadFix.Op);
             ExpectError("roex3 op create no voucher", VoucherRule("create", null), ro, "必须给出");
             Dictionary<string, object> badType = VoucherRule(VoucherHeadFix.Op, null);
@@ -246,6 +250,39 @@ namespace U8Co
             ExpectRefusedBody("roex3 needs own rule", Cfg(), VoucherHeadFix.Path, VBody(Listed, "op009", "dispatch"));
             ExpectRefused("roex3 archives not opened", cfg, Requests.ArcRoot + ArcCusFields.Op, "op009", null);
             ExpectRefused("roex3 create not opened", cfg, CreatePath, "op009", ArcKindRwMore.District);
+            CheckVoucherDelete();
+        }
+
+        // vouchers/delete：配了 (delete, sale_order) 与 (delete, dispatch) 时两者都放行；销售发票、没配的单据类型、
+        // 档案删除、别的操作员仍拒绝。
+        static void CheckVoucherDelete()
+        {
+            const string path = "/u8co/v1/vouchers/delete";
+            BridgeConfig both = VoucherDeleteCfg("sale_order", "dispatch");
+            ExpectAdmitBody("roex3 delete sale_order", both, path, VBody(Listed, "op009", "sale_order"));
+            ExpectAdmitBody("roex3 delete dispatch", both, path, VBody(Listed, "op009", "dispatch"));
+            ExpectRefusedBody("roex3 delete sale_invoice", both, path, VBody(Listed, "op009", "sale_invoice"));
+            ExpectRefusedBody("roex3 delete other operator", both, path, VBody(Listed, "op001", "dispatch"));
+            BridgeConfig so = VoucherDeleteCfg("sale_order");
+            ExpectRefusedBody("roex3 delete dispatch not listed", so, path, VBody(Listed, "op009", "dispatch"));
+            ExpectRefused("roex3 delete no archives", both, DeletePath, "op009", ArcKindRwMore.District);
+        }
+
+        static BridgeConfig VoucherDeleteCfg(params string[] kinds)
+        {
+            BridgeConfig cfg = ReadOnlyGateSelfTest.CfgEx();
+            ReadOnlyExceptionRule[] rules = new ReadOnlyExceptionRule[kinds.Length];
+            for (int i = 0; i < kinds.Length; i++)
+            {
+                rules[i] = new ReadOnlyExceptionRule();
+                rules[i].Accounts = new string[] { Listed };
+                rules[i].Operators = new string[] { "op009" };
+                rules[i].Type = "vouchers";
+                rules[i].Op = "delete";
+                rules[i].Voucher = kinds[i];
+            }
+            cfg.ReadOnlyExceptions = rules;
+            return cfg;
         }
 
         static void CheckVoucherPost()

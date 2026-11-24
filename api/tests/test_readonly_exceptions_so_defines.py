@@ -65,7 +65,7 @@ def test_both_voucher_ops_can_be_listed_together() -> None:
     assert [(item.type, item.op) for item in rules] == [("vouchers", "head_fix"), ("vouchers", "so_defines")]
 
 
-@pytest.mark.parametrize("op", ("delete", "lock", "customer_person", "So_defines", "so_defines ", ""))
+@pytest.mark.parametrize("op", ("Delete", "lock", "customer_person", "So_defines", "so_defines ", ""))
 def test_vouchers_rejects_other_ops(op: str) -> None:
     _exits(json.dumps([{**_ITEM_SO, "op": op}]), _RO, "type=vouchers 时只能是 head_fix、so_defines")
 

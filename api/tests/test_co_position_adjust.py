@@ -1,5 +1,5 @@
-"""货位调整单（position_adjust）：读取、新增、删除、审核在 API 层放行并原样转给桥，审核、读取的附加字段不丢；
-数量按同族库存单据的规则在 API 层先查；不开修改、关闭、生单。"""
+"""货位调整单（position_adjust）：读取、新增、修改、删除、审核在 API 层放行并原样转给桥，审核、读取的附加字段不丢；
+数量按同族库存单据的规则在 API 层先查；不开关闭、生单。"""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from tests.test_co_gate import FakeBridge, _client
 from tests.test_co_core_routes import _auth, _sealed
 from tests.test_co_gl_arc import test_gl_arc_forwards_exact_sealed_keys as _forwards
 from u8co_api.co_models import CreateType, DeleteType, VerifyType, VoucherType
+from u8co_api.co_models_edit import UpdateType
 
 _KIND = "position_adjust"
 _CREATE = "/v1/co/vouchers/create"
@@ -19,6 +20,12 @@ _MOVES = [
     {"wh": "05", "pos": "5A010101", "inv": "A001", "batch": "", "before": "5", "after": "3"},
     {"wh": "05", "pos": "5A010102", "inv": "A001", "batch": "", "before": "0", "after": "2"},
 ]
+_EDIT = [
+    {"op": "update", "line_id": 11, "iQuantity": 3, "cbMemo": "改"},
+    {"op": "delete", "line_id": 12},
+    {"op": "add", "cInvCode": "A002", "cBPosCode": "5A010101", "cAPosCode": "5A010103", "iQuantity": 1},
+]
+_UPDATE = "/v1/co/vouchers/update"
 _LEDGER = [{"id": "1", "line_id": "11", "inbound": "0", "pos": "5A010101", "inv": "A001", "qty": "2"}]
 
 
@@ -38,6 +45,8 @@ def _cases() -> list[tuple[str, str, dict, set[str]]]:
     create = _auth(type=_KIND, head=_HEAD, lines=_LINES)
     return [
         (_CREATE, "/v1/vouchers/create", create, _sealed("type", "head", "lines")),
+        (_UPDATE, "/v1/vouchers/update", _auth(type=_KIND, id=9, head={"cMemo": "改"}, lines=_EDIT),
+         _sealed("type", "id", "head", "lines")),
         ("/v1/co/vouchers/delete", "/v1/vouchers/delete", _auth(type=_KIND, id=9), _sealed("type", "id")),
         ("/v1/co/vouchers/load", "/v1/vouchers/load", _auth(type=_KIND, id=9), _sealed("type", "id")),
         ("/v1/co/vouchers/verify", "/v1/vouchers/verify", _auth(type=_KIND, id=9, action="unverify"),
@@ -46,7 +55,7 @@ def _cases() -> list[tuple[str, str, dict, set[str]]]:
 
 
 def test_type_lists() -> None:
-    for kinds in (VoucherType, VerifyType, CreateType, DeleteType):
+    for kinds in (VoucherType, VerifyType, CreateType, UpdateType, DeleteType):
         assert _KIND in get_args(kinds)
 
 
@@ -77,11 +86,40 @@ def test_quantity_checked_before_the_bridge(qty: object) -> None:
     assert fake.calls == []
 
 
-def test_update_close_generate_refused() -> None:
+def test_update_reaches_the_bridge_unchanged() -> None:
+    fake = FakeBridge()
+    done = _client(fake).post(_UPDATE, json=_auth(type=_KIND, id=9, head={"cMemo": "改"}, lines=_EDIT))
+    assert done.status_code == 200, done.text
+    sent = fake.calls[-1][1]
+    assert (sent["type"], sent["id"], sent["head"], sent["lines"]) == (_KIND, 9, {"cMemo": "改"}, _EDIT)
+
+
+_UPDATE_REJECTS = (
+    _auth(type=_KIND, id=9),
+    _auth(type=_KIND, id=9, head={"cVouchCode": "X1"}),
+    _auth(type=_KIND, id=9, head={"chandler": "x"}),
+    _auth(type=_KIND, id=9, head={"dVeriDate": "2026-10-03"}),
+    _auth(type=_KIND, id=9, head={"Id": 1}),
+    _auth(type=_KIND, id=9, lines=[{"op": "update", "line_id": 7, "autoID": 1}]),
+    _auth(type=_KIND, id=9, lines=[{"op": "update", "line_id": 7}]),
+    _auth(type=_KIND, id=9, lines=[{"op": "add", "line_id": 7, "cInvCode": "A001"}]),
+    _auth(type=_KIND, id=9, lines=[{"op": "delete", "line_id": 7, "iQuantity": 1}]),
+    _auth(type=_KIND, id=9, lines=[{"op": "update", "line_id": 7, "iQuantity": 0}]),
+    _auth(type=_KIND, id=9, lines=[{"op": "add", "cInvCode": "A001", "iQuantity": 1.1234567}]),
+)
+
+
+@pytest.mark.parametrize("body", _UPDATE_REJECTS)
+def test_update_rejects_before_the_bridge(body: dict) -> None:
+    fake = FakeBridge()
+    denied = _client(fake).post(_UPDATE, json=body)
+    assert denied.status_code == 400, denied.text
+    assert fake.calls == []
+
+
+def test_close_generate_refused() -> None:
     fake = FakeBridge()
     client = _client(fake)
-    update = _auth(type=_KIND, id=9, head={"cMemo": "改"}, lines=None)
-    assert client.post("/v1/co/vouchers/update", json=update).status_code == 400
     assert client.post("/v1/co/vouchers/close", json=_auth(type=_KIND, id=9, action="close")).status_code == 400
     generate = _auth(type=_KIND, id=3, lines=[{"source_line_id": 1, "quantity": 1}])
     assert client.post("/v1/co/vouchers/generate", json=generate).status_code == 400

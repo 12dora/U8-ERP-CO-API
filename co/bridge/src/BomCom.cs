@@ -8,7 +8,8 @@ namespace U8Co
     // 审核 / 弃审 / 删除（BomAuditing / BomUnauditing / BomDelete）：AssignNormalValue partid（bas_part.PartId，整数）、
     // bomtype（1）、versionoridencode（版本号的字符串）。
     // 新增 / 修改（BomAdd / BomUpdate）：Connect 之后 GetExtBoEntity("extbo")，NewItem 建表头、GetSubEntity("Bom_Component")
-    // 建行，SetValue 填字段。修改带 UpdateByDiff=true 并送全部行：没送的行号会被删掉，不带 UpdateByDiff 则整表替换。
+    // 建行，行上 GetSubEntity("Bom_ComponentSubs" / "Bom_ComponentLoc") 建替代料、定位符，SetValue 填字段。
+    // 修改带 UpdateByDiff=true 并送全部行：没送的行号、替代料、定位符会被删掉，不带 UpdateByDiff 则整表替换。
     // 调用前（建对象、Connect、填实体）出错照常报；InvokeApi 开始后的非桥异常和 IPC 错误返回给调用方按库确认。
     internal static class BomCom
     {
@@ -118,6 +119,7 @@ namespace U8Co
             {
                 object item = com.Keep(ComUtil.Call(body, "NewItem", new object[0]));
                 FillRow(item, ask.Rows[i]);
+                FillSubs(com, item, ask.Rows[i]);
             }
         }
 
@@ -157,6 +159,36 @@ namespace U8Co
             Put(item, "DProductType", row.ProductType);
             Put(item, "DCompScrapFlag", 0);
             Put(item, "DCostWIPRel", row.CostWip);
+        }
+
+        // 替代料（Bom_ComponentSubs）、定位符（Bom_ComponentLoc）：每行送全部（差异更新时没送的被 U8 删掉，
+        // 替代料按物料对上、定位符按 DLoc 对上）；一条都没有时不建子实体，U8 按空处理。DInvFree 不送（不带自由项的物料）。
+        static void FillSubs(Com com, object item, BomRow row)
+        {
+            if (row.Subs.Count > 0)
+            {
+                object subs = com.Keep(ComUtil.Call(item, "GetSubEntity", new object[] { "Bom_ComponentSubs" }));
+                for (int i = 0; i < row.Subs.Count; i++)
+                {
+                    BomSub sub = row.Subs[i];
+                    object one = com.Keep(ComUtil.Call(subs, "NewItem", new object[0]));
+                    Put(one, "DSequence", sub.Seq);
+                    Put(one, "DInvCode", sub.InvCode);
+                    Put(one, "DFactor", sub.Factor);
+                    Put(one, "DReplaceFlag", sub.Replace);
+                    Put(one, "DEffBegDate", sub.EffBeg);
+                    Put(one, "DEffEndDate", sub.EffEnd);
+                }
+            }
+            if (row.Locs.Count > 0)
+            {
+                object locs = com.Keep(ComUtil.Call(item, "GetSubEntity", new object[] { "Bom_ComponentLoc" }));
+                for (int i = 0; i < row.Locs.Count; i++)
+                {
+                    object one = com.Keep(ComUtil.Call(locs, "NewItem", new object[0]));
+                    Put(one, "DLoc", row.Locs[i]);
+                }
+            }
         }
 
         static void Put(object item, string name, object value)

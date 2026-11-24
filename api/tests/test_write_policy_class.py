@@ -68,6 +68,8 @@ def test_read_routes_do_not_classify(route: str) -> None:
         ("ia/post", {"action": "post"}, ("ia", "post")),
         ("ia/period_end", {"action": "run"}, ("ia", "close")),
         ("ia/period_end", {"action": "bogus"}, ("ia", "other")),
+        ("ia/voucher", {"month": 9}, ("ia", "voucher")),
+        ("ia/voucher/delete", {"pz_id": "2026IA0000000000001"}, ("ia", "other")),
     ],
 )
 def test_type_and_op(route: str, payload: dict, expected: tuple[str, str]) -> None:

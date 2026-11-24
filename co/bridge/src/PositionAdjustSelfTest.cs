@@ -37,7 +37,7 @@ namespace U8Co
         static void CheckOps(VoucherKind kind)
         {
             Expect("adjust verifier", kind.VerifierColumn == "chandler" && kind.VerifyDateColumn == "dVeriDate");
-            Expect("adjust ops", kind.Creatable && kind.Deletable && kind.Verifiable && !kind.Updatable && !kind.Closable
+            Expect("adjust ops", kind.Creatable && kind.Updatable && kind.Deletable && kind.Verifiable && !kind.Closable
                 && kind.Sources.Length == 0);
         }
 
@@ -51,6 +51,10 @@ namespace U8Co
             PermRule rule = PermRegistry.ForKey("voucher:" + PositionAdjust.KindName);
             Expect("adjust perm", rule != null && rule.Auths.Length == 1 && rule.Auths[0] == "ST010807");
             Expect("adjust st kind", StockCall.KindOfSt("19") == kind);
+            // 修改走形态转换单同一条路径（StockEdit.MiscUpdate）：数量列、元数据、预演模式。
+            Expect("adjust edit cols", StockDom.MiscQty(kind) == "iQuantity" && StockDom.MiscNum(kind) == "iNum");
+            Expect("adjust edit meta", MetaWritable.Of(kind)["update"] != null);
+            Expect("adjust edit dry", DryRunModes.Lookup("vouchers/update", PositionAdjust.KindName, "update", "") == DryRunModes.Rollback);
         }
 
         static void CheckFields()

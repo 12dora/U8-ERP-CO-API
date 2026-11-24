@@ -51,7 +51,10 @@ namespace U8Co
                 Expect("disp head " + refused[i] + " refused", !SaleGen.MetaDispatch(refused[i], true));
             }
             Expect("disp line hdefine refused", !SaleGen.MetaDispatch("chdefine1", false));
-            Expect("disp line bdefine refused", !SaleGen.MetaDispatch("cbdefine1", false));
+            // 表体扩展自定义项 cbdefineN（DispatchLists_extradefine）：编号 1–99，不带前导零。
+            Expect("disp line bdefine", SaleGen.MetaDispatch("cbdefine1", false) && SaleGen.MetaDispatch("cbdefine99", false));
+            Expect("disp line bdefine bad no", !SaleGen.MetaDispatch("cbdefine0", false) && !SaleGen.MetaDispatch("cbdefine07", false)
+                && !SaleGen.MetaDispatch("cbdefine100", false) && !SaleGen.MetaDispatch("cbdefinen", false));
             Expect("invoice head hdefine refused", !SaleGen.MetaInvoice("chdefine1", true));
             Expect("invoice head addcode refused", !SaleGen.MetaInvoice("caddcode", true));
         }
@@ -77,6 +80,7 @@ namespace U8Co
             Row("find so line extra", SalePins.Find(SalePins.Order, false, "cbdefine7"), "SO_SODetails_extradefine", "cbdefine7");
             Row("find disp extra", SalePins.Find(SalePins.Dispatch, true, "chdefine12"), "DispatchList_extradefine", "chdefine12");
             Row("find disp define", SalePins.Find(SalePins.Dispatch, true, "cdefine16"), "DispatchList", "cDefine16");
+            Row("find disp line extra", SalePins.Find(SalePins.Dispatch, false, "cbdefine5"), "DispatchLists_extradefine", "cbdefine5");
             Row("find inv extra", SalePins.Find(SalePins.Invoice, false, "cbdefine4"), "SaleBillVouchs_extradefine", "cbdefine4");
         }
 
@@ -86,7 +90,8 @@ namespace U8Co
             Expect("find disp hdefine0", SalePins.Find(SalePins.Dispatch, true, "chdefine0") == null);
             Expect("find disp hdefine07", SalePins.Find(SalePins.Dispatch, true, "chdefine07") == null);
             Expect("find so head hdefine", SalePins.Find(SalePins.Order, true, "chdefine1") == null);
-            Expect("find disp line bdefine", SalePins.Find(SalePins.Dispatch, false, "cbdefine1") == null);
+            Expect("find disp line bdefine07", SalePins.Find(SalePins.Dispatch, false, "cbdefine07") == null);
+            Expect("find disp line hdefine", SalePins.Find(SalePins.Dispatch, false, "chdefine1") == null);
             Expect("find inv head hdefine", SalePins.Find(SalePins.Invoice, true, "chdefine1") == null);
         }
 
@@ -108,6 +113,9 @@ namespace U8Co
             Expect("meta disp exact addcode", Array.IndexOf(exact, "caddcode") >= 0);
             Expect("meta disp exact no marker", Array.IndexOf(exact, "chdefinen") < 0);
             Expect("meta disp exact no span name", Array.IndexOf(exact, "chdefine1") < 0);
+            Dictionary<string, object> dispLine = MetaFields.Side(delegate(string low) { return SaleGen.MetaDispatch(low, false); });
+            Eq("meta disp line bdefine", SpanOf(dispLine, "cbdefine"), "1-99");
+            Expect("meta disp line exact no marker", Array.IndexOf((string[])dispLine["exact"], "cbdefinen") < 0);
             Dictionary<string, object> so = MetaFields.Side(delegate(string low) { return SoFields.Allowed(low, false); });
             Eq("meta so line bdefine", SpanOf(so, "cbdefine"), "1-99");
             Dictionary<string, object> blue = MetaFields.Side(delegate(string low) { return SaleGen.MetaInvoice(low, false); });

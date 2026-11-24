@@ -43,6 +43,21 @@ namespace U8Co
         // init：调 Init()；outFlags：设 bOutAuth=True、bOutTrans=False。LoadTemp 总是设 True。
         public static QmRejCo Open(WorkContext ctx, string progId, int vtId, bool init, bool outFlags)
         {
+            return Open(ctx, progId, vtId, init ? InitPlain : InitNone, outFlags);
+        }
+
+        // 检验单 CO（clsArrCheckCO / clsProCheckCO）的 VO 接口：Init(login, conn, bOutTrans=False) 同 QmCo，再设 bOutAuth / bOutTrans。
+        public static QmRejCo OpenCheck(WorkContext ctx, string progId, int vtId)
+        {
+            return Open(ctx, progId, vtId, InitLogin, true);
+        }
+
+        const int InitNone = 0;
+        const int InitPlain = 1;
+        const int InitLogin = 2;
+
+        static QmRejCo Open(WorkContext ctx, string progId, int vtId, int init, bool outFlags)
+        {
             if (ctx == null || ctx.Session == null)
             {
                 throw new BridgeException(500, "internal", "没有 U8 登录");
@@ -71,11 +86,17 @@ namespace U8Co
             }
         }
 
-        void Prime(bool init, bool outFlags)
+        void Prime(int init, bool outFlags)
         {
-            if (init)
+            if (init == InitPlain)
             {
                 ComUtil.Call(_co, "Init", new object[0]);
+            }
+            if (init == InitLogin)
+            {
+                object[] args = new object[] { _ctx.Session.Login, _ctx.Conn, false };
+                ComUtil.CallRef(_co, "Init", args, new int[] { 0, 1, 2 });
+                LoginBack(args[0]);
             }
             if (outFlags)
             {
@@ -151,6 +172,51 @@ namespace U8Co
         public QmOutcome Save()
         {
             return Run("AddVoucher", new object[] { _ctx.Session.Login, _vo }, 0);
+        }
+
+        // 带第三个参数的保存（检验单合并检验 AddVoucherWithMergeDetail(login, vo, detailVO)），自己提交。
+        public QmOutcome SaveWith(string method, object extra)
+        {
+            return Run(method, new object[] { _ctx.Session.Login, _vo, extra }, 0);
+        }
+
+        // 合并检验的合并明细 VO：GetMergeDetailVoucher(login, detailVO, ID)，不写库；U8 拒绝 409。调用方放掉返回的 VO。
+        public object MergeDetail(int id)
+        {
+            object detail = Need(ComUtil.Create(VoProgId), VoProgId);
+            object[] args = new object[] { _ctx.Session.Login, detail, id.ToString(System.Globalization.CultureInfo.InvariantCulture) };
+            try
+            {
+                ComUtil.CallRef(_co, "GetMergeDetailVoucher", args, new int[] { 0, 1 });
+                LoginBack(args[0]);
+                if (args[1] != null && !(args[1] is DBNull) && !object.ReferenceEquals(args[1], detail))
+                {
+                    ComUtil.Final(detail);
+                    detail = args[1];
+                }
+                return detail;
+            }
+            catch (BridgeException)
+            {
+                ComUtil.Final(detail);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                ComUtil.Final(detail);
+                string bag = QmCo.BagText(ex.Message);
+                if (bag.Length > 0)
+                {
+                    throw new BridgeException(409, "u8_rejected", bag);
+                }
+                throw;
+            }
+        }
+
+        // 合并检验的删除：DelVoucher(login, vo, IVTID 省略, detailVO)，自己提交。
+        public QmOutcome DeleteWith(object detail)
+        {
+            return Run("DelVoucher", new object[] { _ctx.Session.Login, _vo, System.Reflection.Missing.Value, detail }, 0);
         }
 
         // 按 ID 载入已有单据（审核、弃审、删除之前）。U8「指定单据不存在或没有该单据数据权限」→ 404。

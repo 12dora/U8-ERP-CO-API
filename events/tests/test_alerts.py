@@ -41,12 +41,11 @@ def test_scan_error_and_stale_scan(tmp_path) -> None:
     assert type_problems(_st(last_scan_at="2026-01-01T00:00:00Z"), NOW, off) == []
 
 
-def test_watermark_reset_alert_expires(tmp_path) -> None:
+def test_watermark_reset_is_left_to_health(tmp_path) -> None:
+    # 水位倒退由健康检查判断（测试账套只记警告，见 health），告警的类型问题里不重复。
     cfg = make_config(str(tmp_path / "s.db"))
     recent = _st(watermark_reset_at="2026-09-28T06:00:00Z", watermark_reset="11->5")
-    assert "11->5" in type_problems(recent, NOW, cfg)[0]
-    old = _st(watermark_reset_at="2026-09-26T06:00:00Z", watermark_reset="11->5")
-    assert type_problems(old, NOW, cfg) == []
+    assert type_problems(recent, NOW, cfg) == []
 
 
 @pytest.fixture

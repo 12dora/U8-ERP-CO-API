@@ -7,7 +7,7 @@ namespace U8Co
     // MOrderUpdate 之后，把 U8 重插子件时丢掉的列按快照写回（实测：OpComponentId → 0，VirOpComponentIds、cSubSysBarCode、
     // SoDId → NULL，UpperMoQty → 0）。U8 的修改已经提交；这里在新连接上开自己的事务：UPDLOCK 重读这张订单的全部子件，
     // 按（MoDId、行号、存货）把每个快照子件对上恰好一行现有子件（闸门已保证快照里这三项不重复），逐行 UPDATE
-    // MoUpdateCols.Restore 各列和 UpperMoQty（都写回快照原值），提交。
+    // MoUpdateCols.Restore 各列和 UpperMoQty（都写回快照原值），再在同一事务里写回替代料（MoUpdateSubs），提交。
     // 写之前确认 U8 真的重插了：行数相同、现有 AllocateId 没有一个在快照里；每行要写的列必须仍是 U8 重建后的缺省
     // （NULL、空串、0）或已等于快照值，否则可能是别人在 U8 客户端改过，不覆盖。
     // 任何失败都回滚并 504（U8 的修改已提交；快照值在调用前已写进审计事件 mo_update_snapshot，可据此手工恢复）。
@@ -42,9 +42,11 @@ namespace U8Co
                 {
                     GlSql.Exec(conn, UpdateSql, Args(kv.Value, kv.Key));
                 }
+                int subs = MoUpdateSubs.Restore(conn, pairs, code);
                 CoTrans.Commit(conn);
                 open = false;
-                CoRows.Note(ctx.Item, "MoUpdate 写回子件关联列 " + pairs.Count.ToString(CultureInfo.InvariantCulture) + " 行");
+                CoRows.Note(ctx.Item, "MoUpdate 写回子件关联列 " + pairs.Count.ToString(CultureInfo.InvariantCulture) + " 行，替代料 "
+                    + subs.ToString(CultureInfo.InvariantCulture) + " 行");
             }
             catch (DryRunDone)
             {
@@ -62,7 +64,7 @@ namespace U8Co
                     throw;
                 }
                 CoRows.Note(ctx.Item, "MoUpdate 写回 " + MoApi.FirstLine(ex.Message));
-                throw Lost(code, "写回子件关联列失败：" + MoApi.FirstLine(ex.Message));
+                throw Lost(code, "写回子件关联列和替代料失败：" + MoApi.FirstLine(ex.Message));
             }
             finally
             {
@@ -70,7 +72,7 @@ namespace U8Co
             }
         }
 
-        // 调用 U8 之前把每个子件要写回的快照值和旧 AllocateId 写进审计日志（事件 mo_update_snapshot），写回失败时据此手工恢复。
+        // 调用 U8 之前把每个子件要写回的快照值（含替代料）和旧 AllocateId 写进审计日志（事件 mo_update_snapshot），写回失败时据此手工恢复。
         public static void LogSnapshot(WorkContext ctx, int id, MoSnap before)
         {
             List<object> items = new List<object>();
@@ -87,6 +89,7 @@ namespace U8Co
                     item[MoUpdateCols.Restore[c]] = Cell(a.Keep, MoUpdateCols.Restore[c]);
                 }
                 item["UpperMoQty"] = a.UpperMoQty;
+                item["substitutes"] = MoUpdateSubs.Snapshot(a);
                 items.Add(item);
             }
             Dictionary<string, object> evt = new Dictionary<string, object>();
@@ -135,7 +138,7 @@ namespace U8Co
                     if (!byKey.TryGetValue(Key(a.MoDId, a.SortSeq, a.InvCode), out ids) || ids.Count != 1)
                     {
                         throw Lost(code, "子件 " + a.InvCode + "（行号 " + a.SortSeq.ToString(CultureInfo.InvariantCulture)
-                            + "）重插后对不上唯一一行，关联列没有写回");
+                            + "）重插后对不上唯一一行，关联列和替代料没有写回");
                     }
                     pairs[ids[0]] = list[i];
                 }
@@ -144,7 +147,7 @@ namespace U8Co
             if (pairs.Count != rows.Count)
             {
                 throw Lost(code, "重插后的子件行数 " + rows.Count.ToString(CultureInfo.InvariantCulture) + " 与修改前 "
-                    + pairs.Count.ToString(CultureInfo.InvariantCulture) + " 不同，关联列没有写回");
+                    + pairs.Count.ToString(CultureInfo.InvariantCulture) + " 不同，关联列和替代料没有写回");
             }
             return pairs;
         }
@@ -164,7 +167,7 @@ namespace U8Co
             {
                 if (old.Contains(CoRows.AsId(CoRows.Col(rows[i], "AllocateId"))))
                 {
-                    throw Lost(code, "子件没有全部重插（仍有修改前的 AllocateId），关联列没有写回");
+                    throw Lost(code, "子件没有全部重插（仍有修改前的 AllocateId），关联列和替代料没有写回");
                 }
             }
         }
@@ -185,13 +188,13 @@ namespace U8Co
                     string col = MoUpdateCols.Restore[c];
                     if (!Rebuilt(Cell(now, col)) && Cell(now, col) != Cell(t.Row.Keep, col))
                     {
-                        throw Lost(code, "子件 " + t.Row.InvCode + " 的 " + col + " 已被改过，关联列没有写回");
+                        throw Lost(code, "子件 " + t.Row.InvCode + " 的 " + col + " 已被改过，关联列和替代料没有写回");
                     }
                 }
                 string upper = CoRows.Col(rows[i], "UpperMoQty");
                 if (!Rebuilt(upper) && MoUpdateSql.Dec(upper) != MoUpdateSql.Dec(t.Upper))
                 {
-                    throw Lost(code, "子件 " + t.Row.InvCode + " 的 UpperMoQty 已被改过，关联列没有写回");
+                    throw Lost(code, "子件 " + t.Row.InvCode + " 的 UpperMoQty 已被改过，关联列和替代料没有写回");
                 }
             }
         }
@@ -234,10 +237,10 @@ namespace U8Co
             return args.ToArray();
         }
 
-        static BridgeException Lost(string code, string text)
+        internal static BridgeException Lost(string code, string text)
         {
             return new BridgeException(504, "outcome_unknown",
-                "U8 已提交生产订单 " + code + " 的修改，但" + text + "。修改前的子件关联列原值在审计事件 mo_update_snapshot，"
+                "U8 已提交生产订单 " + code + " 的修改，但" + text + "。修改前的子件关联列原值和替代料在审计事件 mo_update_snapshot，"
                 + "可据此手工恢复；请到 U8 客户端核对用料");
         }
     }

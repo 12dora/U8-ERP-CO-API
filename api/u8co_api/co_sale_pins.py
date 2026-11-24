@@ -4,7 +4,7 @@
 - 销售订单表头 cgatheringplan、caddcode，表体 cunitid、cwhcode：非空字符串编码（修改时空串表示清空），最长 60。
 - 销售订单表体 inum：大于 0 的有限数值（可以是数值字符串）。
 - 表头自定义项 cdefine1–16、表头扩展自定义项 chdefineN、表体扩展自定义项 cbdefineN：字符串（最长 120）或有限数值。
-- 发货单生单表头 caddcode 同上。
+- 发货单生单表头 caddcode 同上；发货单生单表体另收表体扩展自定义项 cbdefineN（DispatchLists_extradefine），同蓝字发票表体。
 键名不分大小写，与桥一致。列须在账套里存在。
 """
 
@@ -14,13 +14,15 @@ import math
 import re
 
 from u8co_api.co_doctext import section
+from u8co_api.errors import FieldValueError
 
 SALE_PINS_HELP = section(
     "销售订单、发货单生单的落库核对字段",
     (
         "销售订单表头 cgatheringplan（收付款协议）、caddcode（收货地址，须属于表头客户）、表头自定义项 cdefine1–16",
         "销售订单表体 cwhcode（预发货仓库）、表体扩展自定义项 cbdefineN、cunitid、inum",
-        "发货单参照订单生单表头 caddcode（须属于订单客户）、表头自定义项 cdefine1–16、表头扩展自定义项 chdefineN",
+        "发货单参照订单生单表头 caddcode（须属于订单客户）、表头自定义项 cdefine1–16、表头扩展自定义项 chdefineN，"
+        "表体扩展自定义项 cbdefineN（DispatchLists_extradefine）",
         "列须在账套里存在；只回读请求给出的字段，与请求不同回滚 409",
     ),
 )
@@ -54,25 +56,33 @@ def _bad_define(low: str, extra: str, head: bool) -> bool:
 
 def _code(path: str, value: object, edit: bool) -> None:
     if type(value) is not str:
-        raise ValueError(path + " 必须是字符串编码")
+        raise _bad(path, path + " 必须是字符串编码")
     text = value.strip()
     if not text and not edit:
-        raise ValueError(path + " 不能为空")
+        raise _bad(path, path + " 不能为空")
     if len(text) > _CODE_MAX:
-        raise ValueError(path + " 超长：最多 60 个字符")
+        raise _bad(path, path + " 超长：最多 60 个字符")
+
+
+def _bad(path: str, message: str) -> FieldValueError:
+    """带字段路径的 400（http._validation 把 field 放进错误体）。"""
+    return FieldValueError(path, message)
 
 
 def _number(value: object) -> bool:
-    return type(value) in (int, float) and math.isfinite(value) and abs(value) <= _NUM_MAX
+    # 先比范围再看是否有限：JSON 的大整数转浮点会 OverflowError（math.isfinite 也会转）。
+    if type(value) is int:
+        return abs(value) <= _NUM_MAX
+    return type(value) is float and math.isfinite(value) and abs(value) <= _NUM_MAX
 
 
 def _text(path: str, value: object) -> None:
     if type(value) is str:
         if len(value.strip()) > _TEXT_MAX:
-            raise ValueError(path + " 超长：最多 120 个字符")
+            raise _bad(path, path + " 超长：最多 120 个字符")
         return
     if not _number(value):
-        raise ValueError(path + " 必须是字符串或数值")
+        raise _bad(path, path + " 必须是字符串或数值")
 
 
 def _num(path: str, value: object) -> None:
@@ -81,9 +91,9 @@ def _num(path: str, value: object) -> None:
         try:
             value = float(value.strip())
         except ValueError:
-            raise ValueError(path + " 必须是大于 0 的数值") from None
+            raise _bad(path, path + " 必须是大于 0 的数值") from None
     if not _number(value) or value <= 0:
-        raise ValueError(path + " 必须是大于 0 的数值")
+        raise _bad(path, path + " 必须是大于 0 的数值")
 
 
 def _row(at: str, row: dict | None, codes: frozenset[str], extra: str, edit: bool) -> None:
@@ -99,7 +109,7 @@ def _row(at: str, row: dict | None, codes: frozenset[str], extra: str, edit: boo
         elif low == "inum" and at != "head":
             _num(path, value)
         elif _bad_define(low, extra, at == "head"):
-            raise ValueError(path + " 不是有效的自定义项")
+            raise _bad(path, path + " 不是有效的自定义项")
 
 
 def check_sale_order_pins(head: dict | None, lines: list[dict] | None, edit: bool = False) -> None:
@@ -110,13 +120,21 @@ def check_sale_order_pins(head: dict | None, lines: list[dict] | None, edit: boo
             _row(f"lines.{index}", line, _ORDER_LINE_CODES, "b", edit)
 
 
-def check_dispatch_gen_pins(head: dict | None) -> None:
-    """发货单参照销售订单生单的表头约定字段。"""
+def check_dispatch_gen_pins(head: dict | None, lines: list | None = None) -> None:
+    """发货单参照销售订单生单的表头约定字段和表体扩展自定义项 cbdefineN（DispatchLists_extradefine）。"""
     _row("head", head, frozenset({"caddcode"}), "h", False)
+    for index, line in enumerate(lines or []):
+        if isinstance(line, dict):
+            check_line_extra_pins(line, f"lines.{index}")
 
 
 def check_invoice_line_pins(row: dict, at: str) -> None:
     """蓝字销售发票表体扩展自定义项 cbdefineN；at 是行路径（lines.<i> / sources.<s>.lines.<i>）。"""
+    check_line_extra_pins(row, at)
+
+
+def check_line_extra_pins(row: dict, at: str) -> None:
+    """生单表体扩展自定义项 cbdefineN（蓝字发票、发货单共用）：字符串（最长 120）或有限数值，编号 1–99 无前导零。"""
     for key, value in row.items():
         if value is None:
             continue
@@ -125,4 +143,4 @@ def check_invoice_line_pins(row: dict, at: str) -> None:
         if _family(low, "b", False):
             _text(path, value)
         elif _bad_define(low, "b", False):
-            raise ValueError(path + " 不是有效的自定义项")
+            raise _bad(path, path + " 不是有效的自定义项")

@@ -128,12 +128,19 @@ rowversion 看不到删除（行已经没了）。服务每隔 `delete_scan_minu
 
 **空扫描要逐张确认。** 一张都没扫到而快照里有单据时，可能真的都删了（比如某种单据本来就只有几张，被全部删除），也可能是账套或权限出了问题。服务按快照里的 `id` 逐张调 `vouchers/load` 确认（最多 `empty_scan_confirm_max` 张，缺省 50）：
 
-- 每一张都是桥明确回答的「单据不存在」（HTTP 404，错误体 JSON 里显式带 `"code": "not_found"`，且不是「未知路径」）：当作都已删除，照常发 `deleted`、删快照，日志（INFO）记一条「主键扫描为空，逐张确认都已不存在」；
+- 每一张都是桥明确回答的「单据不存在」（HTTP 404，错误体 JSON 里显式带 `"code": "not_found"`，且不是「未知路径」），或「单据改属了另一个类型」（见下文）：当作都不在这个类型里了，不存在的照常发 `deleted`，改属的不发；快照都删掉，日志（INFO）记一条「主键扫描为空，逐张确认都已不存在」；
 - 读到第一张还在的，或读取返回别的错误（403、503、连不上、没带 `code` 的 404——比如反向代理挡掉了 `vouchers/load`、桥的「未知路径」404……）：立即停下，当作列表或权限出了问题，这一轮作废，`scan_error` 写明「至少 1 张（id=…）仍能读取」或读取出的错，不发删除事件；
 - 快照多于 `empty_scan_confirm_max` 张，或它设为 0：不确认，这一轮作废（0 就是旧行为）；
 - 确认途中服务收到停止信号：立即停下，这一轮作废，不记错误。
 
-`vouchers/load` 按单据类型登录 U8 对应子系统（与 API 的读取相同），比列表重，每一张都占一次登录和加密点数（点数紧张时见 u8-notes 的「许可点数」一节），也占着轮询线程（每张最长 `bridge.timeout_seconds`）。所以只在空扫描时才调，读到一张还在的就不再往下读。确认删除后快照清空，之后不再重复；确认失败（列表或权限问题没解决）时，每次扫描最多读到第一张还在的那张为止。
+**离开类型范围不是删除。** 有些类型共用一张表，按红、蓝字分开：`dispatch`（蓝字发货单）与 `sale_return`（红字发货单），`arrival`（蓝字到货单）与 `purchase_return`（采购退货单）。桥的列表、搜索、读取都只认本类型的单据，读到同表另一个类型的单据时 `vouchers/load` 回 400 `bad_request`，`detail.reason` 是 `type_mismatch`（`detail.type` 是它实际所属的类型）。所以快照里记在某个类型下、扫描里不见了的单据，服务不直接发 `deleted`，而是逐张 `vouchers/load` 确认（同样最多 `empty_scan_confirm_max` 张，0 表示不确认）：
+
+- 回答 `type_mismatch`：单据还在，只是不属于这个类型。服务清掉这个类型的快照，不发 `deleted`；它在所属类型下有自己的事件。
+- 其他回答（不存在、仍能读取、别的错误）：照旧发 `deleted`，与确认之前的口径相同。
+
+这条规则不依赖具体类型，任何一对同表类型都一样；水位倒退后的整轮重读也同样处理。
+
+`vouchers/load` 按单据类型登录 U8 对应子系统（与 API 的读取相同），比列表重，每一张都占一次登录和加密点数（点数紧张时见 u8-notes 的「许可点数」一节），也占着轮询线程（每张最长 `bridge.timeout_seconds`）。所以只在空扫描和扫描里有单据不见了的时候才调，空扫描读到一张还在的就不再往下读。确认删除后快照清空，之后不再重复；确认失败（列表或权限问题没解决）时，每次扫描最多读到第一张还在的那张为止。
 
 票据（`ar_note`、`ap_note`）规则相同，只是逐张确认改调 `notes/get`（只跑 SQL，不登录 U8、不占点数）。
 
@@ -170,8 +177,8 @@ rowversion 看不到删除（行已经没了）。服务每隔 `delete_scan_minu
 
 两类档案读法不同：
 
-- **有时间戳**（`accounts[].archives` 缺省的 29 种）：每轮按水位（`MIN_ACTIVE_ROWVERSION()-1`）取 `changed_since` 之后的整行，指纹 = `ufts`；按 `delete_scan_minutes` 用 `keys_only` 整轮扫编码找删除。水位倒退时整轮重新对比，规则同单据（§6 的「水位倒退」一条）。人员按 `hr_hi_person`、`Person` 两张表较大的 rowversion。
-- **没有时间戳**（`voucher_sign`、`project`、`customer_address`、`customer_bank`、`vendor_bank`、`fa_card`、`operator`、`role`，要写明才开）：没有水位，按 `delete_scan_minutes` 整表读一遍，与快照逐条比内容（同时找出删除），所以变化最多晚一个扫描周期；`delete_scan_minutes=0` 时这些档案不产生事件。指纹 = `sha256(上次指纹|编码|名称|分类|停用日期|停用)` 前 16 位，改回原值也是新指纹，`event_id` 不与先前的事件重复；新出现的编码（含删掉后又建的同一编码）没有上次指纹，用发现时刻代替，「建→删→再建→再删」四个事件的 `event_id` 各不相同。只比上面这几项，其他字段（如项目的自定义项、卡片的原值）变了没有事件。
+- **有时间戳**（`accounts[].archives` 缺省的 30 种）：每轮按水位（`MIN_ACTIVE_ROWVERSION()-1`）取 `changed_since` 之后的整行，指纹 = `ufts`；按 `delete_scan_minutes` 用 `keys_only` 整轮扫编码找删除。水位倒退时整轮重新对比，规则同单据（§6 的「水位倒退」一条）。人员按 `hr_hi_person`、`Person` 两张表较大的 rowversion。
+- **没有时间戳**（`voucher_sign`、`project`、`customer_address`、`customer_invoice_company`、`customer_bank`、`vendor_bank`、`fa_card`、`operator`、`role`，要写明才开）：没有水位，按 `delete_scan_minutes` 整表读一遍，与快照逐条比内容（同时找出删除），所以变化最多晚一个扫描周期；`delete_scan_minutes=0` 时这些档案不产生事件。指纹 = `sha256(上次指纹|编码|名称|分类|停用日期|停用)` 前 16 位，改回原值也是新指纹，`event_id` 不与先前的事件重复；新出现的编码（含删掉后又建的同一编码）没有上次指纹，用发现时刻代替，「建→删→再建→再删」四个事件的 `event_id` 各不相同。只比上面这几项，其他字段（如项目的自定义项、卡片的原值）变了没有事件。
 
 其他规则：
 
@@ -382,7 +389,8 @@ JSON 文件，未知键直接报错。路径取 `--config`，其次环境变量 
 | `accounts[].operator_file` | 必填 | 操作员凭证 JSON（`acc`、`year`、`operator`、`password`），必须 0600 |
 | `accounts[].types` | 全部单据类型 | 要轮询的单据类型（票据不在这里，用 `sources` 的 `notes`） |
 | `accounts[].sources` | `["vouchers"]` | 开哪些数据源：`vouchers`（单据，类型见 `types`）、`arap_process`（应收应付处理，类型 `ar_process`、`ap_process`）、`archives`（基础档案，类型 `archive:<档案>`）、`gl`（总账凭证，类型 `gl_voucher`）、`notes`（应收应付票据，类型 `ar_note`、`ap_note`）。不含 `vouchers` 时不能写 `types`。每种类型在 `status` 里各占一行，延迟、扫描、水位倒退照常检查 |
-| `accounts[].archives` | 有时间戳的 29 种档案 | 开了 `archives` 时轮询哪些档案（`archives/list` 的档案名）。缺省是有时间戳、能按水位增量读的那些；没有时间戳的（`voucher_sign`、`project`、`customer_address`、`customer_bank`、`vendor_bank`、`fa_card`、`operator`、`role`）按删除扫描的节奏整表比对，要写明才开，其中 `fa_card`、`operator`、`role` 数据量大或只有账套主管能读 |
+| `accounts[].archives` | 有时间戳的 30 种档案 | 开了 `archives` 时轮询哪些档案（`archives/list` 的档案名）。缺省是有时间戳、能按水位增量读的那些；没有时间戳的（`voucher_sign`、`project`、`customer_address`、`customer_invoice_company`、`customer_bank`、`vendor_bank`、`fa_card`、`operator`、`role`）按删除扫描的节奏整表比对，要写明才开，其中 `fa_card`、`operator`、`role` 数据量大或只有账套主管能读 |
+| `accounts[].restored_by_tests` | `false` | 该账套会被回归测试按快照还原（测试账套）：水位倒退是预期的，健康检查只记警告、不报不健康 |
 | `poll_interval_seconds` | 30 | 轮询间隔，5–3600 |
 | `page_limit` | 500 | 每页条数，1–500 |
 | `delete_scan_minutes` | 30 | 删除扫描间隔，0 表示不扫（不会有 `deleted` 事件） |
@@ -434,5 +442,5 @@ JSON 文件，未知键直接报错。路径取 `--config`，其次环境变量 
 - **负载。** 空闲时每轮每种单据一次列表调用；删除扫描每种单据按 `page_limit` 翻页，读的都是桥的只读线程池。附加数据源每轮（`poll_interval_seconds`）还有：
   - 应收应付处理：每侧一次增量（取水位、`IDENT_CURRENT`、读 `GL_mend`、列明细），再每个摘要期间一次摘要（未结账期间数 + 1）。每次摘要按期间扫一遍往来明细（`Ar_Detail` / `Ap_Detail`，排除单据审核行的条件用不上索引）、再读一次往来单位和 `GL_mend`；4 个未结账期间时每轮约 20 次明细表扫描，表随年度增长。
   - 总账凭证：每轮把扫描期间的凭证整体重新汇总一遍，翻页时每页都重算剩下的范围。未结账期间少时很轻；全年不结账的账套每轮要汇总全年的凭证和分录。
-  - 基础档案：有时间戳的档案每种每轮一次 `archives/list`（缺省 29 种即 29 次）；没有时间戳的按删除扫描的节奏整表读。
+  - 基础档案：有时间戳的档案每种每轮一次 `archives/list`（缺省 30 种即 30 次）；没有时间戳的按删除扫描的节奏整表读。
   大账套开 `arap_process`、`gl` 前先在测试账套上看一轮的耗时，必要时调大 `poll_interval_seconds`。

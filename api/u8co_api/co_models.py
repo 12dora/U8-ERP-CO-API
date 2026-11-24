@@ -8,6 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from u8co_api.co_models_arap import VERIFY_ACTION_HELP, VoucherVerifyAction, check_verify_action
 from u8co_api.co_models_bom import BOM_CREATE_HELP, CoBomComponent, check_bom_create
+from u8co_api.co_models_nested import LineCell, nested_lines
+from u8co_api.co_models_nested import nested_cells as nested_cells  # co_models_edit 经这里引用
+from u8co_api.co_models_nested import nested_head as nested_head
 from u8co_api.co_models_dry import DryRunFlag
 from u8co_api.co_models_error import ErrorBody as ErrorBody  # 错误体模型移到 co_models_error，这里再导出
 from u8co_api.co_models_error import ErrorDetail as ErrorDetail
@@ -117,14 +120,14 @@ class CoVoucherVerifyIn(CoAuth):
 class CoCreateIn(CoAuth):
     type: CreateType = Field(..., description=CREATE_TYPE_HELP)
     head: dict[str, Cell] = Field(..., description="表头。值只能是字符串、数字或布尔，不能嵌套")
-    lines: list[dict[str, Cell]] = Field(
+    lines: list[dict[str, LineCell]] = Field(
         ...,
         min_length=1,
         max_length=SETTLE_LINES_MAX,
         description="\n\n".join(
             (
                 "明细，1 到 200 行（生产订单 1 到 50 行，采购手工结算 1 到 400 行）。"
-                "每行的值只能是字符串、数字或布尔，不能嵌套。",
+                "每行的值只能是字符串、数字或布尔，不能嵌套（物料清单行的 substitutes、locators 是对象数组）。",
                 MO_CREATE_HELP,
                 BOM_CREATE_HELP,
                 QM_OTHER_CREATE_HELP,
@@ -139,6 +142,7 @@ class CoCreateIn(CoAuth):
     def _mo_checked(self) -> CoCreateIn:
         if self.type == "production_order":
             check_mo_create(self.head, self.lines)
+        nested_lines(self.type, self.lines)  # 只有物料清单行的 substitutes、locators 可以是数组
         if self.type == "bom":
             check_bom_create(self.head, self.lines)
         check_settle_create(self.type, self.head, self.lines)  # 采购手工结算（其余类型仍 1 到 200 行）

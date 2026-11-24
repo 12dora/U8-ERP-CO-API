@@ -7,7 +7,7 @@ namespace U8Co
 {
     // --selftest 的只读例外 callers 规则（按调用系统放行，由 ReadOnlyGateSelfTest 调用）：
     // 配置：operators 与 callers 恰好一个（两个都写、都不写报错），callers 只用于 type=vouchers 的 CallerOps（create、update、
-    // close、verify、generate），archives、head_fix、so_defines 写 callers 报错，callers 须是信任项 name（不能是 sha256）。
+    // close、verify、generate、delete），archives、head_fix、so_defines 写 callers 报错，callers 须是信任项 name（不能是 sha256）。
     // 闸门：请求体 caller_trust（API 已验签的信任项 name，IdemReq.TrustField）在 callers 里时任何操作员都放行该对，caller
     // （幂等与审计标识）换成 sha256 摘要也一样；信任项不对、大小写不同、不带 caller_trust（只有 caller「app-a:…」也不算，
     // 旧版 API 即如此）、档案路由、别的单据对、应收审核 arap_verify 都 403；caller_trust 不合写法 400。审计 read_only_match
@@ -45,7 +45,7 @@ namespace U8Co
         static void CheckParse()
         {
             string[] ro = new string[] { Listed };
-            Expect("roc caller ops", ConfigRulesReadOnly.CallerOps.Length == 5 && HasCallerOps());
+            Expect("roc caller ops", ConfigRulesReadOnly.CallerOps.Length == 6 && HasCallerOps());
             ReadOnlyExceptionRule[] rules = ReadOnlyExceptionSelfTest.Parse(Rule("create", So), ro);
             Expect("roc parse", rules.Length == 1 && rules[0].Operators == null && rules[0].Callers.Length == 1
                 && rules[0].Callers[0] == App && rules[0].Voucher == So);
@@ -53,7 +53,7 @@ namespace U8Co
 
         static bool HasCallerOps()
         {
-            string[] want = new string[] { "create", "update", "close", "verify", "generate" };
+            string[] want = new string[] { "create", "update", "close", "verify", "generate", "delete" };
             for (int i = 0; i < want.Length; i++)
             {
                 if (Array.IndexOf(ConfigRulesReadOnly.CallerOps, want[i]) < 0)
@@ -154,6 +154,10 @@ namespace U8Co
             ExpectAdmit("roc admit inv unverify", inv, verify, Body(verify, "op001", Inv, "unverify", App, false));
             string gen = Root + "generate";
             ExpectAdmit("roc admit gen", Cfg("generate", Dl), gen, Body(gen, "op001", Dl, null, App, false));
+            string delete = Root + "delete";
+            ExpectAdmit("roc admit delete so", Cfg("delete", So), delete, Body(delete, "op001", So, null, App, false));
+            ExpectAdmit("roc admit delete so dry", Cfg("delete", So), delete, Body(delete, "op002", So, null, App, true));
+            ExpectAdmit("roc admit delete dl", Cfg("delete", Dl), delete, Body(delete, "op001", Dl, null, App, false));
             // 客户端标识很长（如 azp 为 200 个字符）时 API 的 caller 换成 sha256:<摘要>；caller_trust 不变，照样命中。
             ExpectAdmit("roc admit long client", cfg, create, Raw(create, "sha256:" + new string('a', 64), App));
             ExpectAdmit("roc admit trust no caller", cfg, create, Raw(create, null, App));
@@ -198,6 +202,11 @@ namespace U8Co
             ExpectRefused("roc arap_unverify", inv, verify, Body(verify, "op001", Inv, "arap_unverify", App, false));
             ExpectRefused("roc inv not dl", inv, verify, Body(verify, "op001", Dl, "verify", App, false));
             ExpectRefused("roc legacy", Cfg("verify", So), "/u8co/v1/sale-orders/verify", Legacy(App));
+            string delete = Root + "delete";
+            BridgeConfig del = Cfg("delete", So);
+            ExpectRefused("roc delete inv", del, delete, Body(delete, "op001", Inv, null, App, false));
+            ExpectRefused("roc delete dl not listed", del, delete, Body(delete, "op001", Dl, null, App, false));
+            ExpectRefused("roc delete other trust", del, delete, Body(delete, "op001", So, null, "tool", false));
         }
 
         // 按操作员的规则照旧（不看 caller），审计记 operator；同时有两种规则时 operator 优先。
@@ -244,6 +253,8 @@ namespace U8Co
                 PostAsk.Of("create", So, null, App).With("sha256:" + new string('a', 64)), true);
             ExpectPost("roc post arap", Cfg("verify", Inv), PostAsk.Of("verify", Inv, "arap_verify", App), false);
             ExpectPost("roc post verify", Cfg("verify", Inv), PostAsk.Of("verify", Inv, "verify", App), true);
+            ExpectPost("roc post delete dl", Cfg("delete", Dl), PostAsk.Of("delete", Dl, null, App), true);
+            ExpectPost("roc post delete inv", Cfg("delete", Dl), PostAsk.Of("delete", Inv, null, App), false);
         }
 
         static void CheckHealth()

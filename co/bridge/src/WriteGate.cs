@@ -82,6 +82,9 @@ namespace U8Co
             // 存货核算记账、期末处理（IaRun）：请求连接上整批执行内嵌脚本。
             set.Add(IaReq.PostPath);
             set.Add(IaReq.PeriodEndPath);
+            // 存货核算制单、取消制单（IaVoucher、IaVoucherDrop）：凭证导入 U8PzInsert.Transact 加回写 SQL。
+            set.Add(IaVoucherReq.Path);
+            set.Add(IaVoucherReq.DropPath);
             // 期间损益结转、自定义转账（GlTransfer）：凭证导入 U8PzInsert.Transact 加补标记 SQL。
             set.Add(GlTransferReq.PnlPath);
             set.Add(GlTransferReq.CustomPath);

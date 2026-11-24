@@ -80,6 +80,14 @@ def test_deletions() -> None:
     assert events[0]["event_id"] == hashlib.sha256(b"999|sale_order|2|deleted|200").hexdigest()
 
 
+def test_deletions_skip_events_for_moved_ids() -> None:
+    # 改属另一个类型的单据：快照照样清掉（gone 含它），但不发 deleted。
+    known = {1: _snap(), 2: snapshot_of(doc(2, 200)), 3: snapshot_of(doc(3, 300))}
+    gone, events = deletions(SCOPE, known, {1}, moved={2})
+    assert gone == [2, 3]
+    assert [event["id"] for event in events] == [3]
+
+
 def test_row_without_id_is_rejected() -> None:
     with pytest.raises(ValueError):
         snapshot_of({"ufts": "1"})

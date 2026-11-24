@@ -6,11 +6,11 @@ using System.Web.Script.Serialization;
 namespace U8Co
 {
     // --selftest 的只读例外单据登记表部分（ReadOnlyVoucherOps，由 ReadOnlyGateSelfTest 调用）：
-    // type=vouchers 的 create / update / close / verify / generate 一项一对 (op, voucher)。配置：缺 voucher、未登记的对、
+    // type=vouchers 的 create / update / close / verify / generate / delete 一项一对 (op, voucher)。配置：缺 voucher、未登记的对、
     // 未登记的 op、archives 用在单据规则上、voucher 用在 archives 规则上都在加载时报错；head_fix、so_defines 可省 voucher。
     // 闸门：每一对只放行列出的操作员、账套、单据类型和自己的路径（含预演），verify 含弃审、不含应收审核，close 不含打开，
-    // generate 发货单只认参照销售订单、销售发票只认参照发货单（含多来源 sources）；其它单据类型、vouchers/delete、
-    // vouchers/lock、旧版审核路由仍 403。入队后同样判断。
+    // generate 发货单只认参照销售订单、销售发票只认参照发货单（含多来源 sources），delete 只有销售订单、发货单（含预演）；
+    // 其它单据类型（含销售发票的 vouchers/delete）、vouchers/lock、旧版审核路由仍 403。入队后同样判断。
     // 与 API tests/test_readonly_exceptions_voucher_ops.py 同一组用例。不连库、不建 COM、不登录。
     internal static class ReadOnlyVoucherOpsSelfTest
     {
@@ -62,11 +62,22 @@ namespace U8Co
 
         static void CheckRegistry()
         {
-            Expect("rov rows", ReadOnlyVoucherOps.Rows.Length == 7
+            Expect("rov rows", ReadOnlyVoucherOps.Rows.Length == 8
                 && ReadOnlyVoucherOps.VoucherOf("verify", Dl) == Dl && ReadOnlyVoucherOps.VoucherOf("create", Dl) == null
                 && ReadOnlyVoucherOps.VoucherOf(VoucherHeadFix.Op, null) == VoucherHeadFix.Kind
-                && ReadOnlyVoucherOps.VoucherOf("create", null) == null && ReadOnlyVoucherOps.Find("delete") == null);
+                && ReadOnlyVoucherOps.VoucherOf("create", null) == null && ReadOnlyVoucherOps.Find("lock") == null);
+            CheckRegistryDelete();
             CheckRegistrySources();
+        }
+
+        // delete 一行：销售订单、发货单两种单据类型，不限生单来源与 action。
+        static void CheckRegistryDelete()
+        {
+            ReadOnlyVoucherOps.Row del = ReadOnlyVoucherOps.Find("delete");
+            Expect("rov delete row", del != null && !del.Fixed && del.Kinds.Length == 2 && del.ClassOps.Length == 1
+                && del.ClassOps[0] == "delete" && del.Actions == null && del.Sources == null);
+            Expect("rov delete kinds", ReadOnlyVoucherOps.VoucherOf("delete", So) == So && ReadOnlyVoucherOps.VoucherOf("delete", Dl) == Dl
+                && ReadOnlyVoucherOps.VoucherOf("delete", Inv) == null && ReadOnlyVoucherOps.VoucherOf("delete", null) == null);
         }
 
         // 生单来源按单据类型（发货单 ← 销售订单、销售发票 ← 发货单），verify 只认 verify / unverify。
@@ -86,7 +97,8 @@ namespace U8Co
             {
                 new string[] { "create", So }, new string[] { "update", So }, new string[] { "close", So },
                 new string[] { "verify", So }, new string[] { "verify", Dl }, new string[] { "generate", Dl },
-                new string[] { "verify", Inv }, new string[] { "generate", Inv }
+                new string[] { "verify", Inv }, new string[] { "generate", Inv },
+                new string[] { "delete", So }, new string[] { "delete", Dl }
             };
             for (int i = 0; i < pairs.Length; i++)
             {
@@ -105,7 +117,9 @@ namespace U8Co
             number["voucher"] = 1;
             ExpectError("rov number", number, "目前只允许");
             ExpectError("rov head_fix other", Rule(VoucherHeadFix.Op, So), "目前只允许");
-            ExpectError("rov delete op", Rule("delete", So), VoucherHeadFix.Op);
+            ExpectError("rov delete sale_invoice", Rule("delete", Inv), "目前只允许");
+            ExpectError("rov delete case", Rule("delete", "Dispatch"), "目前只允许");
+            ExpectError("rov Delete op", Rule("Delete", So), VoucherHeadFix.Op);
             ExpectError("rov lock op", Rule("lock", So), VoucherHeadFix.Op);
             Dictionary<string, object> arc = Rule("create", So);
             arc["archives"] = new object[] { "customer" };
@@ -131,6 +145,8 @@ namespace U8Co
             CheckPair("verify", Inv, "verify");
             CheckPair("verify", Inv, "unverify");
             CheckPair("generate", Inv, null);
+            CheckPair("delete", So, null);
+            CheckPair("delete", Dl, null);
         }
 
         static void CheckPair(string op, string kind, string action)
@@ -179,6 +195,15 @@ namespace U8Co
             ExpectRefused("rov verify inv arap undo", inv, verify, Body(verify, Listed, "op009", Inv, "arap_unverify", false));
             ExpectRefused("rov verify inv no dl", inv, verify, Body(verify, Listed, "op009", Dl, "verify", false));
             ExpectRefused("rov verify dl no inv", Cfg("verify", Dl), verify, Body(verify, Listed, "op009", Inv, "verify", false));
+            // 删除：只开放列出的单据类型；销售发票不在登记表里，配了销售订单不连带放行发货单（含预演），反之亦然。
+            string delete = Root + "delete";
+            BridgeConfig delSo = Cfg("delete", So);
+            ExpectRefused("rov delete so no dl", delSo, delete, Body(delete, Listed, "op009", Dl, null, false));
+            ExpectRefused("rov delete so no dl dry", delSo, delete, Body(delete, Listed, "op009", Dl, null, true));
+            ExpectRefused("rov delete so no inv", delSo, delete, Body(delete, Listed, "op009", Inv, null, false));
+            ExpectRefused("rov delete so no inv dry", delSo, delete, Body(delete, Listed, "op009", Inv, null, true));
+            ExpectRefused("rov delete dl no so", Cfg("delete", Dl), delete, Body(delete, Listed, "op009", So, null, false));
+            ExpectRefused("rov delete case", delSo, delete, Body(delete, Listed, "op009", "Sale_Order", null, false));
         }
 
         // generate：source_type 省略或为 sale_order 放行，其它来源（含大小写不同、null）拒绝。
@@ -218,7 +243,10 @@ namespace U8Co
             ExpectRefused("rov forged no voucher", Cfg("create", null), create, body);
             ExpectRefused("rov forged dispatch", Cfg("create", Dl), create, Body(create, Listed, "op009", Dl, null, false));
             string delete = Root + "delete";
-            ExpectRefused("rov forged delete", Cfg("delete", So), delete, Body(delete, Listed, "op009", So, null, false));
+            ExpectRefused("rov forged delete inv", Cfg("delete", Inv), delete, Body(delete, Listed, "op009", Inv, null, false));
+            ExpectRefused("rov forged delete no voucher", Cfg("delete", null), delete, Body(delete, Listed, "op009", So, null, false));
+            string lockPath = Root + "lock";
+            ExpectRefused("rov forged lock", Cfg("lock", So), lockPath, Body(lockPath, Listed, "op009", So, "lock", false));
             BridgeConfig arc = Cfg("create", So);
             arc.ReadOnlyExceptions[0].Archives = new string[] { "customer" };
             ExpectRefused("rov forged archives", arc, create, body);
@@ -236,6 +264,10 @@ namespace U8Co
             ExpectPost("rov post gen inv red", Cfg("generate", Inv), Ask("generate", Inv, null, "sale_return"), false);
             ExpectPost("rov post verify inv", Cfg("verify", Inv), Ask("verify", Inv, "verify", null), true);
             ExpectPost("rov post verify inv arap", Cfg("verify", Inv), Ask("verify", Inv, "arap_verify", null), false);
+            ExpectPost("rov post delete so", Cfg("delete", So), Ask("delete", So, null, null), true);
+            ExpectPost("rov post delete dl", Cfg("delete", Dl), Ask("delete", Dl, null, null), true);
+            ExpectPost("rov post delete so no dl", Cfg("delete", So), Ask("delete", Dl, null, null), false);
+            ExpectPost("rov post delete inv", Cfg("delete", So), Ask("delete", Inv, null, null), false);
         }
 
         // 入队后自检的一次请求：路由的 op、请求体 type、action、source_type（后两者 null 表示不带）。

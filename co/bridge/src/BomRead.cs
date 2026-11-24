@@ -3,8 +3,9 @@ using System.Collections.Generic;
 namespace U8Co
 {
     // 物料清单读取（vouchers/load，type=bom，id=bom_bom.BomId）：纯 SQL，读线程上跑（只用 ctx.Conn）。
-    // 表头是 bom_bom + bom_parent + 母件 bas_part / Inventory，明细是 bom_opcomponent + bom_opcomponentopt + 子件。
-    // 键名固定为小写下划线，值都是字符串，空值省略。code 是母件存货编码，另给 version。
+    // 表头是 bom_bom + bom_parent + 母件 bas_part / Inventory，明细是 bom_opcomponent + bom_opcomponentopt + 子件，
+    // 每行另带替代料（substitutes）和定位符（locators）数组。
+    // 键名固定为小写下划线，行和表头的值都是字符串，空值省略。code 是母件存货编码，另给 version。
     // 修改前的整行打底（RowOf）和写后回读也用这里的查询。
     internal static class BomRead
     {
@@ -19,7 +20,8 @@ namespace U8Co
             + " convert(varchar(19), b.ModifyTime, 120) as modified_at, convert(varchar(20), convert(bigint, b.Ufts)) as ufts"
             + " from bom_bom b join bom_parent p on p.BomId=b.BomId join bas_part bp on bp.PartId=p.ParentId"
             + " left join Inventory i on i.cInvCode=bp.InvCode where b.BomId=?";
-        // extras=1：该行带替代料、定位符、分段损耗或自由项，差异修改带不回去（BomEdit 拒绝）；辅计量看 aux_unit。
+        // client_only=1：该行带分段损耗，或子件、替代料的物料带自由项，差异修改带不回去（BomEdit 拒绝）；辅计量看 aux_unit。
+        // 替代料、定位符另由 BomSubs.Attach 挂在每行的 substitutes、locators 下。
         const string LinesSql = "select convert(varchar(20), c.OpComponentId) as line_id, convert(varchar(10), c.SortSeq) as sort_seq,"
             + " c.OpSeq as op_seq, cp.InvCode as inv_code, i.cInvName as inv_name, i.cInvStd as inv_std,"
             + " convert(varchar(40), c.BaseQtyN) as base_qty_n, convert(varchar(40), c.BaseQtyD) as base_qty_d,"
@@ -30,16 +32,18 @@ namespace U8Co
             + " convert(varchar(10), o.Offset) as offset_days, convert(varchar(40), o.PlanFactor) as plan_rate,"
             + " convert(varchar(10), isnull(o.AccuCostFlag,0)) as accu_cost_flag, convert(varchar(10), isnull(o.OptionalFlag,0)) as optional_flag,"
             + " convert(varchar(10), o.MutexRule) as mutex_rule, convert(varchar(10), isnull(o.CostWIPRel,0)) as cost_wip_rel,"
-            + " c.AuxUnitCode as aux_unit, " + Extras + " as extras"
+            + " c.AuxUnitCode as aux_unit, " + ClientOnly + " as client_only"
             + " from bom_opcomponent c join bas_part cp on cp.PartId=c.ComponentId"
             + " left join bom_opcomponentopt o on o.OptionsId=c.OptionsId left join Inventory i on i.cInvCode=cp.InvCode"
             + " where c.BomId=? order by c.SortSeq, c.OpComponentId";
-        const string Extras = "case when exists (select 1 from bom_opcomponentsub s where s.OpComponentId=c.OpComponentId)"
-            + " or exists (select 1 from bom_opcomponentloc l where l.OpComponentId=c.OpComponentId)"
-            + " or exists (select 1 from bom_opcomponentscrap x where x.OpComponentId=c.OpComponentId)"
+        const string ClientOnly = "case when exists (select 1 from bom_opcomponentscrap x where x.OpComponentId=c.OpComponentId)"
             + " or coalesce(nullif(cp.Free1,N''), nullif(cp.Free2,N''), nullif(cp.Free3,N''), nullif(cp.Free4,N''),"
             + " nullif(cp.Free5,N''), nullif(cp.Free6,N''), nullif(cp.Free7,N''), nullif(cp.Free8,N''), nullif(cp.Free9,N''),"
             + " nullif(cp.Free10,N'')) is not null"
+            + " or exists (select 1 from bom_opcomponentsub s join bas_part sp on sp.PartId=s.PartId"
+            + " where s.OpComponentId=c.OpComponentId and coalesce(nullif(sp.Free1,N''), nullif(sp.Free2,N''), nullif(sp.Free3,N''),"
+            + " nullif(sp.Free4,N''), nullif(sp.Free5,N''), nullif(sp.Free6,N''), nullif(sp.Free7,N''), nullif(sp.Free8,N''),"
+            + " nullif(sp.Free9,N''), nullif(sp.Free10,N'')) is not null)"
             + " then '1' else '0' end";
 
         public static ApiResult Load(WorkContext ctx, VoucherKind kind, int id)
@@ -69,7 +73,9 @@ namespace U8Co
 
         internal static List<Dictionary<string, object>> Lines(object conn, int id)
         {
-            return Rows.Query(conn, LinesSql, new object[] { id }, LinesCap);
+            List<Dictionary<string, object>> lines = Rows.Query(conn, LinesSql, new object[] { id }, LinesCap);
+            BomSubs.Attach(conn, id, lines);
+            return lines;
         }
 
         // 成功响应的公共部分：ok、type、id、code（母件存货编码）、version、state。
@@ -113,6 +119,7 @@ namespace U8Co
             row.EffBeg = CoRows.Col(line, "eff_beg");
             row.EffEnd = Or(CoRows.Col(line, "eff_end"), row.EffEnd);
             Flags(row, line);
+            BomSubs.Take(row, line);
             return row;
         }
 

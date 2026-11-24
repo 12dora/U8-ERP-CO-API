@@ -13,10 +13,10 @@ namespace U8Co
     // 客户不能删，新增错的客户用 customer_fields 写停用日期）；其余 op 不能写 archives。archives/update 不能开放
     // （客户 EAI 修改会清银行账号等，见 ArcCusFields）。vouchers 的 op 与单据类型 voucher 只能是登记表
     // ReadOnlyVoucherOps.Rows 里的一对（一项一对；head_fix、so_defines 单据类型固定，voucher 可省，写了须一致；
-    // create、update、close、verify、generate 必须写 voucher），vouchers/delete、vouchers/lock 等其它单据路由不能开放；
+    // create、update、close、verify、generate、delete 必须写 voucher；delete 只有销售订单、发货单），vouchers/lock 等其它单据路由不能开放；
     // archives 不能写 voucher。operators 比较只忽略 ASCII 大小写（AsciiIgnoreCase，非 ASCII 逐字比较），且不能含双引号、反斜杠或控制字符（健康检查 JSON 仍会转义）。
     // operators 与 callers 恰好写一个且非空（两个都写或都不写启动失败）。callers 是 API 信任项的 name（调用系统）：只能用于
-    // type=vouchers 且 op 在 CallerOps（登记表里单据类型不固定的行：create、update、close、verify、generate）；archives、head_fix、
+    // type=vouchers 且 op 在 CallerOps（登记表里单据类型不固定的行：create、update、close、verify、generate、delete）；archives、head_fix、
     // so_defines 只能写 operators。命中时任何操作员都放行，按请求体 caller（API 经 HMAC 签名通道发来的「信任项:客户端」）第一个冒号前的部分逐字比较。
     internal static class ConfigRulesReadOnly
     {

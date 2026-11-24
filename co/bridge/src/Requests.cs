@@ -24,7 +24,8 @@ namespace U8Co
             new string[] { "/u8co/v1/vouchers/update", "type", "id", "head", "lines" },
             new string[] { "/u8co/v1/vouchers/delete", "type", "id" },
             new string[] { "/u8co/v1/vouchers/close", "type", "id", "action", "line_ids" },
-            new string[] { "/u8co/v1/vouchers/generate", "type", "id", "source_type", "head", "lines", SaleInvSources.Field },
+            new string[] { "/u8co/v1/vouchers/generate", "type", "id", "source_type", "head", "lines", SaleInvSources.Field,
+                QmMergeReq.Field, QmMergeRules.Field },
             // 历史发货单表头修正（VoucherHeadFix）。
             VoucherHeadFix.Spec,
             new string[] { "/u8co/v1/workflow/state", "type", "id" },
@@ -292,6 +293,12 @@ namespace U8Co
                 SaleInvSources.Apply(body, item, draft);
                 return;
             }
+            // 产品检验单合并检验：source_ids（报检单表体行）代替 id（QmMergeReq），不带单据 id。
+            if (QmMergeReq.Asked(body, path))
+            {
+                QmMergeReq.Apply(body, item);
+                return;
+            }
             item.HasId = true;
             item.Id = NeedId(body);
             draft.HasId = true;
@@ -361,6 +368,11 @@ namespace U8Co
             item.Head = Json.OptionalHead(body, invoice ? null : item.Type);
             item.Source = SourceFor(item.Type, body);
             SaleInvSources.CheckSource(item);
+            if (QmMergeReq.Is(item) || body.ContainsKey(QmMergeRules.Field))
+            {
+                item.Lines = QmMergeReq.Lines(body, item);
+                return;
+            }
             item.Lines = item.GenSources != null ? new object[0] : Json.GenerateLines(body, item.Type, WholeGenerate(body, item));
             PuSettleReq.Apply(item); // 采购结算：不收 lines，表头只收 settle_date（替换本次的 U8 登录日期）
         }

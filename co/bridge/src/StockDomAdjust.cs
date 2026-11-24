@@ -134,7 +134,8 @@ namespace U8Co
             return row;
         }
 
-        static void RequireAdjustCells(Dictionary<string, string> row, string at)
+        // 新增、修改（PositionAdjustEdit）共用：每行存货、调出和调入货位都要有且不同。
+        internal static void RequireAdjustCells(Dictionary<string, string> row, string at)
         {
             if (CellOf(row, "cInvCode").Length == 0)
             {

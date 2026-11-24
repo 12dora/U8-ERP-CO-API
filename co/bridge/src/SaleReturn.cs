@@ -3,7 +3,7 @@ using System.Collections.Generic;
 namespace U8Co
 {
     // 退货单（红字发货单）sale_return：与发货单同表 DispatchList / DispatchLists，按 bReturnFlag=1 区分；
-    // 销售 CO 用 VT 10（DispatchRed）、卡片 03，模板 iVTid 75。读取、删除在这里，审核走 SalesVerify，
+    // 销售 CO 用 VT 10（DispatchRed）、卡片 03，模板 iVTid 75。读取走 VoucherRead（类型核对在 VoucherScope），删除在这里，审核走 SalesVerify，
     // 参照蓝字发货单生成走 SaleGen.Return（SaleReturnGen.cs）。现有 dispatch 类型仍只收蓝字。
     internal static class SaleReturn
     {
@@ -20,12 +20,6 @@ namespace U8Co
         public static bool Is(VoucherKind kind)
         {
             return kind != null && kind.Name == KindName;
-        }
-
-        public static ApiResult Load(WorkContext ctx, VoucherKind kind, int id)
-        {
-            RequireRed(Shape(ctx.Conn, id));
-            return SaleOrderCo.Load(ctx, kind, id);
         }
 
         // 未审核、不在审批中、没有销售出库和销售发票引用。删除前每行 editprop 标 D（同销售发票），VT 10 的 CO Delete，

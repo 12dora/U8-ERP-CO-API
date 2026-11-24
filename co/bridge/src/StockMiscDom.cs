@@ -92,23 +92,30 @@ namespace U8Co
             return all;
         }
 
-        // 数量列：形态转换 iAVQuantity、调拨申请 iTVQuantity、盘点的实盘 iCVCQuantity（账面 iCVQuantity 另填）。
+        // 数量列：形态转换 iAVQuantity、调拨申请 iTVQuantity、货位调整 iQuantity、盘点的实盘 iCVCQuantity（账面 iCVQuantity 另填）。
         internal static string MiscQty(VoucherKind kind)
         {
-            if (kind.StType == "15")
-            {
-                return "iAVQuantity";
-            }
-            return kind.StType == "62" ? "iTVQuantity" : "iCVCQuantity";
+            return MiscCol(kind, "iAVQuantity", "iTVQuantity", "iQuantity", "iCVCQuantity");
         }
 
         internal static string MiscNum(VoucherKind kind)
         {
-            if (kind.StType == "15")
+            return MiscCol(kind, "iAVNum", "iTVNum", "iNum", "iCVCNum");
+        }
+
+        // 列名按单据类型 15、62、19、18 的顺序给。
+        static string MiscCol(VoucherKind kind, string shape, string request, string adjust, string check)
+        {
+            switch (kind.StType)
             {
-                return "iAVNum";
+                case "15":
+                    return shape;
+                case "62":
+                    return request;
+                case PositionAdjust.StType:
+                    return adjust;
             }
-            return kind.StType == "62" ? "iTVNum" : "iCVCNum";
+            return check;
         }
 
         internal static object MiscHead(object conn, VoucherKind kind, Dictionary<string, object> fields,

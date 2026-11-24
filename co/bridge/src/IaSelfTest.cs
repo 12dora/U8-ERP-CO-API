@@ -80,13 +80,15 @@ namespace U8Co
 
         static void CheckOptions()
         {
-            Expect("ia options default", IaRun.UnsupportedReason("按仓库核算", "单到回冲", "发出商品", null) == null);
-            Expect("ia options sale out", IaRun.UnsupportedReason("按仓库核算", "单到回冲", "销售出库单", "") == null);
-            Expect("ia options blank", IaRun.UnsupportedReason(null, null, null, null) == null);
-            Expect("ia options by inventory", Has(IaRun.UnsupportedReason("按存货核算", "单到回冲", "发出商品", null), "按存货核算"));
-            Expect("ia options warehouse", Has(IaRun.UnsupportedReason("按仓库核算", "单到回冲", "发出商品", "03 "), "仓库 03 "));
-            Expect("ia options estimate", Has(IaRun.UnsupportedReason("按仓库核算", "月初回冲", "发出商品", null), "月初回冲"));
-            Expect("ia options sale type", Has(IaRun.UnsupportedReason("按仓库核算", "单到回冲", "其他", null), "接口暂不支持"));
+            Expect("ia options default", IaRun.UnsupportedReason("按仓库核算", "单到回冲", "发出商品", null, null) == null);
+            Expect("ia options sale out", IaRun.UnsupportedReason("按仓库核算", "单到回冲", "销售出库单", "", null) == null);
+            Expect("ia options blank", IaRun.UnsupportedReason(null, null, null, null, null) == null);
+            Expect("ia options by inventory", Has(IaRun.UnsupportedReason("按存货核算", "单到回冲", "发出商品", null, null), "按存货核算"));
+            Expect("ia options warehouse", Has(IaRun.UnsupportedReason("按仓库核算", "单到回冲", "发出商品", "03 ", null), "仓库 03 "));
+            Expect("ia options estimate", Has(IaRun.UnsupportedReason("按仓库核算", "月初回冲", "发出商品", null, null), "月初回冲"));
+            Expect("ia options sale type", Has(IaRun.UnsupportedReason("按仓库核算", "单到回冲", "其他", null, null), "接口暂不支持"));
+            Expect("ia options abs cost", Has(IaRun.UnsupportedReason("按仓库核算", "单到回冲", "发出商品", null, "True"), "bAbsOutCost")
+                && IaRun.UnsupportedReason("按仓库核算", "单到回冲", "发出商品", null, "False") == null);
             Expect("ia start same", IaRun.BeforeStart("2024-12-01", 2024, 12) == null);
             Expect("ia start later", IaRun.BeforeStart("2024-12-01", 2025, 1) == null);
             Expect("ia start before", Has(IaRun.BeforeStart("2024-12-01", 2024, 11), "2024-12"));
@@ -97,7 +99,7 @@ namespace U8Co
         {
             int[] numbers = new int[]
             {
-                50002, 50003, 50010, 50011, 50020, 50021, 50030, 50040, 50041, 50043, 50044, 50045, 50046,
+                50002, 50003, 50010, 50011, 50012, 50020, 50021, 50023, 50030, 50040, 50041, 50043, 50044, 50045, 50046, 50047,
                 50050, 50051, 50052, 50060, 50061
             };
             foreach (int n in numbers)
@@ -109,6 +111,9 @@ namespace U8Co
             Expect("ia refusal prior", Has(IaRun.Refusal(50041, "prior IA month not closed: 2026-08", null).Message, "（2026-08）"));
             Expect("ia refusal unposted", Has(IaRun.Refusal(50043, "unposted verified costing lines: 12", null).Message, " 12 行"));
             Expect("ia refusal unaudited", Has(IaRun.Refusal(50044, "bcheckedpribooking: unaudited costing lines in month: 3", null).Message, " 3 行"));
+            Expect("ia refusal adjust", Has(IaRun.Refusal(50023, "unposted adjustment lines: 2", null).Message, " 2 行")
+                && Has(IaRun.Refusal(50047, "unposted adjustment lines: 4", null).Message, "出入库调整单"));
+            Expect("ia refusal vouchered", Has(IaRun.Refusal(50012, "x", null).Message, "ia/voucher/delete"));
             Expect("ia refusal tail bad", Has(IaRun.Refusal(50043, "no number", null).Message, "若干"));
             Expect("ia refusal unknown", Has(IaRun.Refusal(50099, "x", null).Message, "编号 50099"));
             BridgeException u8 = IaRun.Refusal(50000, "[Microsoft][SQL Server]MonthAcc: 存货 A01 没有单价: 请检查", null);

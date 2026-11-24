@@ -2,15 +2,16 @@ using System.Collections.Generic;
 
 namespace U8Co
 {
-    // 形态转换单（15）、调拨申请单（62）的修改（StockMisc 分派；盘点单不开修改）。
+    // 形态转换单（15）、调拨申请单（62）的修改（StockMisc 分派；盘点单不开修改），货位调整单（19）同路径（PositionAdjust 分派）。
     // 同调拨：Load 之后改 editprop，再调 12 参 Update。行操作解析、克隆新行、换算辅数量沿用 StockEdit 的函数；
-    // 新行的单号列（cAVCode / cTVCode）取自表头，数量改了且行上有单价时重算金额，形态转换改完按整单复核成组。
+    // 新行的单号列（cAVCode / cTVCode / cVouchCode）取自表头，数量改了且行上有单价时重算金额，形态转换改完按整单复核成组；
+    // 货位调整单在 Update 前后另有核对（PositionAdjustEdit）。
     internal static partial class StockEdit
     {
         internal static ApiResult MiscUpdate(WorkContext ctx, VoucherKind kind, int id,
             Dictionary<string, object> head, object[] lines)
         {
-            if (!StockMisc.Handles(kind) || !kind.Updatable)
+            if (!(StockMisc.Handles(kind) || PositionAdjust.Handles(kind)) || !kind.Updatable)
             {
                 throw new BridgeException(400, "bad_request", "该单据类型不支持修改");
             }
@@ -50,7 +51,9 @@ namespace U8Co
                 int[] refs;
                 object[] args = StockCall.UpdateArgs(kind,
                     StockCall.Forms(loaded.Head, loaded.Body, loaded.Pos, ctx.Conn, msg), out refs);
-                StockCall.RunCo(ctx, co, "Update", args, refs, null);
+                StockAt at = StockCall.AtFor("Update", args, refs, null);
+                PositionAdjustEdit.Guard(ctx, kind, id, loaded, at);
+                StockCall.RunAt(ctx, co, at);
                 return AfterSaved(ctx, kind, id, loaded.Head);
             }
             finally

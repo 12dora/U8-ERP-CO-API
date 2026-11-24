@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -169,7 +169,10 @@ class CoLoadOut(BaseModel):
     head: dict[str, str | None] = Field(
         description="表头。值是 U8 存成的字符串，空值省略；无权查看的字段为 null（见 masked_fields）"
     )
-    lines: list[dict[str, str | None]] = Field(description="明细行。值是字符串；无权查看的字段为 null")
+    lines: list[dict[str, Any]] = Field(
+        description="明细行。值是字符串，无权查看的字段为 null；物料清单每行另带 substitutes（替代料，形状同生产订单子件的 "
+        "substitutes）和 locators（定位符：sort_seq、loc）两个数组"
+    )
     state: CoLoadState = Field(description="审核状态")
     wf: CoWf | None = Field(None, description="检验单和不良品处理单的审批状态。报检单和其它类型不返回")
     source: CoLoadSource | None = Field(None, description="报检单的来源单据。其它类型不返回")
@@ -178,7 +181,11 @@ class CoLoadOut(BaseModel):
         None,
         description="合并检验（BMERGECHECKFLAG=1）的产品检验单：每个合并来源一项，参照生成产成品入库时按来源逐行。其它不返回",
     )
-    allocations: list[dict] | None = Field(None, description="生产订单的子件分配。其它类型不返回")
+    allocations: list[dict] | None = Field(
+        None,
+        description="生产订单的子件分配。每个子件另带 substitutes（替代料：sequence、inv_code、factor、"
+        "replace_flag、eff_begin、eff_end，自定义项有值时 defines）。其它类型不返回",
+    )
     positions: list[dict[str, str | None]] | None = Field(
         None,
         description="货位调整单的货位台账（InvPosition，审核后每行一出 inbound=0、一入 inbound=1；未审核为空）。其它类型不返回",

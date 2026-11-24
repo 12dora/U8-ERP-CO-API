@@ -31,6 +31,7 @@ from co.client.u8co_client import (
 from co.client.u8co_idem import add_key_arg, key_kwargs  # 幂等键
 from co.client.u8co_kinds import SOURCE_TYPES, whole_generate
 from co.client.u8co_invoice import InvoiceSources
+from co.client.u8co_qm_merge import cli_merged
 from co.client.u8co_settings import load_config, resolve_base_url, resolve_secret
 
 _ACC = re.compile(r"^\d{3}\Z")
@@ -133,7 +134,7 @@ def _edit_commands(sub: Any) -> None:
     generate = sub.add_parser("generate")
     _add_auth(generate)
     generate.add_argument("--type", required=True, choices=GENERATABLE_KINDS)
-    # 销售发票参照多张发货单：不带 --id，文件里写 sources（u8co_invoice）。
+    # 销售发票参照多张发货单（文件里写 sources，u8co_invoice）、产品检验单合并检验（source_ids，u8co_qm_merge）不带 --id。
     generate.add_argument("--id", type=int, default=None)
     generate.add_argument("--file", required=True)
     generate.add_argument("--source-type", choices=SOURCE_TYPES, default="")
@@ -354,8 +355,11 @@ def _cmd_generate(client: U8CoClient, call: U8Call, parsed: argparse.Namespace) 
             raise SystemExit("sources 只用于 --type sale_invoice、不带 --id，文件只能包含 head 和 sources")
         draft = InvoiceSources(data["sources"], data.get("head"), getattr(parsed, "source_type", "") or "")
         return client.generate_invoice_from_dispatches(call, draft, **key_kwargs(parsed))
+    if "source_ids" in data:
+        merged = cli_merged(data, parsed.id, parsed.type, getattr(parsed, "source_type", "") or "")
+        return client.generate_merged_check(call, merged, **key_kwargs(parsed))
     if parsed.id is None:
-        raise SystemExit("generate 需要 --id（销售发票参照多张发货单时不带 --id，在文件里写 sources）")
+        raise SystemExit("generate 需要 --id（销售发票多张发货单写 sources、产品检验单合并检验写 source_ids 时不带 --id）")
     return client.generate_voucher(call, _gen_draft(parsed), **key_kwargs(parsed))
 
 

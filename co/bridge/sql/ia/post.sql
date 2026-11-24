@@ -16,6 +16,7 @@ DECLARE @saleOutMode nvarchar(20) = N'auto';
 
 DECLARE @dS datetime, @dE datetime, @dKeep datetime;
 DECLARE @cRdwhere nvarchar(2000);
+DECLARE @cJustwhere nvarchar(2000);
 DECLARE @errmsg nvarchar(200);
 DECLARE @lock nvarchar(50);
 DECLARE @cSelect nvarchar(1000);
@@ -62,11 +63,14 @@ END
 SET @cRdwhere = N'ISNULL(Inventory.bService,0)=0'
   + N' AND ISNULL(dtAudit,dVouDate) >= ''' + CONVERT(varchar(10), @dS, 23) + N''''
   + N' AND ISNULL(dtAudit,dVouDate) < ''' + CONVERT(varchar(10), DATEADD(day,1,@dE), 23) + N'''';
+-- 出入库调整单（20/21，视图 justinvouchsIA870）同一个条件：视图的 dtAudit 恒为 NULL，所以按调整单日期落在本月；
+-- 已记账的行（cbAccounter 非空）视图自己排除。须在下面追加发出商品条件之前取，那一条只管出入库单的 32。
+SET @cJustwhere = @cRdwhere;
 -- 发出商品：32 不走普通 Load（UI ~23721），改由 AccountLoadDispatch 以 3201 装入。
 IF @bEn = 1
   SET @cRdwhere = @cRdwhere + N' AND nosub.cVouType <> N''32''';
 
-EXEC IA_AccountLoad @cRdwhere, N'', N'', N'', N'', 0;
+EXEC IA_AccountLoad @cRdwhere, N'', @cJustwhere, N'', N'', 0;
 
 IF @bEn = 1 AND @saleOutMode <> N'hold'
 BEGIN
@@ -162,6 +166,9 @@ BEGIN TRY
   FROM #IA_AccountArea a INNER JOIN Rdrecords32 r ON a.ID=r.AutoID AND a.cVouType IN (N'32',N'3201');
   UPDATE SaleBillVouchs SET cbAccounter=@lock
   FROM #IA_AccountArea a INNER JOIN SaleBillVouchs s ON a.ID=s.AutoID AND a.cVouType IN (N'26',N'27');
+  -- 出入库调整单：ia_sp_SetVoucherAccounter 只给带本锁的行盖记账人。
+  UPDATE j SET cbAccounter=@lock
+  FROM #IA_AccountArea a INNER JOIN JustInVouchs j ON a.ID=j.AutoID AND a.cVouType IN (N'20',N'21');
 
   EXEC IA_sp_SetRedIssue;
   -- 3201 红字取蓝字 IA_Subsidiary 成本（iCostSrc=31）。3201 须留在 AccountArea 过 MonthAcc。
@@ -318,6 +325,7 @@ UNION ALL SELECT N'unacc32', COUNT(*) FROM IA_ST_UnAccountVouch32
 UNION ALL SELECT N'en_area', COUNT(*) FROM #IA_EnAccountArea
 UNION ALL SELECT N'ensubsidiary_month', COUNT(*) FROM IA_EnSubsidiary WHERE iYear=@y AND iMonth=@m
 UNION ALL SELECT N'sbv_posted', COUNT(*) FROM SaleBillVouchs WHERE ISNULL(cbAccounter,N'')=@cAccounter
+UNION ALL SELECT N'just_posted', COUNT(*) FROM JustInVouchs WHERE ISNULL(cbAccounter,N'')=@cAccounter
 UNION ALL SELECT N'unacc_SA', COUNT(*) FROM IA_SA_UnAccountVouch
 UNION ALL SELECT N'lock_left', (
   SELECT COUNT(*) FROM rdrecords01 WHERE cbAccounter LIKE N'IA_ASSUSER%'
@@ -326,4 +334,5 @@ UNION ALL SELECT N'lock_left', (
 + (SELECT COUNT(*) FROM rdrecords10 WHERE cbAccounter LIKE N'IA_ASSUSER%')
 + (SELECT COUNT(*) FROM rdrecords11 WHERE cbAccounter LIKE N'IA_ASSUSER%')
 + (SELECT COUNT(*) FROM rdrecords32 WHERE cbAccounter LIKE N'IA_ASSUSER%')
-+ (SELECT COUNT(*) FROM SaleBillVouchs WHERE cbAccounter LIKE N'IA_ASSUSER%');
++ (SELECT COUNT(*) FROM SaleBillVouchs WHERE cbAccounter LIKE N'IA_ASSUSER%')
++ (SELECT COUNT(*) FROM JustInVouchs WHERE cbAccounter LIKE N'IA_ASSUSER%');

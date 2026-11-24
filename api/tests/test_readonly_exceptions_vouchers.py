@@ -68,7 +68,7 @@ def test_head_fix_parses_and_summarises() -> None:
 
 @pytest.mark.parametrize(
     "op",
-    ("delete", "lock", "customer_person", "customer_address_add", "list", "Head_fix", "head_fix ", "Create", ""),
+    ("Delete", "lock", "customer_person", "customer_address_add", "list", "Head_fix", "head_fix ", "Create", ""),
 )
 def test_vouchers_allows_only_registered_ops(op: str) -> None:
     _exits(json.dumps([{**_ITEM_FIX, "op": op}]), _RO, "type=vouchers 时只能是 head_fix")
@@ -115,7 +115,7 @@ def test_load_settings_stops_on_unopened_voucher_op(monkeypatch) -> None:
     monkeypatch.setenv("U8CO_TRUST_FILE", "")
     monkeypatch.setenv("U8CO_ACCOUNTS", "803,801")
     monkeypatch.setenv("U8CO_READONLY_ACCOUNTS", "803")
-    monkeypatch.setenv("U8CO_READONLY_EXCEPTIONS", json.dumps([{**_ITEM_FIX, "op": "delete"}]))
+    monkeypatch.setenv("U8CO_READONLY_EXCEPTIONS", json.dumps([{**_ITEM_FIX, "op": "lock"}]))
     with pytest.raises(SystemExit, match="type=vouchers 时只能是 head_fix"):
         load_settings()
 

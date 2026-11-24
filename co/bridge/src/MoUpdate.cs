@@ -7,7 +7,7 @@ namespace U8Co
     // 生产订单修改（vouchers/update，type=production_order，id=MoId）：U8API MOrderLoad + MOrderUpdate，登录子系统 MO。
     // 改未关闭的订单（全部行 Status 1 / 2 / 3、非集合、不受审批流控制、没报检、没被产成品入库引用）。已审核的照 U8 客户端
     // 「变更」直接改、状态保持已审核；已领料的改后需求不能少于已领，材料出库单行的子件关联由 MoUpdateRemap 改写到新子件。
-    // 调用前在请求连接上读快照（行、全部子件、材料出库引用）；调用后在新连接上回读，行字段要等于请求，每行子件数不变、
+    // 调用前在请求连接上读快照（行、全部子件及其替代料、材料出库引用）；调用后在新连接上回读，行字段要等于请求，每行子件数不变、
     // 子件数量等于原值或按新行数量重算的值，否则 504 outcome_unknown（MOrderUpdate 会重写全部子件，不能悄悄丢用料）。
     // API 自己开 TransactionScope 提交，不包 CoTrans。见 docs/u8-notes.md「生产订单修改」。
     internal static class MoUpdate
@@ -43,6 +43,7 @@ namespace U8Co
                 throw new BridgeException(404, "not_found", "单据不存在");
             }
             MoUpdateSql.Gate(ctx.Conn, id, before);
+            MoUpdateSubs.Capture(ctx.Conn, before);
             MoDelete.CheckRows(perm, rule, RowsOf(before));
             MoUpdateSql.Digits(ctx.Conn, before);
             MoRefs refs = MoUpdateRemap.Capture(ctx.Conn, id, before);
@@ -123,7 +124,7 @@ namespace U8Co
             {
                 return remap ?? restore;
             }
-            return new BridgeException(504, "outcome_unknown", remap.Message + "。另外，子件关联列也没有写回：" + restore.Message);
+            return new BridgeException(504, "outcome_unknown", remap.Message + "。另外，子件关联列和替代料也没有写回：" + restore.Message);
         }
 
         static List<Dictionary<string, object>> RowsOf(MoSnap snap)

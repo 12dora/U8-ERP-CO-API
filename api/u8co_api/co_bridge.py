@@ -34,6 +34,7 @@ _STATUS_BY_CODE = {
     "busy": 429,
     "internal": 502,
     "bad_response": 502,
+    "u8_fields_ignored": 502,  # 档案已保存，但 U8 没有写入调用方给的某些列（detail.fields）
     "busy_timeout": 503,
     "stopping": 503,
     "com_unavailable": 503,
@@ -81,6 +82,8 @@ _BY_STATUS = {
 }
 
 
+# 档案已保存但 U8 没写某些列：502，同 4xx 一样透传 detail（列出这些列）。
+_FIELDS_IGNORED = "u8_fields_ignored"
 # 桥体里的 field / hint 只在合法时透传，否则静默丢掉。
 _FIELD = re.compile(r"[A-Za-z0-9_.\-]{1,200}")
 _HINT_MAX = 300
@@ -116,7 +119,7 @@ def to_api_error(status: int, body: dict | None) -> ApiError:
         error.hint = _hint(body)
     if error.hint is None and code == "not_found":
         error.hint = BRIDGE_NOT_FOUND_HINT
-    if 400 <= error.status < 500 and error.status != 401:
+    if (400 <= error.status < 500 and error.status != 401) or code == _FIELDS_IGNORED:
         error.detail = _detail(body, error.status)
     return error
 

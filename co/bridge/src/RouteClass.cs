@@ -102,6 +102,7 @@ namespace U8Co
             new string[] { "/u8co/v1/reports/close_check", Any },
             new string[] { "/u8co/v1/reports/ia_anomalies", Any },
             new string[] { "/u8co/v1/reports/cost_unit", Any },
+            new string[] { "/u8co/v1/reports/ca_inputs", Any },
             // 期初余额（ReportsOpening*.cs）、凭证附件和单据附件列表（GlAttach、VoucherAttach）：只用 ctx.Conn 和权限快照。
             new string[] { "/u8co/v1/reports/opening_balance", Any },
             // 核销记录（ReportsArapWriteoff*.cs）：只用 ctx.Conn、登录账套和权限快照；能否取消用取消核销的闸门规则只读判断。

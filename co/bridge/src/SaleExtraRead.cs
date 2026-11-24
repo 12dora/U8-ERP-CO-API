@@ -22,9 +22,15 @@ namespace U8Co
 
         internal static string[] Find(VoucherKind kind)
         {
-            for (int i = 0; kind != null && i < Tables.Length; i++)
+            return kind == null ? null : FindName(kind.Name);
+        }
+
+        // 按类型名（sale_order / dispatch / sale_invoice）；删除时清理扩展表也用（SaleExtraDrop）。
+        internal static string[] FindName(string name)
+        {
+            for (int i = 0; i < Tables.Length; i++)
             {
-                if (Tables[i][0] == kind.Name)
+                if (Tables[i][0] == name)
                 {
                     return Tables[i];
                 }
@@ -258,7 +264,7 @@ namespace U8Co
             return StockUnits.Price(value);
         }
 
-        static bool Exists(object conn, string table)
+        internal static bool Exists(object conn, string table)
         {
             return Rows.Scalar(conn, string.Format(ExistsSql, table), new object[0]) == "1";
         }

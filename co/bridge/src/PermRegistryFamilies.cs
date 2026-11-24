@@ -176,7 +176,10 @@ namespace U8Co
                 R("report:ia_anomalies", "存货核算检查", A("IA3017_01", AmountAuth),
                     PermObj.Opt(PermObj.Vendor, "cVenCode"), PermObj.H(PermObj.Inventory, "cInvCode"),
                     PermObj.Opt(PermObj.Warehouse, "cWhCode")),
-                R("report:cost_unit", "完工产品成本汇总表", A("CA0504_01", "CA0512"), PermObj.H(PermObj.Inventory, "InvCode"))
+                R("report:cost_unit", "完工产品成本汇总表", A("CA0504_01", "CA0512"), PermObj.H(PermObj.Inventory, "InvCode")),
+                // 成本核算期间数据：路由规则只要求能读其中一张表（各表功能 id 的并集），逐张表的功能权限在 ReportsCaInputs.Permit 里查，
+                // 数据权限按成本核算对象的存货（解析不到存货的行不过滤）。
+                R("report:ca_inputs", "成本核算期间数据", ReportsCaInputsDef.AllAuths(), PermObj.Opt(PermObj.Inventory, "InvCode"))
             };
         }
     }

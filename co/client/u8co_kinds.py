@@ -179,9 +179,10 @@ WHOLE_GENERATE += (("sale_invoice", "sale_invoice"),)
 # 蓝字采购入库参照到货单（source_type=arrival，id 是到货单 ID），lines 可省略（按各行剩余可入库数量整单生成）。
 GENERATE_SOURCES["purchase_in"] += ("arrival",)
 WHOLE_GENERATE += (("purchase_in", "arrival"),)
-# 货位调整单（U8 单据类型 19，AdjustPVouch）可读、列表；新增、审核、弃审、删除在所有账套开放，不能修改。
+# 货位调整单（U8 单据类型 19，AdjustPVouch）可读、列表；新增、修改（未审核）、审核、弃审、删除在所有账套开放。
 KIND_NAMES = KIND_NAMES[: -len(ARAP_KINDS)] + ("position_adjust",) + ARAP_KINDS  # 应收应付仍在最后
 CREATABLE_KINDS += ("position_adjust",)
+UPDATABLE_KINDS += ("position_adjust",)
 DELETABLE_KINDS += ("position_adjust",)
 VERIFIABLE_KINDS = tuple(name for name in KIND_NAMES if name in VERIFIABLE_KINDS + ("position_adjust",))
 # 出入库调整单（存货核算，JustInVouch，入库 20 / 出库 21 等）、存货调价单（销售管理，卡片 SA18）只读（读取、列表、查找）；

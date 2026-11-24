@@ -22,34 +22,31 @@ IF NOT EXISTS (SELECT 1 FROM IA_PerdealInventory)
   SELECT DISTINCT cInvCode FROM IA_Summary
   WHERE iYear=@y AND iMonth=@m AND ISNULL(cInvCode,N'')<>N'';
 
--- type-21 出库调整 created by period-end. Bus type not distinguishable in the observed rows; delete all type-21 of the month. INFERRED.
-IF OBJECT_ID(N'IA_Subsidiary_Item', N'U') IS NOT NULL
-  DELETE FROM IA_Subsidiary_Item
-  WHERE iSubID IN (
-    SELECT AutoID FROM IA_Subsidiary
-    WHERE cVouType=N'21' AND iYear=@y AND iMonth=@m
-      AND cInvCode IN (SELECT cInvCode FROM IA_PerdealInventory));
-IF OBJECT_ID(N'IA_Subsidiary_ItemOut', N'U') IS NOT NULL
-  DELETE FROM IA_Subsidiary_ItemOut
-  WHERE iSubID IN (
-    SELECT AutoID FROM IA_Subsidiary
-    WHERE cVouType=N'21' AND iYear=@y AND iMonth=@m
-      AND cInvCode IN (SELECT cInvCode FROM IA_PerdealInventory));
-IF OBJECT_ID(N'ia_subsidiary_STSub', N'U') IS NOT NULL
-  DELETE ia_subsidiary_STSub
-  FROM ia_subsidiary_STSub
-  INNER JOIN IA_Subsidiary ON IA_Subsidiary.autoid = ia_subsidiary_STSub.iIASubID
-  WHERE cVouType=N'21' AND iYear=@y AND iMonth=@m
-    AND cInvCode IN (SELECT cInvCode FROM IA_PerdealInventory);
-
-DELETE FROM IA_Subsidiary
-WHERE cVouType=N'21' AND iYear=@y AND iMonth=@m
+-- 期末处理生成的出库调整（IA_sp_PerdealJustVouch / IA_sp_PerdealRedCostJustVouch：明细账 cBusType=期末处理，调整单 cAuto=TRUE，
+-- 调整单行生成时已盖记账人）。只删这些：手工录入的 21、记账时生成的 21（cBusType 空 / 记账）是 ia/post 记的账，
+-- 取消期末处理不碰，它们由 ia/unpost 恢复。明细账行连同调整单的分项、表体行、没有表体行的表头一起删。
+IF OBJECT_ID(N'tempdb..#pe21') IS NOT NULL DROP TABLE #pe21;
+SELECT AutoID, JustID, cVouCode INTO #pe21
+FROM IA_Subsidiary
+WHERE cVouType=N'21' AND cBusType=N'期末处理' AND iYear=@y AND iMonth=@m
   AND cInvCode IN (SELECT cInvCode FROM IA_PerdealInventory);
 
-DELETE justinvouch
-FROM justinvouch
-LEFT JOIN justinvouchs ON justinvouch.cjvcode = justinvouchs.cjvcode
-WHERE justinvouchs.cjvcode IS NULL;
+IF OBJECT_ID(N'IA_Subsidiary_Item', N'U') IS NOT NULL
+  DELETE x FROM IA_Subsidiary_Item x INNER JOIN #pe21 p ON x.iSubID=p.AutoID;
+IF OBJECT_ID(N'IA_Subsidiary_ItemOut', N'U') IS NOT NULL
+  DELETE x FROM IA_Subsidiary_ItemOut x INNER JOIN #pe21 p ON x.iSubID=p.AutoID;
+IF OBJECT_ID(N'ia_subsidiary_STSub', N'U') IS NOT NULL
+  DELETE x FROM ia_subsidiary_STSub x INNER JOIN #pe21 p ON x.iIASubID=p.AutoID;
+
+DELETE x FROM IA_Subsidiary x INNER JOIN #pe21 p ON x.AutoID=p.AutoID;
+
+IF OBJECT_ID(N'IA_JustInVouchs_Item', N'U') IS NOT NULL
+  DELETE x FROM IA_JustInVouchs_Item x INNER JOIN #pe21 p ON x.iJustAutoID=p.JustID;
+DELETE l FROM JustInVouchs l INNER JOIN #pe21 p ON l.AutoID=p.JustID;
+DELETE h FROM justinvouch h
+WHERE h.cjvcode IN (SELECT cVouCode FROM #pe21)
+  AND NOT EXISTS (SELECT 1 FROM justinvouchs l WHERE l.cjvcode=h.cjvcode);
+DROP TABLE #pe21;
 
 UPDATE IA_Subsidiary
 SET iOutCost=NULL, iAOutPrice=NULL, CostSource=NULL

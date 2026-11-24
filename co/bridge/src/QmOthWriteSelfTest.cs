@@ -65,7 +65,8 @@ namespace U8Co
             True("oth inspect verify rule", PermRegistry.ForKey("write:qm_other_inspect:verify") != null
                 && PermRegistry.ForKey("write:qm_other_inspect:unverify") != null);
             Expect("oth dry inspect verify", "validate", DryRunModes.Lookup("vouchers/verify", "qm_other_inspect", "verify", ""));
-            True("oth items list", QmReq.ListField(c, "items", new ArrayList()) && !QmReq.ListField(i, "items", new ArrayList()));
+            True("oth items list", NestedFields.Allowed(c, true, "items", new ArrayList())
+                && !NestedFields.Allowed(i, true, "items", new ArrayList()) && !NestedFields.Allowed(c, false, "items", new ArrayList()));
             Expect("oth tpl name", "cInspectDepCode", QmRejTpl.RequestName("CINSPECTDEPCODE", QmOthReq.TplNames));
             Expect("oth tpl shared", "", QmRejTpl.RequestName("CINVCODE") ?? "");
             Expect("oth meta required", "cinvcode,quantity", string.Join(",", QmOthReq.CreateRequired(i)));

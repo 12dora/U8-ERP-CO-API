@@ -36,6 +36,30 @@ namespace U8Co
             Expect("pair single", ArcPair.Of(ArcKind.Find("position")) == null);
             ExpectBad("pair no colon", pair, "C01");
             ExpectBad("pair empty second", pair, "C01:");
+            CheckInvoicePair();
+            CheckAgreementKind();
+        }
+
+        // 客户开票单位：两段都是客户编码，只读，没有 rowversion，开票单位也按客户权限判断。
+        static void CheckInvoicePair()
+        {
+            ArcKind invoice = ArcKind.Find("customer_invoice_company");
+            ArcPair pair = ArcPair.Of(invoice);
+            string[] ends = pair.Split("C01:C02", "code");
+            Expect("invoice pair", ends[0] == "C01" && ends[1] == "C02");
+            Expect("invoice kind", invoice.ReadOnly && invoice.RoRead && invoice.Ts == null && invoice.CodeMax == 41);
+            Expect("invoice perm", pair.Obj1 == PermObj.Customer && pair.Obj2 == PermObj.Customer);
+            ExpectBad("invoice pair long first", pair, new string('C', 21) + ":C02");
+        }
+
+        // 收付款协议：单列主键，可写（受控 SQL），get、list 按表列名返回，编码最长 10，rowversion 列叫 ufts。
+        static void CheckAgreementKind()
+        {
+            ArcKind agreement = ArcKind.Find("pay_agreement");
+            Expect("agreement kind", agreement != null && !agreement.ReadOnly && agreement.RoRead && agreement.CodeMax == 10);
+            Expect("agreement single", ArcPair.Of(agreement) == null && agreement.Table == "AA_Agreement");
+            Expect("agreement cols", agreement.Key == "cCode" && agreement.NameCol == "cName");
+            Expect("agreement ts", agreement.Ts == "ufts" && agreement.CodeMax == ArcAgreement.CodeMax);
         }
 
         static void ExpectBad(string name, ArcPair pair, string code)
@@ -145,6 +169,9 @@ namespace U8Co
             Pins("stock opening voucher", "voucher:stock_opening", "ST000101", "ST0102");
             Pins("position", "archive:position", "AS030Q", "AS014Q");
             Pins("customer inventory", "archive:customer_inventory", "AS1204Q", "AS1204");
+            Pins("pay agreement", "archive:pay_agreement", "AS60202", "AS011Q");
+            Pins("pay agreement browse", "archive:pay_agreement", "AS60201", "AS011Q");
+            Pins("customer invoice company", "archive:customer_invoice_company", "AS011Q", "AS60202");
             CheckAuthCatalogIds();
             CheckFamilyIds();
             // admin 只认 Supervisor：Funcs 里有 admin 行（如某年收回的主管）不算。
@@ -210,6 +237,7 @@ namespace U8Co
             Pins("close check", "report:close_check", "GL1520", "GL1302");
             Pins("ia anomalies", "report:ia_anomalies", "IA3017_01", "IA2004");
             Pins("cost unit", "report:cost_unit", "CA0504_01", "IA3017_01");
+            Pins("ca inputs", "report:ca_inputs", "CA0305", "CA0504_01");
             Pins("amount mask", PermRegistry.AmountRule, PermRegistry.AmountAuth, "IA3017_01");
         }
 

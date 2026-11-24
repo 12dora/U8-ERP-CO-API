@@ -38,6 +38,11 @@ namespace U8Co
                     "h.cCusCode", "h.cVenCode", "h.cWhCode", "h.cDepCode", "h.cPersonCode", "h.cMaker",
                     "h.cHandler", "h.dVeriDate", null, null, null, "h.bredvouch",
                     "ufts", "rdrecords32", "ID", "rowufts", null, RdExtra, null },
+                // 期初结存单（库存期初）：同出入库单的列，没有审批流。
+                new string[] { "stock_opening", "rdrecord34", "ID", "h.cCode", "h.dDate",
+                    "h.cCusCode", "h.cVenCode", "h.cWhCode", "h.cDepCode", "h.cPersonCode", "h.cMaker",
+                    "h.cHandler", "h.dVeriDate", null, null, null, "h.bredvouch",
+                    "ufts", "rdrecords34", "ID", "rowufts", null, RdExtra, null },
                 // 调拨：wh / dep 是调出方，调入方在附加列。
                 new string[] { "transfer", "TransVouch", "ID", "h.cTVCode", "h.dTVDate",
                     null, null, "h.cOWhCode", "h.cODepCode", "h.cPersonCode", "h.cMaker",

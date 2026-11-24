@@ -85,6 +85,8 @@ RULES: dict[str, tuple[str | None, str | dict[str, str]]] = {
     "periods/close": ("periods", {"close": "close", "reopen": "open"}),
     "ia/post": ("ia", _POST),
     "ia/period_end": ("ia", {"run": "close", "cancel": "open"}),
+    "ia/voucher": ("ia", "voucher"),
+    "ia/voucher/delete": ("ia", "other"),
 }
 
 # 固定资产卡片的新增、撤销按类型 fa_card 分类（不归入 archives，与桥 WriteClass.cs 相同）。
@@ -151,11 +153,15 @@ def _str(value: object) -> str:
 
 
 def _lines(op: str, payload: dict) -> int:
-    """明细行数；销售发票参照多张发货单（sources）是各张来源 lines 的合计，与桥 WriteClass.LinesOf 一致。"""
+    """明细行数；销售发票参照多张发货单（sources）是各张来源 lines 的合计，与桥 WriteClass.LinesOf 一致。
+
+    产品检验单合并检验（source_ids）省略 lines 时，每条来源报检单行算一行。
+    """
     if op not in LINE_OPS:
         return 0
     lines = payload.get("lines")
-    count = len(lines) if isinstance(lines, list) else 0
+    merged = payload.get("source_ids") if lines is None else None
+    count = len(lines) if isinstance(lines, list) else (len(merged) if isinstance(merged, list) else 0)
     sources = payload.get("sources")
     if isinstance(sources, list):
         for one in sources:

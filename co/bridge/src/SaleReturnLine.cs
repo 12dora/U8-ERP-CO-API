@@ -118,6 +118,7 @@ namespace U8Co
                 DomRows.Set(doms[1], row, RetLineZero[i], "0", schema);
             }
             ScaleNega(doms[1], row, line.Qty, schema);
+            SaleTaxFlag.Keep(job.Ctx, doms[1], row, schema);
             ReturnMoney(job.Ctx, co, doms, row);
             row = At(doms[1], index);
             ApplyFields(doms[1], row, line.Fields, false);

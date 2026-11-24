@@ -18,12 +18,12 @@ namespace U8Co
         internal const int MaxItems = 20;
         internal const int MaxLimit = 20;
         internal const int MaxQ = 100;
-        const string KindHint = "两段编码的档案（收货地址、自定义项、客户存货对照、银行账户、联系人）、exchange_rate、fa_card、equipment 不支持解析，请用 archives/list";
+        const string KindHint = "两段编码的档案（收货地址、开票单位、自定义项、客户存货对照、银行账户、联系人）、exchange_rate、fa_card、equipment 不支持解析，请用 archives/list";
 
         // 不支持解析的档案：两列主键 / 挂在上级档案下的档案、汇率、固定资产卡片。
         static readonly HashSet<string> Excluded = new HashSet<string>(StringComparer.Ordinal)
         {
-            "customer_address", "customer_inventory", "user_define", "customer_bank", "vendor_bank",
+            "customer_address", "customer_invoice_company", "customer_inventory", "user_define", "customer_bank", "vendor_bank",
             "customer_contact", "vendor_contact", ArcExch.Name, ArcFa.Name,
             // 设备台账（ArcEq）：与 API 一致，不做名称解析。
             ArcEq.Name

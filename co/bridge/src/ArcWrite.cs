@@ -110,7 +110,7 @@ namespace U8Co
                 throw new BridgeException(504, "outcome_unknown", "U8 返回无法识别，档案 " + req.Code + " 的修改结果未知");
             }
             bool wanted = proc != "delete";
-            if (Present(ctx, req) == wanted)
+            if (Present(ctx, req, wanted) == wanted)
             {
                 return Done(req, proc);
             }
@@ -131,13 +131,25 @@ namespace U8Co
             return dsc;
         }
 
-        static bool Present(WorkContext ctx, ArcReq req)
+        // 新连接上回读：档案在不在；新增、修改（verify）成功后另核对存货 Sub 列（ArcInvSub.Verify，不符抛 502）。
+        static bool Present(WorkContext ctx, ArcReq req, bool verify)
         {
             object conn = null;
             try
             {
                 conn = ctx.OpenFresh();
-                return ArcRead.Exists(conn, req.Kind, req.Code);
+                bool exists = ArcRead.Exists(conn, req.Kind, req.Code);
+                BridgeException ignored = exists && verify ? ArcInvSub.Verify(req, ArcRead.Row(conn, req.Kind, req.Code)) : null;
+                if (ignored != null)
+                {
+                    CoRows.Note(ctx.Item, "arc " + req.Kind.Name + " " + req.Code + " " + ignored.Message);
+                    throw ignored;
+                }
+                return exists;
+            }
+            catch (BridgeException)
+            {
+                throw;
             }
             catch (Exception ex)
             {

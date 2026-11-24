@@ -15,6 +15,10 @@ namespace U8Co
             CheckCreateReadback();
             CheckTouchedOptional();
             CheckRefused();
+            CheckSubs();
+            CheckNested();
+            CheckSubsKeep();
+            CheckSubsRefused();
         }
 
         static void CheckCreate()
@@ -172,6 +176,114 @@ namespace U8Co
             BomAsk clear = BomReq.ParseUpdate(null, Lines(Map("op", "update", "sort_seq", 10, "optional", false)));
             BomMerge.Merge(clear, Head(), Current());
             Expect("bom optional parent skips cleared", !BomSql.AnyOptional(BomEdit.Touched(clear)));
+        }
+
+        // 替代料、定位符：新增按缺省补齐（优先级 1、系数 1、日期取子件行）；修改没带保留现有的，带了整组替换，空数组清空。
+        static void CheckSubs()
+        {
+            BomAsk ask = BomReq.ParseCreate(Map("inv_code", "P1"), Lines(Map("inv_code", "C1", "base_qty_n", 1,
+                "substitutes", new object[] { Map("inv_code", "S1"), Map("inv_code", "S2", "sequence", 2, "factor", 0.5,
+                    "replace_flag", true, "eff_begin", "2026-10-01", "eff_end", "2027-12-31") },
+                "locators", new object[] { Map("loc", "A1") })));
+            ask.EffDate = "2026-09-28";
+            List<BomRow> rows = BomMerge.Build(ask);
+            Expect("bom subs count", rows[0].Subs.Count == 2);
+            Expect("bom subs defaults", SubIs(rows[0].Subs[0], 1, 1m, 0, "2026-09-28", BomRow.EndDate));
+            Expect("bom subs given", SubIs(rows[0].Subs[1], 2, 0.5m, 1, "2026-10-01", "2027-12-31"));
+            Expect("bom locs", rows[0].Locs.Count == 1 && rows[0].Locs[0] == "A1");
+            CheckSubsReadback(rows);
+        }
+
+        static bool SubIs(BomSub sub, int seq, decimal factor, int replace, string beg, string end)
+        {
+            return sub.Seq == seq && sub.Factor == factor && sub.Replace == replace && sub.EffBeg == beg && sub.EffEnd == end;
+        }
+
+        // 回读核对：替代料按存货对上（顺序、大小写不论），定位符少了就不符。
+        static void CheckSubsReadback(List<BomRow> rows)
+        {
+            List<Dictionary<string, object>> back = new List<Dictionary<string, object>>();
+            back.Add(Map("sort_seq", "10", "inv_code", "C1", "substitutes", new List<object> { SubLine("S2", 2, 0.5m, true,
+                "2026-10-01", "2027-12-31"), SubLine("s1", 1, 1m, false, "2026-09-28", BomRow.EndDate) },
+                "locators", new List<object> { Map("sort_seq", 10, "loc", "A1") }));
+            Expect("bom subs readback", BomSubs.SameAll(back, rows));
+            ((List<object>)back[0]["locators"]).Clear();
+            Expect("bom locs dropped", !BomSubs.SameAll(back, rows));
+        }
+
+        // 数组字段登记（NestedFields）：物料清单只有明细行的 substitutes、locators 可以是数组。
+        static void CheckNested()
+        {
+            VoucherKind bom = Kinds.Find(BomRoutes.KindName);
+            Expect("bom nested lines", NestedFields.Allowed(bom, false, "Substitutes", new List<object>())
+                && NestedFields.Allowed(bom, false, "locators", new object[0]) && !NestedFields.Allowed(bom, true, "substitutes", new object[0])
+                && !NestedFields.Allowed(bom, false, "remark", new object[0]) && !NestedFields.Allowed(bom, false, "locators", "A1"));
+        }
+
+        static void CheckSubsKeep()
+        {
+            List<Dictionary<string, object>> current = Current();
+            current[0]["substitutes"] = new List<object> { SubLine("S1", 1, 1m, false, "2026-01-01", BomRow.EndDate) };
+            current[0]["locators"] = new List<object> { Map("sort_seq", 10, "loc", "A1") };
+            BomAsk keep = BomReq.ParseUpdate(null, Lines(Map("op", "update", "sort_seq", 10, "base_qty_n", 3)));
+            BomMerge.Merge(keep, Head(), current);
+            Expect("bom subs kept", keep.Rows[0].Subs.Count == 1 && keep.Rows[0].Subs[0].InvCode == "S1"
+                && keep.Rows[0].Locs.Count == 1);
+            List<Dictionary<string, object>> after = Current();
+            after[0]["base_qty_n"] = "3.000000";
+            after[0]["substitutes"] = current[0]["substitutes"];
+            after[0]["locators"] = current[0]["locators"];
+            Expect("bom subs kept readback", BomEdit.Same(Head(), after, keep));
+            after[0]["substitutes"] = new List<object>();
+            Expect("bom subs lost readback", !BomEdit.Same(Head(), after, keep));
+            BomAsk swap = BomReq.ParseUpdate(null, Lines(Map("op", "update", "sort_seq", 10,
+                "substitutes", new object[] { Map("inv_code", "S9", "factor", 2) })));
+            BomMerge.Merge(swap, Head(), current);
+            Expect("bom subs replaced", swap.Rows[0].Subs.Count == 1 && swap.Rows[0].Subs[0].InvCode == "S9"
+                && swap.Rows[0].Subs[0].Factor == 2m && swap.Rows[0].Subs[0].EffBeg == "2026-01-01" && swap.Rows[0].Locs.Count == 1);
+            Expect("bom subs replace touches", BomEdit.Touched(swap).Count == 1);
+            BomAsk clear = BomReq.ParseUpdate(null, Lines(Map("op", "update", "sort_seq", 10,
+                "substitutes", new object[0], "locators", new object[0])));
+            BomMerge.Merge(clear, Head(), current);
+            Expect("bom subs cleared", clear.Rows[0].Subs.Count == 0 && clear.Rows[0].Locs.Count == 0);
+            Expect("bom subs clear differs", !BomEdit.Same(Head(), current, clear));
+        }
+
+        static void CheckSubsRefused()
+        {
+            Refused("bom subs dup", delegate { SubsOf(Map("inv_code", "S1"), Map("inv_code", "s1")); });
+            Refused("bom subs factor", delegate { SubsOf(Map("inv_code", "S1", "factor", 0)); });
+            Refused("bom subs sequence", delegate { SubsOf(Map("inv_code", "S1", "sequence", 10001)); });
+            Refused("bom subs flag", delegate { SubsOf(Map("inv_code", "S1", "replace_flag", 1)); });
+            Refused("bom subs key", delegate { SubsOf(Map("inv_code", "S1", "qty", 1)); });
+            Refused("bom subs no inv", delegate { SubsOf(Map("factor", 1)); });
+            Refused("bom subs not list", delegate
+            {
+                BomReq.ParseCreate(Map("inv_code", "P1"), Lines(Map("inv_code", "C1", "base_qty_n", 1, "substitutes", "S1")));
+            });
+            Refused("bom locs dup", delegate
+            {
+                BomReq.ParseCreate(Map("inv_code", "P1"), Lines(Map("inv_code", "C1", "base_qty_n", 1,
+                    "locators", new object[] { Map("loc", "A1"), Map("loc", "A1") })));
+            });
+            Refused("bom subs dates", delegate
+            {
+                BomAsk ask = BomReq.ParseCreate(Map("inv_code", "P1"), Lines(Map("inv_code", "C1", "base_qty_n", 1,
+                    "substitutes", new object[] { Map("inv_code", "S1", "eff_begin", "2027-01-01", "eff_end", "2026-12-31") })));
+                ask.EffDate = "2026-09-28";
+                BomMerge.Build(ask);
+            });
+        }
+
+        static void SubsOf(params object[] subs)
+        {
+            BomReq.ParseCreate(Map("inv_code", "P1"), Lines(Map("inv_code", "C1", "base_qty_n", 1, "substitutes", subs)));
+        }
+
+        // 回读（BomSubs.Attach）里一条替代料的形状。
+        static Dictionary<string, object> SubLine(string inv, int seq, decimal factor, bool replace, string beg, string end)
+        {
+            return Map("sequence", seq, "inv_code", inv, "factor", factor, "replace_flag", replace, "eff_begin", beg, "eff_end", end);
         }
 
         static void MergeOf(Dictionary<string, object> line)

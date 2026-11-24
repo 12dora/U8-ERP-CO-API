@@ -10,6 +10,7 @@ namespace U8Co
     // 表体 1 到 200 行 {source_line_id, quantity, cwhcode?}。
     // 检验单（QM03 / QM04 参照报检单）：表头 ccheckpersoncode（必填）、cdepcode、project_code、cchkconclusion、fdtquantity、
     // ddate、cdefine1–16、chdefine11–16、items，另收 cyieldercode、dyielddate（让步接收核准人，QmYield）；表体恰好 1 行 {source_line_id, quantity, fregquantity?, fconquantiy?, fdisquantity?}。
+    // 产品检验单合并检验：source_ids 代替 id，表体见 QmMergeReq。
     internal static class QmReq
     {
         public const int ItemsMax = 50;
@@ -56,7 +57,16 @@ namespace U8Co
             }
             if (path == "/u8co/v1/vouchers/generate")
             {
-                Parse(spec, item.Head, item.Lines);
+                // 合并检验（source_ids 代替 id，QmMergeReq）。
+                if (QmMergeReq.Is(item))
+                {
+                    QmMergeReq.Parse(spec, item.Head, item.LineIds, item.Lines, new List<QmMergeLine>());
+                    QmMergeRules.Parse(Requests.Field(item.Body, QmMergeRules.Field));
+                }
+                else
+                {
+                    Parse(spec, item.Head, item.Lines);
+                }
                 item.SubId = QmCo.LoginSub;
                 return true;
             }
@@ -69,15 +79,15 @@ namespace U8Co
             return false;
         }
 
-        // Json.CheckMap 的钩子：检验单表头的 items 是数组，放行给 Parse 校验（其他检验单同样）。
-        public static bool ListField(VoucherKind kind, string key, object value)
+        public static QmAsk Parse(QmSpec spec, Dictionary<string, object> head, object[] lines)
         {
-            QmSpec spec = QmSpec.Of(kind);
-            bool check = (spec != null && !spec.Inspect) || QmOthSpec.IsCheck(kind);
-            return check && QmSpec.Same(key, "items") && value is IList;
+            QmAsk ask = ParseHead(spec, head);
+            ParseLines(ask, lines);
+            return ask;
         }
 
-        public static QmAsk Parse(QmSpec spec, Dictionary<string, object> head, object[] lines)
+        // 只校验表头（合并检验的表体另由 QmMergeReq 解析）。
+        internal static QmAsk ParseHead(QmSpec spec, Dictionary<string, object> head)
         {
             QmAsk ask = new QmAsk();
             ask.Spec = spec;
@@ -89,7 +99,6 @@ namespace U8Co
             {
                 throw FieldPath.Under(ex, "head");
             }
-            ParseLines(ask, lines);
             return ask;
         }
 

@@ -5,11 +5,12 @@ namespace U8Co
 {
     // 物料清单修改（vouchers/update，type=bom，id=BomId）：U8API BomUpdate，登录子系统 BO。
     // U8 的 ModifyBOM 不看状态（实测 B4），桥自己只改未审核（Status=1）、没进审批流的标准 BOM；
-    // 按 U8 BomBase._AddBomDetails（差异模式）：没送的替代料、定位符会被删掉，子件按 DInvCode 重取物料（自由项丢失），
-    // 所以行上带替代料、定位符、分段损耗或自由项的不改；自定义项、领料部门、辅计量只在送了时才写，没送保留原值，
-    // 可以改，但辅计量行的辅用量不随主用量重算，这类行不改用量。
+    // 按 U8 BomBase._AddBomDetails（差异模式）：没送的替代料、定位符会被删掉，所以每行都把现有的原样重送（保留），
+    // 调用方在行上给了 substitutes / locators 才换（BomSubs）；子件、替代料按 DInvCode 重取物料（自由项丢失），
+    // 分段损耗桥送不了，所以行上带分段损耗或自由项（读取里 client_only=1）的不改；自定义项、领料部门、辅计量只在送了时才写，
+    // 没送保留原值，可以改，但辅计量行的辅用量不随主用量重算，这类行不改用量。
     // 读出现有全部行和标志，叠上调用方的 add / update / delete（BomMerge），以 UpdateByDiff=true 送全部行。
-    // 调用后在新连接上回读，表头（版本说明、生效日期、母件损耗率）和每行送给 U8 的全部字段与要写的一致才算成功；
+    // 调用后在新连接上回读，表头（版本说明、生效日期、母件损耗率）和每行送给 U8 的全部字段、替代料、定位符与要写的一致才算成功；
     // 不一致时 IPC 错误 503、调用异常 504、U8 返回成功却不一致 409。
     internal static class BomEdit
     {
@@ -43,10 +44,10 @@ namespace U8Co
             for (int i = 0; i < lines.Count; i++)
             {
                 string seq = CoRows.Col(lines[i], "sort_seq");
-                if (CoRows.Col(lines[i], "extras") == "1")
+                if (CoRows.Col(lines[i], "client_only") == "1")
                 {
                     throw new BridgeException(409, "state_mismatch", "第 " + seq
-                        + " 行带替代料、定位符、分段损耗或自由项，请在 U8 客户端修改");
+                        + " 行带分段损耗或自由项（子件或替代料），请在 U8 客户端修改");
                 }
                 if (CoRows.Col(lines[i], "aux_unit").Trim().Length > 0 && qty.Contains(BomSql.Int(seq)))
                 {

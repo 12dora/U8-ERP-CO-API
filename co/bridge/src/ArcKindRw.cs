@@ -1,6 +1,7 @@
 namespace U8Co
 {
-    // 货位、计量单位、自定义项档案、客户存货对照改为可写，走 EAI（U8SrvTrans.IClsCommon，与九类档案同一条路）。
+    // 货位、计量单位、自定义项档案、客户存货对照改为可写，走 EAI（U8SrvTrans.IClsCommon，与九类档案同一条路）；
+    // 自定义项档案、客户存货对照的 EAI 不提供修改，修改走受控 SQL（ArcPairEdit）。
     // get、list 仍按表列名返回（RoRead），新增、修改、删除的字段是 RsXml 的 EAI 标签。调用 U8 之前的校验在 ArcGuard。
     // EAI 目录（EAI\XML\Operation\Dir.xml）里这四个根标签都是 in="y"，Distribute.xml 指向 U8SrvTrans.IclsCommon。
     internal static class ArcKindRw
@@ -32,14 +33,13 @@ namespace U8Co
         }
 
         // 自定义项档案 DefineXmlRs.xml（根标签 define，表 UserDefine）：编码 "<自定义项号>:<档案值>" 拆成 id、value 两个标签发送，
-        // 两者都不能在 fields 里改；可写的只有别名 alias、条码 barcode。名称就是档案值，新增不要求 name。
+        // 两者都不能在 fields 里改；可写的只有别名 alias、条码 barcode。名称就是档案值，新增不要求 name。修改见 ArcPairEdit。
         internal static ArcKind Define(ArcKind k)
         {
             Eai(k, "define", "DefineXmlRs.xml");
             k.CodeTags = new string[] { "id", "value" };
             k.Block = new string[] { "id", "value" };
             k.NameTag = null;
-            k.NoUpdate = true;
             return k;
         }
 
@@ -51,7 +51,6 @@ namespace U8Co
             k.CodeTags = new string[] { "ccuscode", "cinvcode" };
             k.Block = new string[] { "ccuscode", "cinvcode" };
             k.NameTag = "ccusinvname";
-            k.NoUpdate = true;
             return k;
         }
 

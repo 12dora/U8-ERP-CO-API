@@ -102,7 +102,10 @@ namespace U8Co
         {
             body["state"] = MoState(ctx.Conn, kind, id, lines);
             bool truncated;
-            body["allocations"] = Allocations(ctx.Conn, kind, lines, out truncated);
+            List<Dictionary<string, object>> allocs = Allocations(ctx.Conn, kind, lines, out truncated);
+            // 每个子件的替代料（mom_moallocatesub）挂在 substitutes 下，见 MoSubs。
+            MoSubs.Attach(ctx.Conn, allocs);
+            body["allocations"] = allocs;
             if (truncated)
             {
                 body["allocations_truncated"] = true;

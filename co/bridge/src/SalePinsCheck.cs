@@ -10,7 +10,8 @@ namespace U8Co
     internal sealed partial class SalePins
     {
         const string CatalogSql = "SELECT LOWER(TABLE_NAME) AS t, LOWER(COLUMN_NAME) AS c, DATA_TYPE AS ty,"
-            + " CHARACTER_MAXIMUM_LENGTH AS len FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME IN ({0})";
+            + " CHARACTER_MAXIMUM_LENGTH AS len, NUMERIC_PRECISION AS prec, NUMERIC_SCALE AS sc"
+            + " FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='dbo' AND TABLE_NAME IN ({0})";
         const string AgreementSql = "SELECT LTRIM(RTRIM(cCode)) AS code,"
             + " ISNULL(CONVERT(varchar(10), dEDate, 23),'') AS ended FROM AA_Agreement WHERE cCode=?";
         const string AddrSql = "SELECT TOP 1 LTRIM(RTRIM(cAddCode)) AS code FROM CusDeliverAdd WHERE cCusCode=? AND cAddCode=?";
@@ -61,10 +62,12 @@ namespace U8Co
             return pins;
         }
 
-        // 发货单参照销售订单：收货地址须属于订单客户。
-        internal static SalePins ForDispatch(object conn, string date, int sourceId, Dictionary<string, object> head)
+        // 发货单参照销售订单：收货地址须属于订单客户；表体扩展自定义项按来源订单行记下（TakeDispatchLines）。
+        internal static SalePins ForDispatch(object conn, string date, int sourceId, Dictionary<string, object> head,
+            List<InvPinLine> lines)
         {
             SalePins pins = Collect(Dispatch, head, null, false);
+            TakeDispatchLines(pins, lines);
             pins.Date = date;
             pins.Customer = Rows.Scalar(conn, OrderCusSql, new object[] { sourceId }) ?? "";
             pins.Check(conn);
@@ -119,14 +122,27 @@ namespace U8Co
             List<Dictionary<string, object>> rows = Rows.Query(conn, sql, args.ToArray(), 2000);
             for (int i = 0; i < rows.Count; i++)
             {
-                SaleCol col = new SaleCol();
-                col.Type = CoRows.Col(rows[i], "ty").ToLowerInvariant();
-                col.Kind = KindOf(col.Type);
-                int len;
-                col.Len = int.TryParse(CoRows.Col(rows[i], "len"), NumberStyles.Integer, CultureInfo.InvariantCulture, out len) ? len : 0;
-                cat[CoRows.Col(rows[i], "t") + "." + CoRows.Col(rows[i], "c")] = col;
+                cat[CoRows.Col(rows[i], "t") + "." + CoRows.Col(rows[i], "c")] = ColOf(rows[i]);
             }
             return cat;
+        }
+
+        // 列目录的一行：类型、字符长度、数值精度与小数位（非数值列为 0）。
+        internal static SaleCol ColOf(Dictionary<string, object> row)
+        {
+            SaleCol col = new SaleCol();
+            col.Type = CoRows.Col(row, "ty").ToLowerInvariant();
+            col.Kind = KindOf(col.Type);
+            col.Len = IntOf(CoRows.Col(row, "len"));
+            col.Prec = IntOf(CoRows.Col(row, "prec"));
+            col.Scale = IntOf(CoRows.Col(row, "sc"));
+            return col;
+        }
+
+        static int IntOf(string text)
+        {
+            int n;
+            return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out n) ? n : 0;
         }
 
         internal static string KindOf(string type)
@@ -166,12 +182,7 @@ namespace U8Co
             }
             if (pin.Col.Kind == "number")
             {
-                decimal n;
-                // 与计算路径同一解析（SoUnits.Dec，认指数，如件数 "1E+01"）。
-                if (!SoUnits.Dec(v, out n))
-                {
-                    throw BridgeException.BadField(pin.Path, pin.Field + " 必须是数值");
-                }
+                CheckNumber(pin);
                 return;
             }
             if (pin.Col.Kind == "date")

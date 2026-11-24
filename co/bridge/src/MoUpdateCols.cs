@@ -44,7 +44,7 @@ namespace U8Co
             "QmFlag", "InvAlloeFlag", "MoallocateSubId"
         };
         public const string GuardText = "子件有 U8 修改接口不能保留的设置（{0}），不能修改";
-        // 每个子件的替代料行数（mom_moallocatesub）；有替代料的订单调用前就拒绝（扩展实体不带替代料）。
+        // 每个子件的替代料行数（mom_moallocatesub）；扩展实体不带替代料，修改后由 MoUpdateSubs 写回，回读核对行数不变。
         public const string Subs = "subs";
         public const string NullMark = "<null>";
         // Update 之后按快照写回的列（原样写回，NullMark 写回 NULL），顺序即 RestoreSql 里 ? 的顺序；最后两个 ? 是 UpperMoQty 和 AllocateId。

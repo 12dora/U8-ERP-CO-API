@@ -12,7 +12,7 @@ namespace U8Co
         {
             // 取消应收冲应付 / 应付冲应收 / 并账（ArapProcCancelReq）、处理制单（RequestsProcVoucher）同样不带 type、id。
             return path == OpeningPostReq.Path || path == OpeningsArapReq.Path || path == PeriodCloseReq.Path
-                || IaReq.IsPath(path) || ArapProcCancelReq.IsPath(path) || IsProcVoucher(path)
+                || IsIaRoute(path) || ArapProcCancelReq.IsPath(path) || IsProcVoucher(path)
                 // 汇兑损益、取消汇兑损益（ArapExGainReq）同样不带 type、id。
                 || ArapExGainReq.IsPath(path)
                 // 坏账处理（ArapBadReq）同样不带 type、id。
@@ -42,12 +42,22 @@ namespace U8Co
             {
                 return GlTransferReq.ActionOf(path);
             }
+            // 存货核算制单、取消制单：ia_voucher / ia_voucher_delete（IaVoucherReq.ActionOf）。
+            if (IaVoucherReq.IsPath(path))
+            {
+                return IaVoucherReq.ActionOf(path);
+            }
             return IaReq.IsPath(path) ? IaReq.DefaultAction(path) : ProcVoucherAction(path);
         }
 
         // 不是 ia/post、ia/period_end 返回 false，不动任务。
         static bool ApplyIa(Dictionary<string, object> body, WorkItem item, string path)
         {
+            // 存货核算制单、取消制单（ApplyIaVoucher，RequestsIaVoucher.cs）。
+            if (ApplyIaVoucher(body, item, path))
+            {
+                return true;
+            }
             if (!IaReq.IsPath(path))
             {
                 return false;

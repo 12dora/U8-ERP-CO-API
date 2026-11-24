@@ -20,6 +20,7 @@ _TIER2_OPS = (
     ("/v1/co/ia/post", "post"),
     ("/v1/co/gl/vouchers/unpost", "post"),
     ("/v1/co/gl/transfer/pnl", "post"),
+    ("/v1/co/ia/voucher", "post"),
     ("/v1/co/arap/bad_debt", "post"),
     ("/v1/co/arap/exchange_gain", "post"),
 )

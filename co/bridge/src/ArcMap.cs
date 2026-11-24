@@ -55,22 +55,40 @@ namespace U8Co
             {
                 return kind.SqlMap ?? Empty;
             }
+            // 带扩展标签的档案（存货）按档案名单独缓存，其余按文件名。
+            string key = kind.Extra.Length == 0 ? kind.RsFile : kind.RsFile + "|" + kind.Name;
             lock (Gate)
             {
-                if (Cache.TryGetValue(kind.RsFile, out map))
+                if (Cache.TryGetValue(key, out map))
                 {
                     return map;
                 }
             }
             ArcMap loaded = Load(kind.RsFile);
+            loaded.Append(kind.Extra);
             lock (Gate)
             {
-                if (!Cache.TryGetValue(kind.RsFile, out map))
+                if (!Cache.TryGetValue(key, out map))
                 {
-                    Cache[kind.RsFile] = loaded;
+                    Cache[key] = loaded;
                     map = loaded;
                 }
                 return map;
+            }
+        }
+
+        // 扩展标签：标签、列名成对；RsXml 里已有的标签不覆盖。
+        internal void Append(string[] pairs)
+        {
+            for (int i = 0; i + 1 < pairs.Length; i += 2)
+            {
+                if (_canon.ContainsKey(pairs[i]))
+                {
+                    continue;
+                }
+                _tags.Add(pairs[i]);
+                _canon[pairs[i]] = pairs[i];
+                _column[pairs[i]] = pairs[i + 1];
             }
         }
 

@@ -69,6 +69,15 @@ def default_hint(status: int, code: str) -> str | None:
     return DEFAULT_HINTS.get(code)
 
 
+class FieldValueError(ValueError):
+    """模型校验里能指出请求字段的错误：field 是点分路径（如 lines.0.cbdefine5），400 响应带上它和这条说明。
+    仍是 ValueError，pydantic 照常收进校验错误（ctx.error），http._validation 从那里取出。"""
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field
+
+
 class ApiError(Exception):
     # retry_after：可以稍后重试的错误写进 Retry-After 响应头（秒），其余为 None。
     # field：出错的请求字段路径（点分，如 lines.0.cinvcode），只用于 400、409（和 403 operator_forbidden）。

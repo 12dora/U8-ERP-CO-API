@@ -74,6 +74,7 @@ from co.client.u8co_arc_cus import U8CoArcCusMixin  # 客户主数据专用写�
 from co.client.u8co_head_fix import U8CoHeadFixMixin  # 历史发货单表头修正
 from co.client.u8co_so_defines import U8CoSoDefinesMixin  # 销售订单表头自定义项写入
 from co.client.u8co_invoice import U8CoInvoiceMixin  # 销售发票参照多张发货单（sources）
+from co.client.u8co_qm_merge import U8CoQmMergeMixin  # 产品检验单合并检验（source_ids）
 from co.client.u8co_reports import U8CoReportsMixin  # 只读报表
 from co.client.u8co_meta import U8CoMetaMixin  # 字段元数据
 from co.client.u8co_lock import U8CoLockMixin  # 销售订单 / 采购订单锁定、解锁
@@ -88,6 +89,7 @@ from co.client.u8co_gl_digest import U8CoGlDigestMixin  # 总账凭证摘要（�
 from co.client.u8co_gl_unpost import U8CoGlUnpostMixin  # 总账取消记账（测试账套）
 from co.client.u8co_gl_reverse import U8CoGlReverseMixin  # 总账红字冲销
 from co.client.u8co_gl_transfer import U8CoGlTransferMixin  # 期间损益结转、自定义转账（测试账套）
+from co.client.u8co_ia_voucher import U8CoIaVoucherMixin  # 存货核算制单、取消制单（测试账套）
 from co.client.u8co_reports_mgmt_gl import U8CoMgmtGlMixin  # 经营管理报表（总账口径）
 from co.client.u8co_reports_mgmt_sa import U8CoMgmtSaMixin  # 经营管理报表（销售分析、往来账期）
 from co.client.u8co_notes_read import U8CoNotesReadMixin  # 票据读取
@@ -236,7 +238,7 @@ class U8CoClient(
     U8CoAssistMixin, U8CoLookupMixin, U8CoArapProcMixin, U8CoGlDigestMixin, U8CoNotesReadMixin,
     U8CoArapProcListMixin, U8CoNotesRegMixin, U8CoNotesProcMixin, U8CoArapBadMixin, U8CoGlUnpostMixin,
     U8CoGlReverseMixin, U8CoMgmtGlMixin, U8CoMgmtSaMixin, U8CoGlTransferMixin, U8CoArcCusMixin,
-    U8CoHeadFixMixin, U8CoSoDefinesMixin, U8CoInvoiceMixin,
+    U8CoHeadFixMixin, U8CoSoDefinesMixin, U8CoInvoiceMixin, U8CoQmMergeMixin, U8CoIaVoucherMixin,
 ):
     def __init__(self, base_url: str, secret_hex: str, timeout: float = 90, long_timeout: float = 1000) -> None:
         # long_timeout：存货核算记账、期末处理和经过存货核算的月末结账的超时（u8co_ia.is_long_call），不小于 timeout。
@@ -300,7 +302,7 @@ class U8CoClient(
     def update_voucher(self, call: U8Call, draft: VoucherEdit) -> dict[str, Any]:
         fields = _typed(call, draft.kind, _UPDATABLE)
         head = qm_head(draft.kind, draft.head, _present_row)  # 检验单修改的 head 可带 items
-        lines = _present_lines(draft.lines)
+        lines = _present_lines(draft.lines, draft.kind)  # 物料清单行可带 substitutes、locators 数组
         if head is None and lines is None:
             raise ValueError("没有要修改的内容")
         if head is not None:

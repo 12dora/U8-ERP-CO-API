@@ -168,6 +168,12 @@ namespace U8Co
             }
         }
 
+        // 同表蓝字 / 红字单据的区分条件（别名 h）：列表、搜索、附件共用，与写入侧的蓝字 / 红字类型核对同一口径。
+        internal const string BlueDispatch = "ISNULL(h.bReturnFlag, 0) = 0";
+        internal const string RedDispatch = "h.bReturnFlag = 1";
+        internal const string BlueArrival = "ISNULL(h.iBillType, 0) = 0";
+        internal const string RedArrival = "h.iBillType = 1";
+
         const string SaExtra = "h.cSTCode AS sale_type, h.cBusType AS bus_type, h.iswfcontrolled AS wf, "
             + "h.dcreatesystime AS created_at, h.dmodifysystime AS modified_at, h.cLocker AS locker";
         const string DlExtra = "h.cSTCode AS sale_type, h.cBusType AS bus_type, h.cSOCode AS so_code, "
@@ -195,16 +201,16 @@ namespace U8Co
                 new string[] { "dispatch", "DispatchList", "DLID", "h.cDLCode", "h.dDate",
                     "h.cCusCode", null, null, "h.cDepCode", "h.cPersonCode", "h.cMaker",
                     "h.cVerifier", "h.dverifydate", "h.cCloser", null, null, "h.bReturnFlag",
-                    "ufts", null, null, null, "h.cVouchType = N'05'", DlExtra, null },
+                    "ufts", null, null, null, "h.cVouchType = N'05' AND " + BlueDispatch, DlExtra, null },
                 new string[] { "sale_invoice", "SaleBillVouch", "SBVID", "h.cSBVCode", "h.dDate",
                     "h.cCusCode", null, null, "h.cDepCode", "h.cPersonCode", "h.cMaker",
                     "h.cChecker", "h.dverifydate", null, null, null, "h.bReturnFlag",
                     "ufts", null, null, null, null, SbvExtra, SbvApply },
-                // 退货单：同发货单表，只列红字。
+                // 退货单：同发货单表，只列红字；发货单只列蓝字。
                 new string[] { "sale_return", "DispatchList", "DLID", "h.cDLCode", "h.dDate",
                     "h.cCusCode", null, null, "h.cDepCode", "h.cPersonCode", "h.cMaker",
                     "h.cVerifier", "h.dverifydate", "h.cCloser", null, null, "h.bReturnFlag",
-                    "ufts", null, null, null, "h.cVouchType = N'05' AND h.bReturnFlag = 1", DlExtra, null }
+                    "ufts", null, null, null, "h.cVouchType = N'05' AND " + RedDispatch, DlExtra, null }
             };
         }
 
@@ -230,16 +236,16 @@ namespace U8Co
                 new string[] { "arrival", "PU_ArrivalVouch", "ID", "h.cCode", "h.dDate",
                     null, "h.cVenCode", null, "h.cDepCode", "h.cPersonCode", "h.cMaker",
                     "h.cverifier", "h.cAuditDate", "h.ccloser", null, null, "h.iBillType",
-                    "ufts", null, null, null, null, ArrExtra, null },
+                    "ufts", null, null, null, BlueArrival, ArrExtra, null },
                 new string[] { "purchase_invoice", "PurBillVouch", "PBVID", "h.cPBVCode", "h.dPBVDate",
                     null, "h.cVenCode", null, "h.cDepCode", "h.cPersonCode", "h.cPBVMaker",
                     "h.cVerifier", "h.cAuditDate", null, null, null, null,
                     "ufts", null, null, null, null, PbvExtra, null },
-                // 采购退货单（红字到货单，PuRet）：同到货单的表，只列 iBillType=1。
+                // 采购退货单（红字到货单，PuRet）：同到货单的表，只列 iBillType=1；到货单只列蓝字（iBillType 为 0 或空）。
                 new string[] { "purchase_return", "PU_ArrivalVouch", "ID", "h.cCode", "h.dDate",
                     null, "h.cVenCode", null, "h.cDepCode", "h.cPersonCode", "h.cMaker",
                     "h.cverifier", "h.cAuditDate", "h.ccloser", null, null, "h.bNegative",
-                    "ufts", null, null, null, "h.iBillType = 1", ArrExtra, null }
+                    "ufts", null, null, null, RedArrival, ArrExtra, null }
             };
         }
     }

@@ -436,12 +436,15 @@ namespace U8Co
         }
 
         // 制单的凭证保存走 U8PzInsert.clsPZInsert（同 gl-write：ToEAICon 设连接，Transact(xml, login) 引用 {1}）。
+        // 存货核算制单（IaVoucher）同样经它保存。
+        const string VoucherRoutes = Requests.ArapVoucherPath + "," + IaVoucherReq.Path;
+
         static SigNeed[] ArapVoucherSigs()
         {
             return new SigNeed[]
             {
-                Need("arap-voucher", Requests.ArapVoucherPath, "U8PzInsert.clsPZInsert", "Transact", "callref 2 ref=1"),
-                Need("arap-voucher", Requests.ArapVoucherPath, "U8PzInsert.clsPZInsert", "ToEAICon", "set 1"),
+                Need("arap-voucher", VoucherRoutes, "U8PzInsert.clsPZInsert", "Transact", "callref 2 ref=1"),
+                Need("arap-voucher", VoucherRoutes, "U8PzInsert.clsPZInsert", "ToEAICon", "set 1"),
             };
         }
 

@@ -37,6 +37,25 @@ namespace U8Co
         // 账套缺省值，一个请求只查一次（AccDefaults）。读的是本请求的 Conn。
         string _home;
         string _purchaseType;
+        string _salePriceTaxed;
+        // SaleTaxFlag：最近一个表体 DOM 和它的 schema（每个 DOM 只读一次）；两类审计各记一次。
+        internal object SaleTaxDom;
+        internal List<string> SaleTaxSchema;
+        internal bool SaleTaxNotedOption;
+        internal bool SaleTaxNotedSchema;
+
+        // 销售报价是否含税（SA.bSalePrice）："1" / "0"，读不到空串。新增、生成销售行时写到行的 bsaleprice（SaleTaxFlag）。
+        public string SalePriceTaxed
+        {
+            get
+            {
+                if (_salePriceTaxed == null)
+                {
+                    _salePriceTaxed = AccDefaults.SalePriceTaxed(Conn);
+                }
+                return _salePriceTaxed;
+            }
+        }
 
         public string HomeCurrency
         {

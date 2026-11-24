@@ -26,6 +26,8 @@ namespace U8Co
         public bool Wf;
         // 让步接收核准人 {编码, 姓名, 日期}（QmYield.Resolve）；编码为空时不写。
         public string[] Yield;
+        // 合并检验的来源（QmMergeSrc）；单行生单为 null。合并时 Head / Line 是表头取用的那条来源，LineAsk 是各来源之和。
+        public QmMergeSet Merge;
     }
 
     // 检验单的来源：QM03 参照来料报检单（QM01）、QM04 参照产品报检单（QM02）。报检单必须已审核；
@@ -35,14 +37,29 @@ namespace U8Co
     {
         public static QmChkJob Load(WorkContext ctx, QmSpec spec, int inspectId, QmAsk ask)
         {
-            object conn = ctx.Conn;
+            QmChkJob job = New(ctx, spec, ask, ask.Lines[0], inspectId);
+            Inspect(ctx.Conn, job);
+            Finish(job);
+            return job;
+        }
+
+        internal static QmChkJob New(WorkContext ctx, QmSpec spec, QmAsk ask, QmLineAsk line, int inspectId)
+        {
             QmChkJob job = new QmChkJob();
             job.Ctx = ctx;
             job.Spec = spec;
             job.Ask = ask;
-            job.LineAsk = ask.Lines[0];
+            job.LineAsk = line;
             job.InspectId = inspectId;
-            Inspect(conn, job);
+            return job;
+        }
+
+        // 报检单表头、行已就位之后：日期、检验员、部门、检验方案、审批流、抽检量、结论、让步接收核准人。
+        internal static void Finish(QmChkJob job)
+        {
+            WorkContext ctx = job.Ctx;
+            QmAsk ask = job.Ask;
+            object conn = ctx.Conn;
             job.Date = ask.Date.Length > 0 ? ask.Date : (ctx.Item.Date ?? "").Trim();
             job.Time = QmDom.Now();
             job.PersonName = Person(conn, ask.Get("ccheckpersoncode"));
@@ -56,13 +73,12 @@ namespace U8Co
                 throw new BridgeException(409, "state_mismatch", "检验方案没有检验指标：" + CoRows.Col(job.Project, "CPROJECTCODE"));
             }
             job.TypeName = QmSql.CheckTypeName(conn, CoRows.Col(job.Head, "CCHECKTYPECODE"));
-            job.Wf = QmSql.FlowOn(conn, spec.VouchType);
+            job.Wf = QmSql.FlowOn(conn, job.Spec.VouchType);
             job.Dt = ask.Dt > 0m ? ask.Dt : 1m;
             job.Conclusion = Or(ask.Get("cchkconclusion"), QmMath.Conclusion(job.LineAsk.Dis));
             // 有让步数量时来料 / 产品检验单要有让步接收核准人（模板必输）。
             QmYield.Require(ask.Get(QmYield.CodeKey), "", job.LineAsk.Con, true, "head." + QmYield.CodeKey);
             job.Yield = QmYield.Resolve(conn, ask.Get(QmYield.CodeKey), ask.Get(QmYield.DateKey), job.Date, "head.");
-            return job;
         }
 
         static void Inspect(object conn, QmChkJob job)

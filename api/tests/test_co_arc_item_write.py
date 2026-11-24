@@ -1,6 +1,7 @@
-"""Archive kinds position, unit, user_define and customer_inventory become writable through EAI —
-forwarding of create/update/delete and the checks made before the bridge. user_define and
-customer_inventory have no update in U8, so the API refuses those updates before the bridge."""
+"""Archive kinds position, unit, user_define and customer_inventory are writable — forwarding of
+create/update/delete and the checks made before the bridge. Create and delete go through EAI; U8 has no
+EAI update for user_define and customer_inventory, so the bridge edits their non-key columns with SQL and
+the API only lets the editable tags through."""
 
 from __future__ import annotations
 
@@ -14,7 +15,12 @@ from tests.test_co_update_close_gen import _enum, _spec
 
 _ARC = "/v1/co/archives/"
 _ITEM_KINDS = ("position", "unit", "user_define", "customer_inventory")
-_UPD7 = ("position", "unit")
+_UPD = {
+    "position": {"barcode": "B1"},
+    "unit": {"barcode": "B1"},
+    "user_define": {"alias": "KD", "barcode": "B1"},
+    "customer_inventory": {"ccusinvname": "客户叫法", "boutinvdt": True, "fdtrate": 0.5},
+}
 _CODES = {
     "position": "ZZ01",
     "unit": "ZZ260928",
@@ -30,7 +36,7 @@ _NEW = {
 
 _FORWARD = (
     *((_ARC + "create", _auth(archive=a, code=_CODES[a], fields=_NEW[a]), _sealed("archive", "code", "fields")) for a in _ITEM_KINDS),
-    *((_ARC + "update", _auth(archive=a, code=_CODES[a], fields={"barcode": "B1"}), _sealed("archive", "code", "fields")) for a in _UPD7),
+    *((_ARC + "update", _auth(archive=a, code=_CODES[a], fields=_UPD[a]), _sealed("archive", "code", "fields")) for a in _UPD),
     *((_ARC + "delete", _auth(archive=a, code=_CODES[a]), _sealed("archive", "code")) for a in _ITEM_KINDS),
     (
         _ARC + "create",
@@ -63,9 +69,12 @@ _REJECTS = (
     (_ARC + "delete", _auth(archive="customer_inventory", code="C001:" + "9" * 61)),
     (_ARC + "create", _auth(archive="user_define", code="1" * 11 + ":x", fields={"alias": "x"})),
     (_ARC + "delete", _auth(archive="customer_inventory", code="C001: 01")),
-    # U8 不提供修改的两类档案：API 按参数无效拒绝，不转给桥。
-    (_ARC + "update", _auth(archive="user_define", code="1002:快递", fields={"alias": "x"})),
-    (_ARC + "update", _auth(archive="customer_inventory", code="C001:01", fields={"ccusinvname": "x"})),
+    # 自定义项档案、客户存货对照的修改只收可改的标签：编码两段和未知标签不转给桥。
+    (_ARC + "update", _auth(archive="user_define", code="1002:快递", fields={"value": "x"})),
+    (_ARC + "update", _auth(archive="user_define", code="1002:快递", fields={"id": "1003"})),
+    (_ARC + "update", _auth(archive="customer_inventory", code="C001:01", fields={"ccuscode": "C002"})),
+    (_ARC + "update", _auth(archive="customer_inventory", code="C001:01", fields={"cinvcode": "02"})),
+    (_ARC + "update", _auth(archive="customer_inventory", code="C001:01", fields={"nosuch": "x"})),
     # 两列主键的档案不收 template。
     (_ARC + "create", _auth(archive="user_define", code="1002:快递", fields={"alias": "x"}, template="1002:顺丰")),
     (
@@ -97,5 +106,5 @@ def test_openapi_lists_item_kinds_for_writes() -> None:
         assert set(_ITEM_KINDS) <= set(_enum(spec, schema, "archive"))
         assert "trade_class" not in _enum(spec, schema, "archive")
     update = set(_enum(spec, "ArcUpdateIn", "archive"))
-    assert set(_UPD7) <= update
-    assert not {"user_define", "customer_inventory", "trade_class"} & update
+    assert set(_UPD) <= update
+    assert "trade_class" not in update

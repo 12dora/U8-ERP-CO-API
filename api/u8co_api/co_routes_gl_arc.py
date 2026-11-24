@@ -165,7 +165,8 @@ _ARC_ROUTES = (
                 (
                     "可写档案按 EAI 标签名返回全部有值的标签（含银行账号、联系方式），只去掉口令类列",
                     "只读档案（科目、计量单位、结算方式、凭证类别、币种、项目、货位等，见 archive）按表列名返回",
-                    "customer_address、user_define、customer_inventory 的编码写成 `<第一段>:<第二段>`",
+                    "customer_address、customer_invoice_company、user_define、customer_inventory 的编码写成"
+                    " `<第一段>:<第二段>`",
                     "exchange_rate 的编码写成 `<币种>:<年度>:<期间>[:<日>]`",
                     "exchange_rate 写成 `<币种>:<yyyy-mm-dd>` 时，返回该日期单据会用的汇率",
                     "按日期取汇率同 U8：固定汇率取当月记账汇率，浮动汇率取当日汇率",
@@ -192,7 +193,8 @@ _ARC_ROUTES = (
             (
                 "规则",
                 (
-                    "customer_address、user_define、customer_inventory 的编码是 `<第一段>:<第二段>`",
+                    "customer_address、customer_invoice_company、user_define、customer_inventory 的编码是"
+                    " `<第一段>:<第二段>`",
                     "上述两段编码的档案：code_prefix 按整串匹配，class_code 是第一段",
                     "exchange_rate 每行是一个币种一个期间（浮动汇率是一天）的 rate 和 adjust_rate",
                     "fa_card 取登录月末的卡片版本",
@@ -201,7 +203,8 @@ _ARC_ROUTES = (
             (
                 "限制",
                 (
-                    "没有 ufts、不支持 changed_since：voucher_sign、project、customer_address、fa_card、operator、role",
+                    "没有 ufts、不支持 changed_since：voucher_sign、project、customer_address、"
+                    "customer_invoice_company、fa_card、operator、role",
                     "客户、供应商银行账户（customer_bank、vendor_bank）也没有 ufts",
                 ),
             ),
@@ -219,7 +222,7 @@ _ARC_ROUTES = (
         (ArcCreateIn, ArcWriteOut),
         "新增档案",
         op_doc(
-            "通过 U8 EAI 新增一条档案（项目走受控 SQL）。",
+            "通过 U8 EAI 新增一条档案（项目、收付款协议走受控 SQL）。",
             (
                 "用法",
                 (
@@ -239,6 +242,7 @@ _ARC_ROUTES = (
                     "也走 EAI：开户银行、货位、计量单位、自定义项档案（user_define）、客户存货对照",
                     "也走 EAI：计量单位组、结算方式、收发类别、采购类型、销售类型、地区分类、银行档案",
                     "project 走受控 SQL：fields 只收 name、bclose、citemccode（末级分类），桥自己提交后回读",
+                    "pay_agreement 走受控 SQL：fields 的标签是表列名，cName 必填，条款列缺省 0，桥自己提交后回读",
                     "user_define、customer_inventory 的编码写成 `<第一段>:<第二段>`，不收 template",
                     "分级的档案按编码方案校验上级",
                     "fa_card 固定资产卡片：走 U8 官方 EAI 导入原始卡片，code 是资产编号",
@@ -248,7 +252,13 @@ _ARC_ROUTES = (
                     "U8 自己提交",
                 ),
             ),
-            ("错误", (_ARC_UNKNOWN,)),
+            (
+                "错误",
+                (
+                    "502 u8_fields_ignored：存货已保存，但 U8 没写入调用方给的某些 Inventory_Sub 列（error.detail.fields）",
+                    _ARC_UNKNOWN,
+                ),
+            ),
             ("相关", ("fa_card 新增后用 archives/get 读",)),
         ),
     ),
@@ -263,11 +273,21 @@ _ARC_ROUTES = (
                 (
                     "不能改编码",
                     "project 只能改 name、bclose、citemccode",
+                    "user_define 只能改 alias、barcode，customer_inventory 不能改编码两段：桥直接改表（U8 的 EAI 不提供修改）",
+                    "pay_agreement 走受控 SQL，fields 的标签是表列名；dEDate 空串清除停用日期",
+                    "user_define 的 alias、barcode 在同一自定义项下不能与别的档案值重复",
                     "currency 不能改名称和币种符号",
                     "U8 自己提交",
                 ),
             ),
-            ("错误", (_ARC_UNKNOWN,)),
+            (
+                "错误",
+                (
+                    "409 state_mismatch：user_define 的代码、条码已被同一自定义项的别的档案值使用",
+                    "502 u8_fields_ignored：存货已保存，但 U8 没写入调用方给的某些 Inventory_Sub 列（error.detail.fields）",
+                    _ARC_UNKNOWN,
+                ),
+            ),
         ),
     ),
     _arc(
@@ -280,6 +300,7 @@ _ARC_ROUTES = (
                 "规则",
                 (
                     "project 走受控 SQL，删除后回读确认",
+                    "pay_agreement 走受控 SQL，已被客户、供应商档案或单据引用的不能删除",
                     "fa_card（code 是卡片编号）只撤销本期新增、只有一个版本（没有变动单、未减少）的卡片",
                     "撤销 fa_card 不是资产减少；资产减少请在 U8 客户端处理",
                     "U8 自己提交",
@@ -294,6 +315,7 @@ _ARC_ROUTES = (
                     "409 state_mismatch：计量单位组、结算方式、收发类别、采购类型、销售类型、币种、地区分类、"
                     "银行档案有下级、被主要档案或单据引用，或是本位币（桥先拒绝）",
                     "409 state_mismatch：fa_card 不是本期新增，或已有变动单、已减少",
+                    "409 state_mismatch：pay_agreement 被客户、供应商档案或单据的协议栏引用（桥先拒绝）",
                     _ARC_UNKNOWN,
                 ),
             ),

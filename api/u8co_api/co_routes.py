@@ -19,6 +19,7 @@ from u8co_api.co_routes_arap_proc_list import ARAP_PROC_LIST_ROUTES  # 应收应
 from u8co_api.co_routes_arap_voucher import ARAP_VOUCHER_ROUTES  # 应收 / 应付制单、取消制单
 from u8co_api.co_routes_attach import ATTACH_ROUTES  # 凭证、单据附件列表
 from u8co_api.co_routes_gl_transfer import GL_TRANSFER_ROUTES  # 期间损益结转、自定义转账（测试账套）
+from u8co_api.co_routes_ia_voucher import IA_VOUCHER_ROUTES  # 存货核算制单、取消制单（测试账套）
 from u8co_api.co_routes_ic import IC_WRITE_ROUTES  # 按卖方单据生成买方单据
 from u8co_api.co_routes_mgmt import MGMT_ROUTES  # 经营管理查询（多账套，经营管理权限）
 from u8co_api.co_routes_notes_proc import NOTES_PROC_ROUTES  # 票据处理
@@ -53,6 +54,7 @@ POST_ROUTES = (
     + OPENING_ROUTES
     + PERIOD_ROUTES
     + IA_ROUTES
+    + IA_VOUCHER_ROUTES
     + GL_TRANSFER_ROUTES
     + AI_ROUTES
     + LOOKUP_ROUTES

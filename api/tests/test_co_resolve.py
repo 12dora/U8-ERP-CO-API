@@ -15,6 +15,7 @@ from u8co_api.co_models_arc_names import ReadArchiveName
 _PATH = "/v1/co/archives/resolve"
 _EXCLUDED = {
     "customer_address",
+    "customer_invoice_company",
     "customer_inventory",
     "customer_bank",
     "vendor_bank",

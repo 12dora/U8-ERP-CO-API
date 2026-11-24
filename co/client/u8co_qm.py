@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-CHECK_KINDS = ("qm_incoming_check", "qm_product_check", "qm_other_check")
+from co.client.u8co_rows import NESTED_HEAD
+
 _ITEMS_MAX = 50
 
 
@@ -30,7 +31,7 @@ def _items(value: object) -> list[dict[str, Any]]:
 
 def qm_head(kind: str, head: object, clean: Callable[[object], dict[str, Any] | None]) -> dict[str, Any] | None:
     """检验单把 items 拿出来单独校验，其余交给 clean（与别的类型同一套平铺校验）；别的类型原样交给 clean。"""
-    if kind not in CHECK_KINDS or not isinstance(head, dict):
+    if "items" not in NESTED_HEAD.get(kind, ()) or not isinstance(head, dict):
         return clean(head)
     keys = [key for key in head if isinstance(key, str) and key.lower() == "items"]
     if not keys:

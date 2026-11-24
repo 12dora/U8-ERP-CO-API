@@ -424,3 +424,111 @@ def test_scan_error_survives_successful_polls(env) -> None:
     clock.advance(1)
     poller.run_once()
     assert store.status()[0].scan_error is None
+
+
+def _mismatch(kind: str = "sale_return") -> U8CoError:
+    """桥的 vouchers/load：单据还在，但属于同表的另一个类型。"""
+    error = U8CoError(400, "bad_request", "该单据是退货单（红字发货单），请用 type=" + kind)
+    error.detail = {"reason": "type_mismatch", "type": kind}
+    return error
+
+
+def test_is_type_mismatch_needs_the_bridge_reason() -> None:
+    from u8co_events.bridge import is_type_mismatch
+
+    assert is_type_mismatch(_mismatch())
+    plain = U8CoError(400, "bad_request", "该单据不是退货单")
+    assert not is_type_mismatch(plain)
+    other = U8CoError(409, "state_mismatch", "x")
+    other.detail = {"reason": "type_mismatch"}
+    assert not is_type_mismatch(other)
+    assert not is_type_mismatch(ConnectionError("x"))
+
+
+def test_scan_moved_out_of_type_is_dropped_without_deleted(env) -> None:
+    # 4 号改属另一个类型（桥回答 type_mismatch）：清快照、不发 deleted；5 号真的删了：照常发 deleted。
+    path, store, lister, clock = env
+    for i in range(1, 6):
+        lister.put("sale_order", doc(i, i))
+    poller = _poller(path, store, lister, clock, delete_scan_minutes=30)
+    poller.run_once()
+    lister.drop("sale_order", 4)
+    lister.drop("sale_order", 5)
+    lister.load_errors[4] = _mismatch()
+    clock.advance(31)
+    poller.run_once()
+    assert _kinds(store) == [(5, "deleted")]
+    assert store.all_snapshot_ids("999", "sale_order") == {1, 2, 3}
+    assert [doc_id for _, _, doc_id in lister.loads] == [4, 5]
+    # 之后不再重复确认。
+    lister.loads.clear()
+    clock.advance(31)
+    poller.run_once()
+    assert lister.loads == [] and _kinds(store) == [(5, "deleted")]
+
+
+def test_scan_other_load_answers_keep_the_deleted_event(env) -> None:
+    # 只有 type_mismatch 才算改属；别的错照旧发 deleted（没有 load 确认时的原有口径）。
+    path, store, lister, clock = env
+    for i in range(1, 4):
+        lister.put("sale_order", doc(i, i))
+    poller = _poller(path, store, lister, clock, delete_scan_minutes=30)
+    poller.run_once()
+    lister.drop("sale_order", 2)
+    lister.drop("sale_order", 3)
+    lister.load_errors[2] = U8CoError(403, "no_permission", "没有权限")
+    lister.load_errors[3] = U8CoError(400, "bad_request", "该单据不是退货单")
+    clock.advance(31)
+    poller.run_once()
+    assert sorted(_kinds(store)) == [(2, "deleted"), (3, "deleted")]
+
+
+def test_scan_confirm_disabled_does_not_detect_moves(env) -> None:
+    path, store, lister, clock = env
+    for i in range(1, 4):
+        lister.put("sale_order", doc(i, i))
+    poller = _poller(path, store, lister, clock, delete_scan_minutes=30, empty_scan_confirm_max=0)
+    poller.run_once()
+    lister.drop("sale_order", 3)
+    lister.load_errors[3] = _mismatch()
+    clock.advance(31)
+    poller.run_once()
+    assert _kinds(store) == [(3, "deleted")]
+    assert lister.loads == []
+
+
+def test_empty_scan_all_moved_out_drops_snapshots_silently(env) -> None:
+    # 这个类型只剩改属的单据：主键扫描为空，逐张确认都是 type_mismatch，不发 deleted、不报错。
+    store, lister, poller = _empty_scan_setup(env)
+    lister.docs["sale_order"].clear()
+    lister.load_errors[1] = _mismatch()
+    lister.load_errors[2] = _mismatch()
+    poller.run_once()
+    assert store.outbox_size() == 0
+    assert store.all_snapshot_ids("999", "sale_order") == set()
+    assert store.status()[0].scan_error is None
+    assert [doc_id for _, _, doc_id in lister.loads] == [1, 2]
+
+
+def test_empty_scan_mixed_moved_and_deleted(env) -> None:
+    store, lister, poller = _empty_scan_setup(env)
+    lister.docs["sale_order"].clear()
+    lister.load_errors[1] = _mismatch()
+    poller.run_once()
+    assert _kinds(store) == [(2, "deleted")]
+    assert store.all_snapshot_ids("999", "sale_order") == set()
+
+
+def test_watermark_regression_moved_out_is_silent(env) -> None:
+    path, store, lister, clock = env
+    for i in range(1, 4):
+        lister.put("sale_order", doc(i, i))
+    poller = _poller(path, store, lister, clock, delete_scan_minutes=0)
+    poller.run_once()
+    lister.drop("sale_order", 3)
+    lister.load_errors[3] = _mismatch()
+    lister.high = 2
+    poller.run_once()
+    assert store.outbox_size() == 0
+    assert store.all_snapshot_ids("999", "sale_order") == {1, 2}
+    assert store.status()[0].watermark_reset == "3->2"

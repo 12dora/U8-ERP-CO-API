@@ -15,6 +15,7 @@ from u8co_api.co_routes_arap_proc_list import ARAP_PROC_LIST_ROUTES  # 应收应
 from u8co_api.co_routes_arap_voucher import ARAP_VOUCHER_ROUTES  # 应收 / 应付制单
 from u8co_api.co_routes_attach import ATTACH_ROUTES  # 凭证、单据附件列表
 from u8co_api.co_routes_gl_transfer import GL_TRANSFER_ROUTES  # 期间损益结转、自定义转账
+from u8co_api.co_routes_ia_voucher import IA_VOUCHER_ROUTES  # 存货核算制单、取消制单
 from u8co_api.co_routes_notes_proc import NOTES_PROC_ROUTES  # 票据处理
 from u8co_api.co_routes_notes_read import NOTES_READ_ROUTES  # 票据读取
 from u8co_api.co_routes_notes_reg import NOTES_REG_ROUTES  # 应收票据登记、删除
@@ -88,6 +89,7 @@ _READS = (
     ("/v1/co/reports/close_check", _auth()),
     ("/v1/co/reports/ia_anomalies", _auth()),
     ("/v1/co/reports/cost_unit", _auth()),
+    ("/v1/co/reports/ca_inputs", _auth()),
     ("/v1/co/gl/vouchers/attachments/list", _auth(**_KEY)),
     ("/v1/co/vouchers/attachments/list", _auth(type="sale_order", id=1)),
     # 档案名称解析、幂等结果查询。
@@ -155,6 +157,8 @@ _WRITES = (
     ("/v1/co/periods/close", _auth(module="gl", fiscal_year=2026, period=9, action="close")),  # 月末结账
     ("/v1/co/ia/post", _auth(fiscal_year=2026, period=9, action="post")),  # 存货核算记账
     ("/v1/co/ia/period_end", _auth(fiscal_year=2026, period=9, action="run")),  # 存货核算期末处理
+    ("/v1/co/ia/voucher", _auth(month=9)),  # 存货核算制单（测试账套）
+    ("/v1/co/ia/voucher/delete", _auth(pz_id="2026IA0000000000001")),  # 存货核算取消制单（测试账套）
     ("/v1/co/workflow/submit", _auth(**_QM)),
     ("/v1/co/workflow/withdraw", _auth(**_QM)),
     ("/v1/co/workflow/approve", _auth(**_QM)),
@@ -205,6 +209,7 @@ _ALL.update({route.path: route for route in LOOKUP_ROUTES})
 _ALL.update({route.path: route for route in IC_WRITE_ROUTES})
 _ALL.update({route.path: route for route in PERM_ROUTES})
 _ALL.update({route.path: route for route in GL_TRANSFER_ROUTES})
+_ALL.update({route.path: route for route in IA_VOUCHER_ROUTES})
 
 
 def _reader(fake: FakeBridge, **extra):

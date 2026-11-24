@@ -45,7 +45,7 @@ namespace U8Co
         public Dictionary<string, object> Head;
         public object[] Lines;
         public string Detail;
-        // null 表示整单关闭或打开。生单成功前 Id 是来源单据，Source 是来源类型。
+        // null 表示整单关闭或打开；产品检验单合并检验生单时是来源报检单表体行（QmMergeReq）。生单成功前 Id 是来源单据，Source 是来源类型。
         public int[] LineIds;
         public VoucherKind Source;
         // 销售发票参照多张发货单（SaleInvSources，请求体 sources）；单张的 id + lines 时为 null。

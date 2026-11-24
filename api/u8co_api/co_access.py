@@ -62,6 +62,8 @@ ACCESS = {
     # 存货核算正常单据记账 / 恢复记账、期末处理 / 取消期末处理（只对桥的测试账套开放）。
     "co:ia/post": WRITE,
     "co:ia/period_end": WRITE,
+    "co:ia/voucher": WRITE,  # 存货核算制单（测试账套）
+    "co:ia/voucher/delete": WRITE,  # 存货核算取消制单（测试账套）
     "co:stock/current": READ,
     "co:workflow/state": READ,
     "co:workflow/history": READ,
@@ -136,6 +138,7 @@ ACCESS = {
     "co:reports/close_check": READ,
     "co:reports/ia_anomalies": READ,
     "co:reports/cost_unit": READ,
+    "co:reports/ca_inputs": READ,
     # 期初余额、凭证附件与单据附件列表（只读）。
     "co:reports/opening_balance": READ,
     # 核销记录。

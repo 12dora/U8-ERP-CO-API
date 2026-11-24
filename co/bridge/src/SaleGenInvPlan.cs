@@ -136,7 +136,7 @@ namespace U8Co
             return line;
         }
 
-        // 给 SalePins.ForInvoice：每行的来源发货行、数量和请求字段。
+        // 给 SalePins.ForInvoice / ForDispatch：每行的来源行（发货行 iDLsID / 订单行 iSOsID）、数量和请求字段。
         static List<InvPinLine> PinLines(ShipLine[] plan)
         {
             List<InvPinLine> lines = new List<InvPinLine>();

@@ -20,6 +20,8 @@ from co.client.u8co_cli_periods import HANDLERS as PERIODS_HANDLERS  # 月末结
 from co.client.u8co_cli_periods import add_commands as add_periods_commands
 from co.client.u8co_cli_ia import HANDLERS as IA_HANDLERS  # 存货核算记账、期末处理
 from co.client.u8co_cli_ia import add_commands as add_ia_commands
+from co.client.u8co_cli_ia_voucher import HANDLERS as IA_VOUCHER_HANDLERS  # 存货核算制单、取消制单
+from co.client.u8co_cli_ia_voucher import add_commands as add_ia_voucher_commands
 from co.client.u8co_cli_gl_reverse import HANDLERS as GL_REVERSE_HANDLERS  # 红字冲销
 from co.client.u8co_cli_gl_reverse import add_commands as add_gl_reverse_commands
 from co.client.u8co_cli_gl_transfer import HANDLERS as GL_TRANSFER_HANDLERS  # 期间损益结转、自定义转账
@@ -58,6 +60,7 @@ def add_commands(sub: Any) -> None:
     add_openings_commands(sub)
     add_periods_commands(sub)
     add_ia_commands(sub)
+    add_ia_voucher_commands(sub)
     add_gl_reverse_commands(sub)
     add_gl_transfer_commands(sub)
 
@@ -338,5 +341,6 @@ HANDLERS.update(SO_DEFINES_HANDLERS)
 HANDLERS.update(OPENINGS_HANDLERS)
 HANDLERS.update(PERIODS_HANDLERS)
 HANDLERS.update(IA_HANDLERS)
+HANDLERS.update(IA_VOUCHER_HANDLERS)
 HANDLERS.update(GL_REVERSE_HANDLERS)
 HANDLERS.update(GL_TRANSFER_HANDLERS)

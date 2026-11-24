@@ -36,7 +36,7 @@ namespace U8Co
         {
             "sale_order", "dispatch", "sale_return", "sale_invoice",
             "purchase_order", "arrival", "purchase_return", "purchase_invoice", "purchase_requisition",
-            "purchase_in", "other_in", "other_out", "product_in", "material_out", "sale_out",
+            "purchase_in", "other_in", "other_out", "product_in", "material_out", "sale_out", "stock_opening",
             "transfer", "transfer_request", "shape_change", "stock_check",
             // 货位调整单：AdjustPVouch 有 cDefine1–16。
             "position_adjust",

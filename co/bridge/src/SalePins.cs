@@ -7,7 +7,8 @@ namespace U8Co
     // 保存后核对的销售字段（核对字段）：销售订单新增 / 修改的表头 cgatheringplan、caddcode、表头自定义项 cdefine1–16，
     // 表体 cunitid、inum、cwhcode 和表体扩展自定义项 cbdefineN（SO_SODetails_extradefine）；发货单参照订单生单的表头
     // caddcode、cdefine1–16 和表头扩展自定义项 chdefineN（DispatchList_extradefine）；蓝字销售发票参照发货单的表体扩展
-    // 自定义项 cbdefineN（SaleBillVouchs_extradefine）。N 为 1–99，列须在账套里存在。保存前按列目录和档案校验
+    // 自定义项 cbdefineN（SaleBillVouchs_extradefine）；发货单参照订单生单的表体扩展自定义项 cbdefineN（DispatchLists_extradefine）。
+    // N 为 1–99，列须在账套里存在。保存前按列目录和档案校验
     // （SalePinsCheck），保存后、提交前在同一事务里补写并回读（SalePinsSave），只核对请求给了的字段。
     // 扩展自定义项不放进 DOM；主表列模板里有才交给组件。
     internal sealed class SalePin
@@ -26,7 +27,7 @@ namespace U8Co
         // 参与 U8 数量、单位、金额或收付款计划计算的字段（Spec 第 6 列 C）：只走组件，桥不补写。
         internal bool Calc;
         internal SaleCol Col;
-        // 销售发票：该行的来源发货行 iDLsID（保存后按它找发票行 AutoID，SalePinsInv）。
+        // 生单表体：该行的来源行（发票为发货行 iDLsID、发货单为订单行 iSOsID；保存后按它找本次的行主键，SalePinsInv）。
         internal int SrcLine;
 
         internal bool Extra
@@ -47,6 +48,9 @@ namespace U8Co
         // 库里的 DATA_TYPE（小写），日期列写入时按它选显式转换。
         internal string Type = "";
         internal int Len;
+        // 数值列的 NUMERIC_PRECISION / NUMERIC_SCALE（decimal、numeric 按它们核对，SalePinsRange）。
+        internal int Prec;
+        internal int Scale;
     }
 
     internal sealed partial class SalePins
@@ -67,12 +71,13 @@ namespace U8Co
         };
 
         // 编号族 {类型, H / B, 请求字段前缀（小写）, 表, 列名前缀, 最大编号}：请求字段 = 前缀 + 编号（1 起，不带前导零），
-        // 列 = 列名前缀 + 编号，都是 A。销售发票只有蓝字参照发货单收（SalePinsInv）。
+        // 列 = 列名前缀 + 编号，都是 A。表体扩展自定义项：销售发票只有蓝字参照发货单收，发货单只有参照订单生单收（SalePinsInv）。
         static readonly string[][] Families = new string[][] {
             new string[] { Order, "H", "cdefine", "SO_SOMain", "cDefine", "16" },
             new string[] { Order, "B", "cbdefine", "SO_SODetails_extradefine", "cbdefine", "99" },
             new string[] { Dispatch, "H", "cdefine", "DispatchList", "cDefine", "16" },
             new string[] { Dispatch, "H", "chdefine", "DispatchList_extradefine", "chdefine", "99" },
+            new string[] { Dispatch, "B", "cbdefine", "DispatchLists_extradefine", "cbdefine", "99" },
             new string[] { Invoice, "B", "cbdefine", "SaleBillVouchs_extradefine", "cbdefine", "99" }
         };
 
@@ -198,6 +203,10 @@ namespace U8Co
             if (table.StartsWith("SaleBillVouchs", StringComparison.OrdinalIgnoreCase))
             {
                 return "AutoID";
+            }
+            if (table.StartsWith("DispatchLists", StringComparison.OrdinalIgnoreCase))
+            {
+                return "iDLsID";
             }
             return "DLID";
         }

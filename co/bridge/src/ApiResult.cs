@@ -189,7 +189,9 @@ namespace U8Co
         // field/hint 只给 4xx（401 除外），且非空时才写。
         static void AddDetail(Dictionary<string, object> body, BridgeException ex)
         {
-            if (ex.Status < 400 || ex.Status >= 500 || ex.Status == 401)
+            // 4xx（401 除外）带 field、hint、detail；档案已保存但 U8 没写某些列（502 u8_fields_ignored）也带 detail 列出这些列。
+            bool ignored = ex.Status == 502 && ex.Code == ArcInvSub.FieldsIgnored;
+            if (!ignored && (ex.Status < 400 || ex.Status >= 500 || ex.Status == 401))
             {
                 return;
             }

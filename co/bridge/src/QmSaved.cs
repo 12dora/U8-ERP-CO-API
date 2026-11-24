@@ -113,7 +113,7 @@ namespace U8Co
         }
 
         // 新检验单的审批状态（与 workflow/state 的 wf 同名字段）：刚保存时未提交。
-        static Dictionary<string, object> Wf(Dictionary<string, object> row)
+        internal static Dictionary<string, object> Wf(Dictionary<string, object> row)
         {
             bool controlled = CoRows.Col(row, "wf") == "1";
             int vs = (int)QmSql.Dec(CoRows.Col(row, "vs"));

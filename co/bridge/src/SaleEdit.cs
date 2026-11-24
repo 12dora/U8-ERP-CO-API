@@ -26,7 +26,7 @@ namespace U8Co
             "cscloser", "dbclosedate", "dbclosesystime",
             "ifhquantity", "ifhnum", "ifhmoney", "ikpquantity", "ikpnum", "ikpmoney",
             "foutquantity", "foutnum", "fretquantity", "fveridispqty", "fveridispsum",
-            "iexchsum", "imoneysum", "icostsum"
+            "iexchsum", "imoneysum", "icostsum", "bsaleprice"
         };
         static readonly string[] ItemText = new string[] {
             "cinvname", "cinvstd", "cinvm_unit", "cinva_unit", "cinvaddcode",
@@ -231,7 +231,10 @@ namespace U8Co
                 SaSession.OpenSa(ctx.Conn, ctx.Session.Login, vt, out sys, out co);
                 doms[0] = Rows.NewDom();
                 doms[1] = Rows.NewDom();
-                string err = SoSave.RunDelete(ctx.Conn, co, doms, id, ctx.Item, SoDeleteOpt.Of(kind.IdColumn, true));
+                SoDeleteOpt opt = SoDeleteOpt.Of(kind.IdColumn, true);
+                // 发货单、蓝字销售发票：删除后同一事务删扩展自定义项行（U8 是否连带删除未经验证）。
+                opt.ExtraKind = kind.Name;
+                string err = SoSave.RunDelete(ctx.Conn, co, doms, id, ctx.Item, opt);
                 if (err.Length > 0)
                 {
                     throw new BridgeException(409, "u8_rejected", err);

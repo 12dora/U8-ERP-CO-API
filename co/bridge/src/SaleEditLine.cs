@@ -64,6 +64,7 @@ namespace U8Co
             Write(bag.Doms[1], row, clean);
             DomRows.Set(bag.Doms[1], row, "irowno", rowNo.ToString(CultureInfo.InvariantCulture));
             DomRows.Set(bag.Doms[1], row, "editprop", "A");
+            SaleTaxFlag.Fresh(bag.Ctx, bag.Doms[1], row);
             TouchCalc(bag.Co, bag.Doms, row, op);
             row = At(bag.Doms[1], at);
             ClearNew(bag.Doms[1], row);

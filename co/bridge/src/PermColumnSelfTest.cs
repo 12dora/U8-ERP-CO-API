@@ -18,6 +18,7 @@ namespace U8Co
             CheckQuantity();
             CheckLoadMany();
             CheckUnmapped();
+            CheckBomSubs();
             CheckReports();
             CheckFamilySales();
             CheckFamilyStock();
@@ -127,6 +128,22 @@ namespace U8Co
             Run(p, Item(Requests.ListPath, null, "type", "ar_bill"), ar);
             Dictionary<string, object> row = (Dictionary<string, object>)((List<object>)ar["rows"])[0];
             Expect("ar not masked", (string)row["amount"] == "5" && (string)row["iPrice"] == "1" && !ar.ContainsKey(PermMask.Key));
+        }
+
+        // 物料清单（BO26）：子件存货 InvCode 被拒绝时行和替代料的 inv_code 一起遮；Define22 → 替代料 defines.define22。
+        static void CheckBomSubs()
+        {
+            PermContext p = Ctx();
+            Deny(p, "BO26", "Define22");
+            Dictionary<string, object> sub = Map("inv_code", "S1", "factor", 1m, "defines", Map("define22", "文本A", "define23", "文本B"));
+            Dictionary<string, object> body = new Dictionary<string, object>();
+            body["lines"] = new List<object> { Map("inv_code", "C1", "base_qty_n", "1", "substitutes", new List<object> { sub }) };
+            Run(p, Item(LoadPath, "bom"), body);
+            Dictionary<string, object> defines = (Dictionary<string, object>)sub["defines"];
+            Expect("bom sub define", defines["define22"] == null && (string)defines["define23"] == "文本B" && (string)sub["inv_code"] == "S1");
+            Deny(p, "BO26", "InvCode");
+            Run(p, Item(LoadPath, "bom"), body);
+            Expect("bom sub inv", sub["inv_code"] == null && Line(body, 0)["inv_code"] == null && (string)Line(body, 0)["base_qty_n"] == "1");
         }
 
         // 资金存货只遮采购段与存货段（票据金额不动）；销售分析遮成本与毛利、收入照给。

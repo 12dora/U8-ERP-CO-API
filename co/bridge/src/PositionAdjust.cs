@@ -4,14 +4,13 @@ namespace U8Co
 {
     // 货位调整单（position_adjust，U8 单据类型 19，卡片 0313，表 AdjustPVouch / AdjustPVouchs）的分派。
     // 读取、列表都是 SQL（Load、ListKindsStMisc）；新增、审核、弃审、删除走 USERPCO.VoucherCO（StockCo.Adjust*），
-    // 只对测试账套开放，测试账套整轮实测通过后升为第一级写入（与其他库存单据一样受写入策略约束）；
-    // 货位、存货、结存与审核后台账的核对都保留（PositionAdjustBins、PositionAdjustInv、PositionAdjustCheck）。
-    // 不开修改（行就是货位移动本身，删除后重新录入）。Dispatch.Handle 先问这里，返回 null 再走原来的路由表。
+    // 修改同形态转换单（StockEdit.MiscUpdate：Load 之后改 editprop，再 Update），都是第一级写入（受写入策略约束）；
+    // 货位、存货、结存与审核后台账的核对都保留（PositionAdjustBins、PositionAdjustInv、PositionAdjustEdit、PositionAdjustCheck）。
+    // Dispatch.Handle 先问这里，返回 null 再走原来的路由表。
     internal static class PositionAdjust
     {
         internal const string KindName = "position_adjust";
         internal const string StType = "19";
-        internal const string NoUpdateText = "货位调整单不能修改，请删除后重新录入";
         const string V = "/u8co/v1/vouchers/";
 
         internal static bool Handles(VoucherKind kind)
@@ -36,6 +35,10 @@ namespace U8Co
             {
                 return PuAppRoutes.StampNewId(ctx, StockCo.AdjustCreate(ctx, item.Type, item.Head, item.Lines));
             }
+            if (op == "update")
+            {
+                return StockEdit.MiscUpdate(ctx, item.Type, item.Id, item.Head, item.Lines);
+            }
             if (op == "delete")
             {
                 return StockCo.AdjustDelete(ctx, item.Type, item.Id);
@@ -43,26 +46,13 @@ namespace U8Co
             return StockCo.AdjustVerify(ctx, item.Type, item.Id, item.Action);
         }
 
-        // 登录前（Requests.GuardItem）：修改 400。
-        internal static void PreLogin(WorkItem item, string path)
-        {
-            if (item == null || !Handles(item.Type))
-            {
-                return;
-            }
-            if (path == V + "update")
-            {
-                throw new BridgeException(400, "bad_request", NoUpdateText);
-            }
-        }
-
-        // 功能权限（U8 授权目录 UA_Auth）：录入 ST010806（删除没有单独的 id，同录入）、审核 ST010802、弃审 ST010803。
+        // 功能权限（U8 授权目录 UA_Auth）：录入 ST010806（修改、删除没有单独的 id，同录入）、审核 ST010802、弃审 ST010803。
         // 写路由每次现读权限（PermCheck.Of），任何 COM 调用之前。
         static void RequireAuth(WorkContext ctx, string op, string action)
         {
             if (op != "verify")
             {
-                PermCheck.Require(ctx, "ST010806", op == "create" ? "货位调整单录入" : "货位调整单删除");
+                PermCheck.Require(ctx, "ST010806", "货位调整单" + WriteLabel(op));
                 return;
             }
             if (action == "unverify")
@@ -73,9 +63,18 @@ namespace U8Co
             PermCheck.Require(ctx, "ST010802", "货位调整单审核");
         }
 
+        static string WriteLabel(string op)
+        {
+            if (op == "create")
+            {
+                return "录入";
+            }
+            return op == "update" ? "修改" : "删除";
+        }
+
         static string OpOf(string path)
         {
-            if (path == V + "create" || path == V + "delete" || path == V + "verify")
+            if (path == V + "create" || path == V + "update" || path == V + "delete" || path == V + "verify")
             {
                 return path.Substring(V.Length);
             }

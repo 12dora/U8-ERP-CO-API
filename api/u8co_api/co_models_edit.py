@@ -20,7 +20,8 @@ from u8co_api.co_gen_source import (
 )
 from u8co_api.co_gen_pu_settle import SETTLE_KIND, check_settle_gen
 from u8co_api.co_models_gen_row import check_gen_row
-from u8co_api.co_gen_qm import QM_GEN_KINDS, check_qm_gen, nested_head
+from u8co_api.co_gen_qm import QM_GEN_KINDS, check_qm_gen
+from u8co_api.co_gen_qm_merge import MERGE_RULES_HELP, SOURCE_IDS_HELP, SOURCE_IDS_OUT_HELP, check_qm_merge
 from u8co_api.co_gen_red_sale import check_red_sale_invoice
 from u8co_api.co_gen_sale_invoice import SOURCES_HELP, CoInvSource, check_invoice_lines, check_invoice_sources
 from u8co_api.co_gen_sale_out import check_sale_out
@@ -29,7 +30,7 @@ from u8co_api.co_gen_mo import check_mo_gen
 from u8co_api.co_gen_transfer import check_transfer_gen
 from u8co_api.co_models_mo import CoMoCreatedLine
 from u8co_api.co_models_bom import CoBomComponent, check_bom_update
-from u8co_api.co_models import Cell, CoAuth, CoDocState
+from u8co_api.co_models import Cell, CoAuth, CoDocState, LineCell, nested_cells, nested_head
 from u8co_api.co_models_dry import DryRunFlag
 from u8co_api.co_models_edit_help import (
     GENERATE_HEAD_HELP,
@@ -82,8 +83,8 @@ UpdateType = Literal[
     "bom",
     # 生产订单（U8API MOrderUpdate）
     "production_order",
-    # 形态转换单、调拨申请单（盘点单不开修改）；退货申请单（只改已有行）
-    "shape_change", "transfer_request", "sale_return_apply",
+    # 形态转换单、调拨申请单（盘点单不开修改）；货位调整单（未审核，行可增删改）；退货申请单（只改已有行）
+    "shape_change", "transfer_request", "position_adjust", "sale_return_apply",
     # 检验单、其他报检单（QmEdit，只收 head）
     "qm_incoming_check", "qm_product_check", "qm_other_check", "qm_other_inspect",
 ]
@@ -127,6 +128,8 @@ _BANNED = {
     # 形态转换单、调拨申请单。
     "shape_change": _ban("ID", "cAVCode", "cVerifyPerson", "dVerifyDate"),
     "transfer_request": _ban("ID", "cTVCode", "cVerifyPerson", "dVerifyDate"),
+    # 货位调整单（主键、单号、审核人、审核日期）。
+    "position_adjust": _ban("Id", "cVouchCode", "chandler", "dVeriDate"),
     "dispatch": _ban("DLID", "cDLCode", "cVerifier", "dverifydate"),
     "sale_out": _ban("ID", "cCode", "cHandler", "dVeriDate"),
     "purchase_in": _ban("ID", "cCode", "cHandler", "dVeriDate"),
@@ -249,7 +252,7 @@ class CoUpdateIn(CoAuth):
         None,
         description=UPDATE_HEAD_HELP,
     )
-    lines: list[dict[str, Cell]] | None = Field(
+    lines: list[dict[str, LineCell]] | None = Field(
         None,
         max_length=200,
         description=UPDATE_LINES_HELP,
@@ -265,7 +268,7 @@ class CoUpdateIn(CoAuth):
     def _checked(self) -> CoUpdateIn:
         if not self.head and not self.lines:
             raise ValueError("没有要修改的内容")
-        nested_head(self.type, self.head)  # 只有检验单的 head.items 可以是列表
+        nested_cells(self.type, self.head, self.lines)  # 检验单 head.items、物料清单行的替代料 / 定位符可以是列表
         if check_qm_update(self.type, self.head, self.lines):  # 质量单据只收 head
             return self
         if self.type == "bom":
@@ -330,13 +333,9 @@ _HEAD_LINE_GEN = {
 
 class CoGenerateIn(CoAuth):
     type: GenerateType = Field(..., description=GENERATE_TYPE_HELP)
-    # 销售发票参照多张发货单时用 sources 代替 id + lines（co_gen_sale_invoice）；其余一律必填。
-    id: int | None = Field(
-        None,
-        gt=0,
-        le=_ID_MAX,
-        description=GENERATE_ID_HELP,
-    )
+    # 销售发票参照多张发货单时用 sources 代替 id + lines（co_gen_sale_invoice），
+    # 产品检验单合并检验用 source_ids 代替 id（co_gen_qm_merge）；其余一律必填。
+    id: int | None = Field(None, gt=0, le=_ID_MAX, description=GENERATE_ID_HELP)
     source_type: SourceType | None = Field(
         None,
         description=GENERATE_SOURCE_HELP,
@@ -351,6 +350,8 @@ class CoGenerateIn(CoAuth):
         description=GENERATE_LINES_HELP,
     )
     sources: list[CoInvSource] | None = Field(None, min_length=1, max_length=200, description=SOURCES_HELP)
+    source_ids: list[int] | None = Field(None, min_length=2, max_length=20, description=SOURCE_IDS_HELP)
+    merge_rules: list[str | int] | None = Field(None, min_length=1, max_length=9, description=MERGE_RULES_HELP)
     dry_run: DryRunFlag = False
 
     @field_validator("sources", mode="before")
@@ -394,7 +395,7 @@ class CoGenerateIn(CoAuth):
         if self.head and self.type not in ("purchase_invoice", "arrival"):
             _blocked(list(self.head), self.type)
         if self.type == "dispatch":
-            check_dispatch_gen_pins(self.head)  # 落库核对字段的形状（co_sale_pins）
+            check_dispatch_gen_pins(self.head, self.lines)  # 落库核对字段的形状，含表体 cbdefineN（co_sale_pins）
         if self.lines is not None or not lines_optional(self.type, source):  # 参照到货单的采购入库 lines 可省
             _need_lines(self.lines, self.type)
         check_invoice_lines(self.type, source, self.lines)  # 表体扩展自定义项 cbdefineN（co_gen_sale_invoice）
@@ -406,6 +407,9 @@ class CoGenerateIn(CoAuth):
 
     def _shape_done(self, source: str) -> bool:
         """销售发票参照多张发货单（sources，co_gen_sale_invoice）或红字销售发票时校验完返回 True；其余要有 id。"""
+        if self.source_ids is not None or self.merge_rules is not None:  # 产品检验单合并检验（co_gen_qm_merge）
+            body = (self.head, self.lines, self.merge_rules)
+            return check_qm_merge(self.type, source, (self.id, self.sources), self.source_ids, body)
         if self.sources is not None:
             check_invoice_sources(self.type, source, (self.id, self.lines), self.sources, self._source_row)
             if self.head:
@@ -459,9 +463,7 @@ class CoGenerateOut(CoEditOut):
     source_type: str = Field(description="来源单据类型")
     source_id: int = Field(description="来源单据主键")
     ids: list[int] | None = Field(None, description="销售出库按仓库拆成多张时，全部新单据主键")
-    source_ids: list[int] | None = Field(
-        None, description="销售发票参照多张发货单（请求用 sources）时，全部来源发货单 DLID（按请求顺序）；source_id 是第一张"
-    )
+    source_ids: list[int] | None = Field(None, description=SOURCE_IDS_OUT_HELP)
     wf: CoGenWf | None = Field(None, description="检验单、不良品处理单：新单据的审批流状态（未提交）。其它类型省略")
     items: int | None = Field(None, description="检验单：保存后的检验项目行数。其它类型省略")
     settle_date: str | None = Field(None, description="采购结算单：结算日期（即本次的 U8 登录日期）。其它类型省略")

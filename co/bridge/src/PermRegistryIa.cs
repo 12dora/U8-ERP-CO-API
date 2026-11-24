@@ -12,7 +12,11 @@ namespace U8Co
             {
                 R("write:ia:post", "存货核算单据记账", A("IA2004")),
                 R("write:ia:unpost", "存货核算恢复记账", A("IA2005")),
-                R("write:ia:period_end", "存货核算期末处理", A("IA2006"))
+                R("write:ia:period_end", "存货核算期末处理", A("IA2006")),
+                // 存货核算制单（生成凭证）、取消制单（凭证列表里删除）：CHHSSQL.DLL 制单窗体查 IASCPZ（「生成凭证」，
+                // 与 OneToOne / AllToOne 同处，并按它查 UA_Task）、删除凭证的 SQL 旁查 IACXPZ（「凭证查询」）。未在 U8 客户端逐个授权点验。
+                R(IaVoucherReq.RuleKey(false), "存货核算制单", A("IASCPZ")),
+                R(IaVoucherReq.RuleKey(true), "存货核算取消制单", A("IACXPZ"))
             };
         }
     }

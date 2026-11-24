@@ -20,6 +20,11 @@ namespace U8Co
             {
                 return QmGenInspect.Run(ctx, spec, sourceId, head, lines);
             }
+            // 产品检验单合并检验：source_ids（报检单表体行）代替 id（QmMergeReq）。
+            if (QmMergeReq.Is(ctx.Item))
+            {
+                return QmMergeCheck.Run(ctx, spec, ctx.Item.LineIds, head, lines);
+            }
             return QmGenCheck.Run(ctx, spec, sourceId, head, lines);
         }
 

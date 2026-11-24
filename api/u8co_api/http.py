@@ -12,7 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from u8co_api.errors import ApiError, default_hint, is_retryable
+from u8co_api.errors import ApiError, FieldValueError, default_hint, is_retryable
 
 _AUTH = {"WWW-Authenticate": "Bearer"}
 _SEGMENT = re.compile(r"[A-Za-z0-9_\-]+")
@@ -136,9 +136,23 @@ async def _api_error(_request, exc: ApiError) -> UnicodeJSONResponse:
 
 
 async def _validation(_request, exc: RequestValidationError) -> UnicodeJSONResponse:
-    field = validation_field(list(exc.errors()))
+    errors = list(exc.errors())
+    named = _field_error(errors)
+    if named is not None:
+        return _body(400, _detail(400, "bad_request", f"请求参数无效：{named}", named.field))
+    field = validation_field(errors)
     message = f"请求参数无效：{field}" if field else "请求参数无效"
     return _body(400, _detail(400, "bad_request", message, field))
+
+
+def _field_error(errors: list) -> FieldValueError | None:
+    """模型级校验抛的 FieldValueError（第一条）：loc 只到模型，字段路径在异常里。"""
+    first = errors[0] if errors and isinstance(errors[0], dict) else {}
+    ctx = first.get("ctx")
+    err = ctx.get("error") if isinstance(ctx, dict) else None
+    if isinstance(err, FieldValueError) and _join(err.field.split(".")) == err.field:
+        return err
+    return None
 
 
 async def _http_error(_request, exc: StarletteHTTPException) -> UnicodeJSONResponse:

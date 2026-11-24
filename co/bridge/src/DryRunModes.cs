@@ -78,6 +78,10 @@ namespace U8Co
             // 存货核算记账、期末处理：请求连接上的脚本，没有自行提交，提交钩子回滚。
             Add(list, "ia/post", Any, Any, Any, Rollback);
             Add(list, "ia/period_end", Any, Any, Any, Rollback);
+            // 存货核算制单：Prepare 的事务（取外部业务号）走到提交点由钩子回滚并结束，凭证导入不调用（同 arap/voucher）；
+            // 取消制单整笔在事务里，回滚。
+            Add(list, "ia/voucher", Any, Any, Any, Validate);
+            Add(list, "ia/voucher/delete", Any, Any, Any, Rollback);
             return list;
         }
 
@@ -115,7 +119,7 @@ namespace U8Co
             "transfer_request create update delete verify",
             "stock_check create delete",
             // 货位调整单：USERPCO 在请求连接的事务里，同形态转换单。
-            "position_adjust create delete verify",
+            "position_adjust create update delete verify",
             // 生产订单参照销售订单生成（MoGen）：U8 生产订单生成组件按行自己提交，闸门查完停。
             "production_order close | create update delete verify generate",
             "bom | create update delete verify",
@@ -210,6 +214,10 @@ namespace U8Co
             // 汇率、供应商联系人：新增走 EAI 分发器（validate），修改、删除是受控 SQL。
             AddMany(list, sqlOps, "exchange_rate", Any, Rollback);
             AddMany(list, sqlOps, "vendor_contact", Any, Rollback);
+            // 收付款协议（新增、修改、删除）、自定义项档案和客户存货对照的修改：受控 SQL。
+            AddMany(list, ops, "pay_agreement", Any, Rollback);
+            AddMany(list, new string[] { "archives/update" }, "user_define", Any, Rollback);
+            AddMany(list, new string[] { "archives/update" }, "customer_inventory", Any, Rollback);
             AddMany(list, ops, Any, Any, Validate);
         }
 

@@ -97,12 +97,20 @@ namespace U8Co
         // 表头主键 = 单据主键；本次新增的表体行 = 保存后不在 OldLines 里的行，按 iRowNo, iSOsID 与请求顺序对应。
         void AssignKeys(object conn, WorkItem item)
         {
-            // 销售发票：按来源发货行找本次保存的发票行，并核对行数、数量（SalePinsInv）。
-            if (Kind == Invoice)
+            // 销售发票、带表体扩展自定义项的发货单：按来源行找本次保存的行，并核对行数、数量（SalePinsInv）。
+            if (InvLines.Count > 0)
             {
-                AssignInvoice(conn, item);
-                return;
+                AssignBySource(conn, item);
             }
+            if (Kind != Invoice)
+            {
+                AssignOwnKeys(conn, item);
+            }
+        }
+
+        // 销售订单、发货单：表头核对字段 = 单据主键，新增行按 FreshLines 对应（发货单的表体扩展项已由 AssignBySource 定好）。
+        void AssignOwnKeys(object conn, WorkItem item)
+        {
             bool adds = Items.Exists(delegate(SalePin p) { return p.Line >= 0; })
                 || Groups.Exists(delegate(SaleQtyLine g) { return g.Line >= 0; });
             List<int> fresh = Adds > 0 && adds ? FreshLines(conn, item) : new List<int>();

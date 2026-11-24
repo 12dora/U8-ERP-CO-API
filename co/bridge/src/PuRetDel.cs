@@ -10,7 +10,7 @@ namespace U8Co
         const string LinesSql = "select convert(varchar(20), isnull(s.iCorId,0)) as CorId, convert(varchar(20), isnull(s.iPOsID,0)) as PoLine,"
             + " convert(varchar(40), isnull(s.iQuantity,0)) as Qty from PU_ArrivalVouchs s where s.ID=?";
 
-        // 读取、审核前核对类型：purchase_return 只认 iBillType=1 的到货单（HeadRow 的 bill_type）。
+        // 审核、修改、删除前核对类型（读取的核对在 VoucherScope）：purchase_return 只认 iBillType=1 的到货单（HeadRow 的 bill_type）。
         internal static void RequireRed(VoucherKind kind, Dictionary<string, object> row)
         {
             if (kind == null || kind.Name != "purchase_return" || row == null)

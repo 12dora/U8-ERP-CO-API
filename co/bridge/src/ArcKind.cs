@@ -39,6 +39,8 @@ namespace U8Co
         public string[] TplSkip = new string[0];
         // 修改时不从当前行带的标签：U8 自己维护的级次、末级、成本与耗用量，避免把读到的旧值写回。
         public string[] UpdSkip = new string[0];
+        // RsXml 之外的扩展标签（标签、列名成对，ArcMap.Of 并入字段表）：只在调用方给出时才发，不从模板、不从当前行带（存货的 Inventory_Sub 列，见 ArcInvSub）。
+        public string[] Extra = new string[0];
         // 新增缺省值：标签、值成对。
         public string[] Defaults = new string[0];
         // 其中至少一个为 1，都没给时第一个置 1。
@@ -53,7 +55,7 @@ namespace U8Co
         // 不走 RsXml 的档案（项目，受控 SQL 写入）的固定标签表，ArcMap.Of 直接返回它。
         public bool RoRead;
         public bool NoDelete;
-        // U8 的 EAI 不提供修改（实测：自定义项档案、客户存货对照返回「…不提供修改功能！」），只能删了重建。
+        // U8 没有修改的途径（固定资产卡片改做变动单、设备台账只能新增），只能删了重建。
         public bool NoUpdate;
         // 修改被拒时的说明（固定资产卡片改做变动单、设备台账只能新增），null 用通用说明。
         public string NoUpdateText;
@@ -128,6 +130,11 @@ namespace U8Co
             _skip = Set(common, Block, Private);
             _skip.UnionWith(TplSkip);
             _skip.Add("name");
+            for (int i = 0; i < Extra.Length; i += 2)
+            {
+                _skip.Add(Extra[i]);
+                _upd.Add(Extra[i]);
+            }
             // 级次不从模板带：按新编码算，算不出就不发，交给 U8 判断。
             if (RankTag != null)
             {
@@ -237,13 +244,14 @@ namespace U8Co
             k.InvBody = true;
             k.NeedTemplate = true;
             k.Resend = new string[] { "name" };
-            // 名称和换算率标签在表里没有对应列；上次盘点日期由库存维护。
-            k.Block = new string[]
+            // 名称和换算率标签在表里没有对应列；上次盘点日期由库存维护；EAI 不写的 Sub 列只读。
+            k.Block = ArcInvSub.BlockWith(new string[]
             {
                 "lastcheck_date", "unitgroup_name", "puunit_name", "saunit_name", "stunit_name", "caunit_name",
                 "puunit_ichangrate", "saunit_ichangrate", "stunit_ichangrate", "caunit_ichangrate"
-            };
+            });
             k.Private = new string[] { "address", "ProduceAddress" };
+            k.Extra = ArcInvSub.ExtraPairs();
             // 最新成本、参考成本、最高进价由入库/核算回写；平均（日均）耗用量、再订货点由 ROP 计算。
             k.UpdSkip = new string[]
             {

@@ -36,6 +36,7 @@ namespace U8Co
                 SaSession.OpenSa(ctx.Conn, ctx.Session.Login, vt, out sys, out co);
                 SoDom.Templates(co, ctx.Conn, card, ctx.Item, doms);
                 SoDom.ApplyFree(ctx.Conn, doms, kind, head, lines, fixedHead);
+                SaleTaxFlag.FreshAll(ctx, doms[1]);
                 SaleCalc.ForCreate(co, doms[0], doms[1], lines);
                 SoSave.Stamp(ctx, sys, doms[0], card);
                 if (invoice)

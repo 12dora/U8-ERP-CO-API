@@ -25,7 +25,8 @@ namespace U8Co
             + " (SELECT TOP 1 cValue FROM AccInformation WHERE cSysID=N'IA' AND cName=N'cValueStyle') vs,"
             + " (SELECT TOP 1 cValue FROM AccInformation WHERE cSysID=N'IA' AND cName=N'cEstimate') est,"
             + " (SELECT TOP 1 ISNULL(cValue, cDefault) FROM AccInformation WHERE cSysID=N'IA' AND cName=N'bSaleType') st,"
-            + " (SELECT TOP 1 cWhCode FROM Warehouse WHERE ISNULL(cWhValueStyle,N'全月平均法')<>N'全月平均法' ORDER BY cWhCode) wh";
+            + " (SELECT TOP 1 cWhCode FROM Warehouse WHERE ISNULL(cWhValueStyle,N'全月平均法')<>N'全月平均法' ORDER BY cWhCode) wh,"
+            + " (SELECT TOP 1 cValue FROM AccInformation WHERE cSysID=N'IA' AND cName=N'bAbsOutCost') ab";
 
         // 期间：存货核算启用日期、总账期间表有没有该期。
         const string MonthSql = "SELECT"
@@ -50,8 +51,10 @@ namespace U8Co
             map[50003] = "该月存货核算已结账，不能记账";
             map[50010] = "该月已做期末处理，请先取消期末处理再恢复记账";
             map[50011] = "发出商品还有关联的销售发票（或以后月份的发出商品出库）没有一并恢复，不能恢复记账；请连同销售发票一起恢复";
+            map[50012] = "本月有已制单的记账行，请先取消制单（ia/voucher/delete）再恢复记账";
             map[50020] = "该月存货核算已结账，不能做期末处理";
             map[50021] = "该月还没有记账数据，请先正常单据记账（ia/post）";
+            map[50023] = "本月还有 {0} 行未记账的出入库调整单，请先正常单据记账（ia/post）";
             map[50030] = "该月存货核算已结账，请先取消结账再取消期末处理";
             map[50040] = "该月存货核算已结账";
             map[50041] = "上一月份（{0}）存货核算还没结账，请先结上一月份";
@@ -59,6 +62,7 @@ namespace U8Co
             map[50044] = "存货核算选项要求审核后记账：本月还有 {0} 行未审核、未记账的出入库单据，请先审核并记账";
             map[50045] = "本月还没做期末处理，请先做期末处理（ia/period_end）";
             map[50046] = "总账期间表（GL_mend）缺少该期间，请在 U8 里检查会计期间";
+            map[50047] = "本月还有 {0} 行未记账的出入库调整单，请先正常单据记账（ia/post）";
             map[50050] = "该月存货核算还没结账";
             map[50051] = "下一月份存货核算已结账，请先取消下一月份的结账";
             map[50052] = "总账期间表（GL_mend）缺少该期间，请在 U8 里检查会计期间";
@@ -188,11 +192,11 @@ namespace U8Co
         internal static string Unsupported(object conn)
         {
             Dictionary<string, object> row = Rows.One(conn, OptionSql, new object[0]);
-            return UnsupportedReason(CoRows.Col(row, "vs"), CoRows.Col(row, "est"), CoRows.Col(row, "st"), CoRows.Col(row, "wh"));
+            return UnsupportedReason(CoRows.Col(row, "vs"), CoRows.Col(row, "est"), CoRows.Col(row, "st"), CoRows.Col(row, "wh"), CoRows.Col(row, "ab"));
         }
 
         // 同上的判断部分：空值按 U8 缺省（与脚本一致）。纯函数，--selftest 用。
-        internal static string UnsupportedReason(string valueStyle, string estimate, string saleType, string badWarehouse)
+        internal static string UnsupportedReason(string valueStyle, string estimate, string saleType, string badWarehouse, string absOutCost)
         {
             string vs = Trim(valueStyle);
             if (vs.Length > 0 && vs != "按仓库核算")
@@ -209,10 +213,21 @@ namespace U8Co
             {
                 return "存货暂估方式是「" + est + "」，" + NotSupported + "（只支持单到回冲）；请在 U8 里处理";
             }
+            return UnsupportedSale(saleType, absOutCost);
+        }
+
+        // 销售成本核算方式、出库成本绝对值算法（bAbsOutCost：恢复记账会按它重建汇总表，桥不做）。纯函数，--selftest 用。
+        static string UnsupportedSale(string saleType, string absOutCost)
+        {
             string st = Trim(saleType);
             if (st.Length > 0 && st != "发出商品" && st != "销售出库单")
             {
                 return "销售成本核算方式是「" + st + "」，" + NotSupported + "；请在 U8 里处理";
+            }
+            string ab = Trim(absOutCost).ToLowerInvariant();
+            if (ab == "true" || ab == "1")
+            {
+                return "存货核算选项「出库成本按绝对值算法」（bAbsOutCost）已打开，" + NotSupported + "；请在 U8 里处理";
             }
             return null;
         }
