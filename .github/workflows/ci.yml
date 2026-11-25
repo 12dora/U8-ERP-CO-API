@@ -28,7 +28,8 @@ jobs:
   api-tests:
     name: API 单元测试
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 7000 多条用例，托管机 4 核约需 25 分钟。
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: api
