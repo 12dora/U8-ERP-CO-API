@@ -20,6 +20,7 @@ from co.e2e.casespec.arc_cus_invoice_sql import (
 )
 from co.e2e.casespec.tags import auto_tags, conflicts
 from co.e2e.sqlguard import sql_block_reason
+from co.e2e.tests import support
 
 _NAME = "customer-invoice-company-cycle"
 _CUSTOMERS = ("C900001", "C900002", "C900003")
@@ -189,6 +190,11 @@ class CatalogTests(unittest.TestCase):
 
 
 class SqlTests(unittest.TestCase):
+    # 挑单 SQL 读配置里的账套库名：装示例配置，不依赖本机的 e2e.json。
+    def setUp(self) -> None:
+        support.install()
+        self.addCleanup(support.reset)
+
     def test_samples_pass_the_guard(self) -> None:
         for name, sql in cusinvoice_samples():
             self.assertEqual(sql_block_reason(sql), "", name)

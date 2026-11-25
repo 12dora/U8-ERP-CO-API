@@ -119,6 +119,11 @@ class PickFailedTests(unittest.TestCase):
 
 
 class DefineColumnsTests(unittest.TestCase):
+    # 挑单 SQL 读配置里的账套库名：装示例配置，不依赖本机的 e2e.json。
+    def setUp(self) -> None:
+        support.install()
+        self.addCleanup(support.reset)
+
     def test_columns_never_named_directly_on_extradefine(self) -> None:
         for sql in (qmi_def_sql(), qmp_def_sql()):
             self.assertEqual(sql_block_reason(sql), "")
