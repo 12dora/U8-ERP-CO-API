@@ -44,7 +44,7 @@ class CoBridge:
         return self._health(None)
 
     def probe(self) -> dict[str, Any]:
-        """分流桥的健康探测：读取超时 PROBE_READ_TIMEOUT 秒（建连仍是 5 秒），卡住的测试桥拖不住健康检查。"""
+        """分流桥的健康探测：读取超时 PROBE_READ_TIMEOUT 秒（建连仍是 5 秒），某个桥卡住时拖不住整个健康检查。"""
         return self._health(PROBE_READ_TIMEOUT)
 
     def _health(self, timeout: float | None) -> dict[str, Any]:

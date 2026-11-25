@@ -99,7 +99,7 @@ class AccountConf:
     types: tuple[str, ...]
     sources: tuple[str, ...] = DEFAULT_SOURCES
     archives: tuple[str, ...] = RV_ARCHIVES
-    # 测试账套：回归测试会按快照还原它，水位倒退是预期的，只记警告、不报不健康。
+    # 测试账套：测试会还原它（数据库快照或备份），水位倒退是预期的，只记警告、不报不健康。
     restored_by_tests: bool = False
 
     def list_types(self) -> tuple[str, ...]:

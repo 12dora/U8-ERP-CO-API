@@ -113,6 +113,7 @@ class NegativeTest(unittest.TestCase):
     def test_define_caption_allowed(self) -> None:
         samples = (
             "cdefine" + "1（表头自定义项 1）",
+            "cdefine" + "28（表体）",
             "chdefine" + "3 (DispatchList_extradefine)",
             "cdefine" + "9（示例标题）",
             "cDefine" + "1",

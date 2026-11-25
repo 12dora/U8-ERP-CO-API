@@ -1,0 +1,69 @@
+{
+  "gl": {
+    "expense_account": "6602",
+    "expense_dept": "EX030",
+    "payable_account": "2241",
+    "bank_account": "1002990101",
+    "cash_flow_item": "07",
+    "sign_transfer": "转",
+    "sign_bank": "付"
+  },
+  "stock": {
+    "transfer_out_rd": "111",
+    "transfer_in_rd": "203",
+    "material_out_rd": "102",
+    "product_in_rd": "202"
+  },
+  "purchase_requisition": {
+    "dept": "EX050",
+    "inventory": "INV0004"
+  },
+  "resolve": {
+    "ambiguous_q": "有限公司"
+  },
+  "archives": {
+    "customer": {
+      "codes": ["C199901", "C199902", "C199903"],
+      "existing": "C900001",
+      "sort_code": "C10",
+      "super_dept": "EX040",
+      "spec_operator": "EX040001",
+      "spec_operator_other": "EX040002",
+      "trade_code": "A",
+      "currency": "人民币"
+    },
+    "vendor": {
+      "codes": ["S199901", "S199902", "S199903"],
+      "sort_code": "S10",
+      "currency": "人民币"
+    },
+    "department": {"codes": ["EX990", "EX991", "EX992"]},
+    "warehouse": {"codes": ["99", "98", "97"]},
+    "customer_class": {"codes": ["C90", "C91", "C92"]},
+    "vendor_class": {"codes": ["S90", "S91", "S92"]},
+    "inventory_class": {"codes": ["99", "98", "97"]},
+    "person": {
+      "codes": ["EX099901", "EX099902", "EX099903"],
+      "dept": "EX099",
+      "employ_state": "10",
+      "person_type": "101",
+      "employment_form": "001"
+    },
+    "inventory": {
+      "codes": ["09990001", "09990002", "09990003"],
+      "template": "91010001"
+    }
+  },
+  "ato": {
+    "so_id": 1000000001,
+    "line_plain": 1000000001,
+    "line_cbom": 1000000002,
+    "cbom_id": 1000000001,
+    "model": "91030004",
+    "std": "91030006",
+    "option": "91030001",
+    "base": "91030005",
+    "mo_type": "01",
+    "dept": "SD003"
+  }
+}

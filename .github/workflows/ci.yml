@@ -51,6 +51,23 @@ jobs:
           uv run --no-project --python 3.12 --with cryptography
           python -m unittest discover -s co/client/tests -t . -v
 
+  co-e2e-probe:
+    name: co 单元测试 (${{ matrix.suite }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [e2e, probe]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+      # 全部离线：不连 U8 服务器、不连数据库。e2e 与 probe 的测试需要 cryptography。
+      - name: unittest co/${{ matrix.suite }}/tests
+        run: >-
+          uv run --no-project --python 3.12 --with cryptography
+          python -m unittest discover -s co/${{ matrix.suite }}/tests -t . -v
+
   mcp-tests:
     name: MCP 服务单元测试
     runs-on: ubuntu-latest
@@ -85,7 +102,7 @@ jobs:
       # 只用标准库，不带任何私有词表。先测扫描器本身，再扫全部已跟踪的文本文件。
       - name: unittest scripts/tests
         run: python3 -m unittest discover -s scripts/tests -v
-      # 有 internal 目录时跳过（另有检查覆盖）。
+      # 有 internal 目录时跳过。
       - name: scripts/scan-public.py
         run: |
           if [ -d internal ]; then
@@ -104,3 +121,32 @@ jobs:
       - name: scripts/ci/build-cs.ps1
         shell: pwsh
         run: ./scripts/ci/build-cs.ps1 -OutDir "$env:RUNNER_TEMP/u8co-build"
+
+  probe-build:
+    name: comprobe 编译（csc x86）
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      # 与桥同一个 32 位 csc（C# 5）。
+      - name: 编译 co/probe/comprobe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $false
+          $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe"
+          if (-not (Test-Path -LiteralPath $csc)) { throw "找不到 32 位 csc: $csc" }
+          $probe = Join-Path $env:GITHUB_WORKSPACE "co/probe/comprobe"
+          $dir = Join-Path $env:RUNNER_TEMP "u8co-probe-build"
+          [void][System.IO.Directory]::CreateDirectory($dir)
+          $out = Join-Path $dir "comprobe.exe"
+          $files = @(Get-ChildItem -LiteralPath $probe -File | Where-Object { $_.Extension -ceq ".cs" } | Sort-Object Name)
+          if ($files.Count -eq 0) { throw "$probe 下没有 .cs" }
+          $cscArgs = @("/nologo", "/utf8output", "/platform:x86", "/target:exe", "/codepage:65001", "/out:$out",
+            "/reference:System.dll", "/reference:System.Core.dll", "/reference:System.Web.Extensions.dll",
+            "/main:U8Co.ProbeMain")
+          foreach ($file in $files) { $cscArgs += $file.FullName }
+          & $csc @cscArgs | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw "编译失败,退出码 $LASTEXITCODE" }
+          Copy-Item -LiteralPath (Join-Path $probe "comprobe.exe.config") -Destination $dir -Force
+          Write-Host "已生成 $out"

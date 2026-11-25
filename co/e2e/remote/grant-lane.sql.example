@@ -1,0 +1,28 @@
+-- 给一条调试通道的 Windows 登录授权。模板，不会被回归上传或执行。
+-- 由服务器管理员以 sysadmin 身份用 sqlcmd 执行一次（docs/testing.md 4.5）：
+--   sqlcmd -S <SQL 实例> -E -b -f 65001 -i grant-lane.sql
+-- 之后重跑 scripts/lane/install-release-proc.sql（LaneLogins 写这台实例全部通道的登录），还原时才能结束占住本通道库的连接。
+-- 先把下面三个占位值换成这条通道的值。每条通道一个登录，只拥有自己的两个库：
+-- 预检会拒绝能访问名单外 U8 库（包括别的通道的库）的登录。
+
+:setvar PRINCIPAL "<服务器名>\<通道的 ssh 用户，例如 u8co-ops-802>"
+:setvar DATA_DB   "UFDATA_<通道账套>_<年度>"
+:setvar META_DB   "UFMeta_<通道账套>"
+
+USE [master];
+IF SUSER_ID(N'$(PRINCIPAL)') IS NULL
+    CREATE LOGIN [$(PRINCIPAL)] FROM WINDOWS;
+-- 建快照要用。
+GRANT CREATE ANY DATABASE TO [$(PRINCIPAL)];
+-- 执行前先记下两个库原来的所有者（SELECT name, SUSER_SNAME(owner_sid) FROM sys.databases），需要时再改回去。
+ALTER AUTHORIZATION ON DATABASE::[$(DATA_DB)] TO [$(PRINCIPAL)];
+ALTER AUTHORIZATION ON DATABASE::[$(META_DB)] TO [$(PRINCIPAL)];
+GO
+
+-- 核对：下面应只列出本通道的两个库。EXECUTE AS LOGIN 看不到经 Windows 组得到的访问权，以预检的 HAS_DBACCESS 为准。
+EXECUTE AS LOGIN = N'$(PRINCIPAL)';
+SELECT name FROM sys.databases
+WHERE HAS_DBACCESS(name) = 1
+  AND (name LIKE N'UFDATA[_]%' OR name LIKE N'UFMeta[_]%' OR name LIKE N'UFSystem%' OR name LIKE N'UFModel%');
+REVERT;
+GO

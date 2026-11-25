@@ -53,6 +53,7 @@ DEFINE_CAPTION = re.compile(
 )
 DEFINE_CAPTION_OK = (
     re.compile(r"^(表头|表体)?(扩展)?自定义项\s*\d*$"),
+    re.compile(r"^(表头|表体)$"),
     re.compile(r"^示例标题$"),
     re.compile(r"^可选$"),
     re.compile(r"^(日期|数值|文本|整数|浮点)型?$"),

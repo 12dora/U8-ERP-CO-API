@@ -112,7 +112,7 @@ class Monitor:
         self._started = self._now()
         # 含附加数据源的类型行（ar_process、gl_voucher、archive:customer……），同样看延迟、扫描、水位倒退。
         self._pairs = set(cfg.pairs())
-        # 会被回归测试还原的账套：水位倒退只记警告（见 AccountConf.restored_by_tests）。
+        # 会被测试还原的账套：水位倒退只记警告（见 AccountConf.restored_by_tests）。
         self._test_accounts = frozenset(account.acc for account in cfg.accounts if account.restored_by_tests)
 
     def stale_after(self) -> float:
@@ -173,7 +173,7 @@ class Monitor:
         for note in self._notes:
             found.extend(note())
         found.extend(
-            _reset_text(row, "测试账套按快照还原属预期")
+            _reset_text(row, "测试账套被还原属预期")
             for row in _recent_resets(rows, now)
             if row["account"] in self._test_accounts
         )

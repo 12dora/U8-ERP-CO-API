@@ -390,7 +390,7 @@ JSON 文件，未知键直接报错。路径取 `--config`，其次环境变量 
 | `accounts[].types` | 全部单据类型 | 要轮询的单据类型（票据不在这里，用 `sources` 的 `notes`） |
 | `accounts[].sources` | `["vouchers"]` | 开哪些数据源：`vouchers`（单据，类型见 `types`）、`arap_process`（应收应付处理，类型 `ar_process`、`ap_process`）、`archives`（基础档案，类型 `archive:<档案>`）、`gl`（总账凭证，类型 `gl_voucher`）、`notes`（应收应付票据，类型 `ar_note`、`ap_note`）。不含 `vouchers` 时不能写 `types`。每种类型在 `status` 里各占一行，延迟、扫描、水位倒退照常检查 |
 | `accounts[].archives` | 有时间戳的 30 种档案 | 开了 `archives` 时轮询哪些档案（`archives/list` 的档案名）。缺省是有时间戳、能按水位增量读的那些；没有时间戳的（`voucher_sign`、`project`、`customer_address`、`customer_invoice_company`、`customer_bank`、`vendor_bank`、`fa_card`、`operator`、`role`）按删除扫描的节奏整表比对，要写明才开，其中 `fa_card`、`operator`、`role` 数据量大或只有账套主管能读 |
-| `accounts[].restored_by_tests` | `false` | 该账套会被回归测试按快照还原（测试账套）：水位倒退是预期的，健康检查只记警告、不报不健康 |
+| `accounts[].restored_by_tests` | `false` | 该账套是测试账套，会被测试还原（数据库快照或备份）：水位倒退是预期的，健康检查只记警告、不报不健康 |
 | `poll_interval_seconds` | 30 | 轮询间隔，5–3600 |
 | `page_limit` | 500 | 每页条数，1–500 |
 | `delete_scan_minutes` | 30 | 删除扫描间隔，0 表示不扫（不会有 `deleted` 事件） |

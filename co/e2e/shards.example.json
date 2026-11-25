@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "wave0": [
+    "health",
+    "bad-signature",
+    "account-foreign",
+    "login"
+  ],
+  "lanes": {
+    "main": []
+  },
+  "default_lane": "main"
+}

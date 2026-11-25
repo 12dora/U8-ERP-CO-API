@@ -1,0 +1,56 @@
+{
+  "server": {
+    "host": "192.0.2.10",
+    "ssh_user": "u8co-ops",
+    "windows_principal": "",
+    "remote_root": "C:\\ProgramData\\U8Co\\u8co-e2e",
+    "u8_home": "D:\\U8SOFT",
+    "pwsh": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "timezone": "Asia/Shanghai"
+  },
+  "ssh": {
+    "key": "~/.config/u8co/ssh/id_ed25519",
+    "known_hosts": "~/.config/u8co/ssh/known_hosts",
+    "control_dir": ""
+  },
+  "sql": {
+    "server": "localhost",
+    "port": 1433,
+    "service": "MSSQLSERVER",
+    "sqlcmd": "C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\SQLCMD.EXE"
+  },
+  "account": {
+    "code": "801",
+    "year": "2024",
+    "operator_file": "~/.config/u8co/test-operator.json",
+    "perm_operator_file": "~/.config/u8co/perm-operator.json",
+    "denied": ["001", "002", "003"],
+    "foreign_probe": ""
+  },
+  "snapshot": {
+    "suffix": "_u8co_e2e_snap",
+    "task_prefix": "u8co-e2e"
+  },
+  "bridge": {
+    "url": "http://192.0.2.10:18089/u8co",
+    "port": 18089,
+    "root": "C:\\ProgramData\\U8Co\\u8co",
+    "service_name": "u8co",
+    "secret_file": "~/.config/u8co/bridge-secret.hex"
+  },
+  "report": {
+    "dir": "~/.local/state/u8co/e2e-runs"
+  },
+  "watchdog": {
+    "run_minutes": 25,
+    "session_minutes": 120
+  },
+  "testdata": {
+    "file": "~/.config/u8co/testdata.json"
+  },
+  "business_hours": {
+    "days": "1-5",
+    "start": "08:00",
+    "end": "17:30"
+  }
+}
